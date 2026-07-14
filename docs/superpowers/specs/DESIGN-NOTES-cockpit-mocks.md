@@ -6,6 +6,12 @@ Two mocks were added in `screens/`:
 - `vertical-home-mock.png` — portrait **Cockpit home**.
 - `horizontal-home-mock.png` — landscape **instrument-cluster / ride mode** (Hayabusa-style tach).
 
+**Decided 2026-07-14:** (1) **v1 is portrait-only** — landscape "cluster mode" is parked as a later
+phase; do not design it for v1. (2) The mocks are **reference only, not a spec to match** — they will
+be **redesigned around the data we actually have** (BLE `a537` + phone + computed), not the other way
+around. So the landscape mock is out of scope, and the portrait mock is a starting point to prune, not
+a target to reproduce pixel-for-pixel.
+
 These are the first concrete visuals. They refine (and in places conflict with) the committed spec
 `2026-07-12-bumblebee-dash-design.md`. Reconcile them in the design doc before any UI is built.
 The source discussion `bumblebee-dash-plan-discussion.md` was extended (updated 2026-07-13) with a
@@ -41,7 +47,6 @@ unavailable, landscape mode should be re-conceived around what we DO have (large
 nav) rather than mimicking a full engine cluster.
 
 ## Other decisions the design doc must make
-- Portrait vs landscape: is landscape a distinct "ride/mounted mode," and what triggers it?
 - Yellow usage: mocks lean on yellow more than "restrained accent" — set the exact rule + component states.
 - Component-state spec (this is also a known Foundation finding): selected nav / active states must be
   **Suzuki yellow** — the current build shows the Material default (purple) on the selected tab.
@@ -51,7 +56,9 @@ nav) rather than mimicking a full engine cluster.
 
 ## Design-doc agenda (proposed) — produce `docs/superpowers/specs/2026-07-1x-ui-design-system.md`
 1. Reconcile mocks vs data availability (the critical decision above) — field-by-field data-source table.
-2. Screen inventory + wireframe intent per pillar (Cockpit, Journey, Ride, Explorer, Garage) + landscape mode.
+   Redesign the portrait Cockpit around only populatable data; drop unavailable fields.
+2. Screen inventory + wireframe intent per pillar (Cockpit, Journey, Ride, Explorer, Garage). Portrait only.
+   (Landscape "cluster mode" is parked — note it in the roadmap, do not design it for v1.)
 3. Component library & states (cards, tiles, gauges, Ride Readiness arc, Cockpit Core, status bar, nav).
 4. Design tokens beyond color: spacing scale, typography scale + font choice, elevation, motion specs.
 5. Empty / loading / error / disconnected states for each surface.
