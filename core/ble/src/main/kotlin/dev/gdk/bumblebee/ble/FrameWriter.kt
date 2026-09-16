@@ -24,6 +24,11 @@ class FrameWriter {
     private val _lastNav = MutableStateFlow<ByteArray?>(null)
     val lastNav: StateFlow<ByteArray?> = _lastNav.asStateFlow()
 
+    fun forceNav(frame: ByteArray) {
+        _lastNav.value = null
+        enqueue(Entry(Priority.NAV, frame))
+    }
+
     fun enqueue(entry: Entry) {
         if (entry.priority == Priority.NAV) {
             val last = _lastNav.value
