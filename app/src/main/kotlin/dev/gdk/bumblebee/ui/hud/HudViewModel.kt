@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.gdk.bumblebee.DashApp
 import dev.gdk.bumblebee.ble.ConnectionState
+import dev.gdk.bumblebee.nav.MapsNavSource
 import dev.gdk.bumblebee.ride.CompassCardinal
 import dev.gdk.bumblebee.ride.ResolvedSpeed
 import dev.gdk.bumblebee.ride.SpeedResolver
@@ -25,6 +26,8 @@ data class HudUiState(
     val tripAKm: Double? = null,
     val bleReady: Boolean = false,
     val phoneBatteryPercent: Int? = null,
+    val navStreet: String? = null,
+    val navDist: String? = null,
 )
 
 class HudViewModel(application: Application) : AndroidViewModel(application) {
@@ -38,6 +41,7 @@ class HudViewModel(application: Application) : AndroidViewModel(application) {
                 val gps = app.latestGps.value
                 val tel = app.latestTelemetry.value
                 val speed = SpeedResolver.resolve(gps, System.currentTimeMillis(), tel?.speedKmh)
+                val nav = MapsNavSource.frame.value
                 _ui.value = HudUiState(
                     speed = speed,
                     heading = gps
@@ -50,6 +54,8 @@ class HudViewModel(application: Application) : AndroidViewModel(application) {
                     tripAKm = tel?.tripAKm,
                     bleReady = app.connection.value is ConnectionState.Ready,
                     phoneBatteryPercent = phonePct(),
+                    navStreet = MapsNavSource.street.value,
+                    navDist = nav?.let { "${it.distNext.trimStart('0').ifEmpty { "0" }}${it.distNextUnit}" },
                 )
                 delay(250)
             }
