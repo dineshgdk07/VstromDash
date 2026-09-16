@@ -23,7 +23,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import dev.gdk.bumblebee.ble.ConnectionState
+import dev.gdk.bumblebee.ui.cockpit.components.BikeHeroCard
+import dev.gdk.bumblebee.ui.cockpit.components.CockpitStatusBar
+import dev.gdk.bumblebee.ui.cockpit.components.MetricCard
+import dev.gdk.bumblebee.ui.cockpit.components.ReadinessRadial
+import dev.gdk.bumblebee.ui.cockpit.components.WarningsCard
 
 @Composable
 fun CockpitScreen(model: CockpitViewModel = viewModel()) {
@@ -52,30 +56,50 @@ fun CockpitScreen(model: CockpitViewModel = viewModel()) {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(24.dp),
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Cockpit", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            text = when (val c = state.connection) {
-                is ConnectionState.Ready -> "LINK READY"
-                is ConnectionState.Connecting -> "CONNECTING"
-                is ConnectionState.Discovering -> "DISCOVERING"
-                is ConnectionState.Failed -> "FAILED · ${c.reason}"
-                is ConnectionState.Disconnected -> "DISCONNECTED · ${c.status}"
-                else -> "IDLE"
-            },
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
+        CockpitStatusBar(connection = state.connection)
+        ReadinessRadial(score = state.readiness)
+        BikeHeroCard(
+            model = "V-Strom 250 SX",
+            connection = state.connection,
+            fuelBars = state.fuelBars,
+            economyKml = state.economyKml,
+            tripAKm = state.tripAKm,
+            odometerKm = state.odometerKm,
         )
-        Text(
-            text = (state.speedKmh?.toString() ?: "—") + " km/h",
-            style = MaterialTheme.typography.displayMedium,
-        )
-        Text("Fuel  ${state.fuelBars ?: "—"} / 6 bars")
-        Text("Odo   ${state.odometerKm ?: "—"} km")
-        Text("MAC   ${state.bikeMac ?: "—"}")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            MetricCard(
+                label = "Fuel",
+                value = state.fuelBars?.toString() ?: "—",
+                sub = "bars / 6",
+                modifier = Modifier.weight(1f),
+            )
+            MetricCard(
+                label = "Odo",
+                value = state.odometerKm?.toString() ?: "—",
+                sub = "km",
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            MetricCard(
+                label = "Speed",
+                value = state.speedKmh?.toString() ?: "—",
+                sub = "km/h",
+                modifier = Modifier.weight(1f),
+            )
+            MetricCard(
+                label = "Economy",
+                value = state.economyKml?.let { "%.1f".format(it) } ?: "—",
+                sub = "km/L",
+                modifier = Modifier.weight(1f),
+            )
+        }
+        WarningsCard(warnings = state.warnings)
         Text(state.status, style = MaterialTheme.typography.bodyMedium)
+        Text("MAC  ${state.bikeMac ?: "—"}", style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Button(onClick = { if (state.scanning) model.stopScan() else requestThenScan() }) {
                 Text(if (state.scanning) "Stop scan" else "Scan")
