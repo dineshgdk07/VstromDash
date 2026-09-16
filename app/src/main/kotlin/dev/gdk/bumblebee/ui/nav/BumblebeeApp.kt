@@ -13,6 +13,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import dev.gdk.bumblebee.ui.cockpit.CockpitScreen
 
 @Composable
 fun BumblebeeApp() {
@@ -45,7 +46,10 @@ fun BumblebeeApp() {
             modifier = Modifier.padding(innerPadding),
         ) {
             Pillar.entries.forEach { pillar ->
-                composable(pillar.route) { PlaceholderScreen(pillar.label) }
+                composable(pillar.route) {
+                    if (pillar == Pillar.COCKPIT) CockpitScreen()
+                    else PlaceholderScreen(pillar.label)
+                }
             }
         }
     }
