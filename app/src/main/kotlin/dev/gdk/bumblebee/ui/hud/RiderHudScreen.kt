@@ -22,6 +22,7 @@ import dev.gdk.bumblebee.ui.hud.components.FuelArc
 import dev.gdk.bumblebee.ui.hud.components.SpeedDial
 import dev.gdk.bumblebee.ui.theme.ForgeWhite
 import dev.gdk.bumblebee.ui.theme.SuccessGreen
+import dev.gdk.bumblebee.ui.theme.SuzukiYellow
 import dev.gdk.bumblebee.ui.theme.WarningAmber
 
 @Composable
@@ -34,6 +35,13 @@ fun RiderHudScreen(model: HudViewModel = viewModel()) {
             .padding(12.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
+        if (state.navStreet != null) {
+            Text(
+                "${state.navDist ?: ""} · ${state.navStreet}",
+                color = SuzukiYellow,
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
         Row(
             modifier = Modifier
                 .weight(1f)

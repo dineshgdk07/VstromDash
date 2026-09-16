@@ -27,6 +27,7 @@ import dev.gdk.bumblebee.DashApp
 import dev.gdk.bumblebee.gps.PhoneGps
 import dev.gdk.bumblebee.ui.cockpit.CockpitScreen
 import dev.gdk.bumblebee.ui.hud.RiderHudScreen
+import dev.gdk.bumblebee.ui.journey.JourneyScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -69,6 +70,7 @@ fun BumblebeeApp() {
             Pillar.entries.forEach { pillar ->
                 composable(pillar.route) {
                     if (pillar == Pillar.COCKPIT) CockpitScreen()
+                    else if (pillar == Pillar.JOURNEY) JourneyScreen()
                     else PlaceholderScreen(pillar.label)
                 }
             }
