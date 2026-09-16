@@ -32,6 +32,7 @@ dependencies {
     implementation(project(":core:ride"))
     implementation(project(":core:ble"))
     implementation(project(":core:ble-android"))
+    implementation(project(":core:nav"))
     implementation(project(":data:local"))
     implementation(libs.androidx.lifecycle.service)
     implementation(libs.androidx.core.ktx)

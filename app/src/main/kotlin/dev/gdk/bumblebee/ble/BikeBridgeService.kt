@@ -22,7 +22,9 @@ import dev.gdk.bumblebee.ble.android.TelemetrySink
 import dev.gdk.bumblebee.protocol.IdentityFrame
 import dev.gdk.bumblebee.protocol.TelemetryFrame
 import dev.gdk.bumblebee.protocol.decodeFrame
+import dev.gdk.bumblebee.nav.MapsNavSource
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -98,6 +100,21 @@ class BikeBridgeService : LifecycleService() {
             while (isActive) {
                 val entry = frameWriter.take()
                 bleClient.write(entry.frame)
+            }
+        }
+
+        lifecycleScope.launch {
+            MapsNavSource.frame.collect { nav ->
+                if (nav != null) {
+                    frameWriter.enqueue(FrameWriter.Entry(FrameWriter.Priority.NAV, nav.encode(), "nav"))
+                }
+            }
+        }
+        lifecycleScope.launch {
+            while (isActive) {
+                delay(2_000)
+                val nav = MapsNavSource.frame.value ?: continue
+                frameWriter.forceNav(nav.encode())
             }
         }
 
