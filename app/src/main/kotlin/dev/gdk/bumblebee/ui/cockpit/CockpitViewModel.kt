@@ -36,6 +36,7 @@ data class CockpitUiState(
     val bikeMac: String? = null,
     val scanning: Boolean = false,
     val devices: List<DiscoveredBike> = emptyList(),
+    val gpsOn: Boolean = false,
     val readiness: ReadinessScore = ReadinessCalculator.score(null, false),
     val warnings: List<CockpitWarning> = emptyList(),
 )
@@ -73,6 +74,15 @@ class CockpitViewModel(application: Application) : AndroidViewModel(application)
                         ).derived()
                     }
                 }
+            }
+        }
+        viewModelScope.launch {
+            app.latestGps.collect { gps ->
+                val acc = gps?.accuracyM
+                val on = gps != null &&
+                    System.currentTimeMillis() - gps.ts <= 5_000L &&
+                    (acc == null || acc <= 25f)
+                _ui.update { it.copy(gpsOn = on) }
             }
         }
         viewModelScope.launch {
