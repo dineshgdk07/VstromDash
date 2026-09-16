@@ -29,6 +29,9 @@ android {
 
 dependencies {
     implementation(project(":core:protocol"))
+    implementation(project(":core:ride"))
+    implementation(project(":core:ble"))
+    implementation(project(":data:local"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
