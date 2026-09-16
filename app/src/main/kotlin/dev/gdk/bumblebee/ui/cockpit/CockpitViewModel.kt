@@ -4,9 +4,11 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.gdk.bumblebee.DashApp
+import dev.gdk.bumblebee.ble.BikeBridgeService
 import dev.gdk.bumblebee.ble.ConnectionState
+import dev.gdk.bumblebee.ble.android.BleScanner
+import dev.gdk.bumblebee.ble.android.DiscoveredBike
 import dev.gdk.bumblebee.data.local.CaptureTick
-import dev.gdk.bumblebee.data.local.RideCaptureRepository
 import dev.gdk.bumblebee.data.local.RideSession
 import dev.gdk.bumblebee.data.local.asTicks
 import dev.gdk.bumblebee.ride.DemoRideSource
@@ -24,19 +26,80 @@ data class CockpitUiState(
     val speedKmh: Int? = null,
     val fuelBars: Int? = null,
     val odometerKm: Int? = null,
-    val status: String = "Demo ride records a 10-minute urban loop into the archive.",
+    val status: String = "Scan to pair the bike, or run a demo ride without one.",
+    val bikeMac: String? = null,
+    val scanning: Boolean = false,
+    val devices: List<DiscoveredBike> = emptyList(),
 )
 
 class CockpitViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repo = RideCaptureRepository((application as DashApp).database)
-    private val session = RideSession(repo)
+    private val app = application as DashApp
+    private val session = RideSession(app.capture)
+    private val scanner = BleScanner(application)
 
-    private val _ui = MutableStateFlow(CockpitUiState())
+    private val _ui = MutableStateFlow(CockpitUiState(bikeMac = app.prefs.bikeMac))
     val ui: StateFlow<CockpitUiState> = _ui.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            app.connection.collect { c ->
+                _ui.update { it.copy(connection = c, bikeMac = app.prefs.bikeMac) }
+            }
+        }
+        viewModelScope.launch {
+            app.latestTelemetry.collect { t ->
+                if (t != null) {
+                    _ui.update {
+                        it.copy(speedKmh = t.speedKmh, fuelBars = t.fuelBars, odometerKm = t.odometerKm)
+                    }
+                }
+            }
+        }
+        viewModelScope.launch {
+            scanner.results.collect { map ->
+                val sorted = map.values.sortedWith(
+                    compareByDescending<DiscoveredBike> { it.looksLikeSuzuki }
+                        .thenByDescending { it.rssi },
+                )
+                _ui.update { it.copy(devices = sorted) }
+            }
+        }
+    }
+
+    fun startScan() {
+        scanner.start()
+        _ui.update { it.copy(scanning = true, status = "Scanning…") }
+    }
+
+    fun stopScan() {
+        scanner.stop()
+        _ui.update { it.copy(scanning = false) }
+    }
+
+    fun pair(mac: String) {
+        stopScan()
+        app.prefs.bikeMac = mac
+        _ui.update { it.copy(bikeMac = mac, status = "Connecting $mac") }
+        BikeBridgeService.start(getApplication())
+    }
+
+    fun connectSaved() {
+        val mac = app.prefs.bikeMac ?: return
+        pair(mac)
+    }
+
+    fun disconnectBike() {
+        BikeBridgeService.stop(getApplication())
+        _ui.update { it.copy(status = "Disconnecting…") }
+    }
 
     fun startDemo() {
         if (_ui.value.running) return
+        if (_ui.value.connection is ConnectionState.Ready) {
+            _ui.update { it.copy(status = "Stop the live bike link before running demo.") }
+            return
+        }
         viewModelScope.launch {
             _ui.update {
                 it.copy(running = true, connection = ConnectionState.Ready, status = "Capturing demo ride…")
@@ -60,7 +123,7 @@ class CockpitViewModel(application: Application) : AndroidViewModel(application)
                 _ui.update {
                     it.copy(
                         running = false,
-                        connection = ConnectionState.Idle,
+                        connection = app.connection.value,
                         status = "Ride archived · ${ride.movingSec}s moving · ${km} km (odo)",
                     )
                 }
@@ -74,5 +137,10 @@ class CockpitViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
         }
+    }
+
+    override fun onCleared() {
+        scanner.stop()
+        super.onCleared()
     }
 }
