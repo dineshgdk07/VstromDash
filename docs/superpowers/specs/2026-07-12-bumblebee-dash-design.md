@@ -8,6 +8,13 @@ This spec consolidates the prior planning conversations (`bumblebee-dash-plan-di
 future work session and implementation plan should build from. Where the two source documents
 disagreed, the decisions recorded here win.
 
+**UI design system (added 2026-07-28):** the screen-level and component-level design specs
+(the deliverable proposed in `DESIGN-NOTES-cockpit-mocks.md`) live in **`docs/design/`** —
+data-availability reconciliation, portrait Cockpit + landscape Rider HUD screens, and Forge UI
+component specs (`SpeedDial`, `ReadinessRadial`, `TurnByTurnOverlay`, …). That folder is
+subordinate to this spec; conflicts resolve in this spec's favor unless a newer dated decision
+(e.g. D-017) supersedes it.
+
 ---
 
 ## 1. Product Vision
@@ -169,6 +176,8 @@ disconnect (no bike GPS) · use `byte25/2` fuel-economy path for this platform.
 - **Journey:** Google Maps → cluster nav (a531) re-enabled and working; search / saved
   destinations / route preview.
 - **Ride:** record a session (moving vs stopped time, live speed/distance), post-ride summary.
+- **Landscape "Rider HUD" (D-017):** handlebar-mount cluster mode — GPS `SpeedDial`, fuel arc,
+  economy arc, compass heading, turn-by-turn overlay (`docs/design/screens/rider-hud-landscape.md`).
 - **Explorer:** ride list + basic per-ride summary.
 - **Garage:** bike profile, pairing management, settings, **one-time** progressive permissions
   (no repeated battery-exclusion nagging — a direct fix for a stock-app pain point).
@@ -184,7 +193,7 @@ Wear OS, Android Auto.
 ### Roadmap
 | Release | Focus |
 |---------|-------|
-| **v1.0** | Lean core above (pairing, Cockpit, nav→cluster, ride recording, ride list, Garage) |
+| **v1.0** | Lean core above (pairing, Cockpit, nav→cluster, ride recording, ride list, Garage, landscape Rider HUD) |
 | **v1.5** | Readiness deep-dive screen, journey auto-detect + naming, richer stats, service reminders, fuel-fill log |
 | **v2.0** | Ride memories, SOS/crash detection, customization, idle cluster display polish |
 | **v3.0** | Backend + cloud sync, web dashboard, route sharing; possibly Wear OS / multi-bike |
@@ -259,6 +268,7 @@ feature/*            repositories behind interfaces (RideRepository, BikeReposit
 | **D-014** | **Spec-first, then scaffold** | One source of truth before code |
 | **D-015** | **v1 = Lean Core** | Ship nav + dashboard reliably first; grow from there |
 | **D-016** | **Multi-module + repository interfaces** | Isolate ported protocol layer; make backend a drop-in |
+| **D-017** | **Landscape "Rider HUD" reinstated — in v1** (2026-07-28; reverses the 2026-07-14 portrait-only call) | Owner decision after new mock review; redesigned around real data — GPS `SpeedDial` replaces the impossible RPM tach (no gear/coolant/voltage). Spec: `docs/design/screens/rider-hud-landscape.md`. Release placement **confirmed v1** by the owner (2026-07-28) |
 
 ---
 

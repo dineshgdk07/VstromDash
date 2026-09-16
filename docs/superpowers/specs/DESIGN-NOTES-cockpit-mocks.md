@@ -12,6 +12,17 @@ be **redesigned around the data we actually have** (BLE `a537` + phone + compute
 around. So the landscape mock is out of scope, and the portrait mock is a starting point to prune, not
 a target to reproduce pixel-for-pixel.
 
+> **UPDATE 2026-07-28 — decision (1) reversed; agenda item fulfilled.** From a new mock
+> review session (new high-quality mocks in `../../../assets/`), the owner decided to
+> **keep both portrait and landscape as first-class screens**. The landscape screen was
+> re-conceived exactly as this note prescribed: the impossible engine cluster (RPM tach,
+> gear, coolant temp) is replaced with a **GPS-driven `SpeedDial`**, fuel-economy arc, and
+> compass heading — only populatable data. The field-by-field reconciliation and the
+> UI-design-system deliverable proposed in the agenda below now live in **`docs/design/`**
+> (see `docs/design/README.md`; screens in `docs/design/screens/`, component specs in
+> `docs/design/components/`). Release placement **confirmed by the owner: v1**, alongside
+> the portrait Cockpit. Recorded as **D-017** in the committed spec.
+
 These are the first concrete visuals. They refine (and in places conflict with) the committed spec
 `2026-07-12-bumblebee-dash-design.md`. Reconcile them in the design doc before any UI is built.
 The source discussion `bumblebee-dash-plan-discussion.md` was extended (updated 2026-07-13) with a
