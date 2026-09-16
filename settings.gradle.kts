@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 rootProject.name = "bumblebee-dash"
 include(":app")
 include(":core:protocol")
+include(":core:ride")
