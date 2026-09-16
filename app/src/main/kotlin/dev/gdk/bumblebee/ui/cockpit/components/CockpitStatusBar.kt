@@ -22,6 +22,7 @@ import dev.gdk.bumblebee.ui.theme.SuccessGreen
 @Composable
 fun CockpitStatusBar(
     connection: ConnectionState,
+    gpsOn: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val bleOn = connection is ConnectionState.Ready
@@ -34,7 +35,7 @@ fun CockpitStatusBar(
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             StatusDot(on = bleOn, label = "BLE")
-            StatusDot(on = false, label = "GPS")
+            StatusDot(on = gpsOn, label = "GPS")
             StatusDot(on = false, label = "Net")
         }
         Text(

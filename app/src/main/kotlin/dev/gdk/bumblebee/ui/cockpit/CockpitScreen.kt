@@ -59,7 +59,7 @@ fun CockpitScreen(model: CockpitViewModel = viewModel()) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        CockpitStatusBar(connection = state.connection)
+        CockpitStatusBar(connection = state.connection, gpsOn = state.gpsOn)
         ReadinessRadial(score = state.readiness)
         BikeHeroCard(
             model = "V-Strom 250 SX",
