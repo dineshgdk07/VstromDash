@@ -105,15 +105,19 @@ fun SpeedDial(
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(digital, style = MaterialTheme.typography.displayLarge, color = ForgeWhite)
-            Text("km/h", style = MaterialTheme.typography.labelLarge, color = ForgeWhite.copy(alpha = 0.7f))
+            Text("km/h", style = MaterialTheme.typography.labelLarge, color = ForgeWhite.copy(alpha = 0.55f))
             Text(heading ?: "—", style = MaterialTheme.typography.headlineMedium, color = SuccessGreen)
-            Text("HEADING", style = MaterialTheme.typography.labelSmall, color = ForgeWhite.copy(alpha = 0.45f))
+            Text("HEADING", style = MaterialTheme.typography.labelSmall, color = ForgeWhite.copy(alpha = 0.4f))
             Text(
                 "ODO ${odometerKm?.let { "%,d".format(it) } ?: "—"} km",
                 style = MaterialTheme.typography.labelLarge,
-                color = ForgeWhite.copy(alpha = 0.8f),
+                color = ForgeWhite.copy(alpha = 0.75f),
             )
         }
+        Text("F", Modifier.align(Alignment.CenterStart).padding(start = 28.dp), color = ForgeWhite, style = MaterialTheme.typography.labelLarge)
+        Text("E", Modifier.align(Alignment.BottomStart).padding(start = 36.dp, bottom = 48.dp), color = ForgeWhite, style = MaterialTheme.typography.labelLarge)
+        Text("H", Modifier.align(Alignment.CenterEnd).padding(end = 28.dp), color = ForgeWhite, style = MaterialTheme.typography.labelLarge)
+        Text("L", Modifier.align(Alignment.BottomEnd).padding(end = 36.dp, bottom = 48.dp), color = ForgeWhite, style = MaterialTheme.typography.labelLarge)
         val dot = when (source) {
             SpeedSource.GPS -> SuccessGreen
             SpeedSource.BLE -> SuzukiYellow
