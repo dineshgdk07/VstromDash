@@ -11,6 +11,8 @@ import dev.gdk.bumblebee.ride.CompassCardinal
 import dev.gdk.bumblebee.ride.ResolvedSpeed
 import dev.gdk.bumblebee.ride.SpeedResolver
 import dev.gdk.bumblebee.ride.SpeedSource
+import dev.gdk.bumblebee.ui.cockpit.ReadinessCalculator
+import dev.gdk.bumblebee.ui.cockpit.ReadinessScore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,6 +30,8 @@ data class HudUiState(
     val phoneBatteryPercent: Int? = null,
     val navStreet: String? = null,
     val navDist: String? = null,
+    val gpsOn: Boolean = false,
+    val readiness: ReadinessScore = ReadinessCalculator.score(null, false),
 )
 
 class HudViewModel(application: Application) : AndroidViewModel(application) {
@@ -42,6 +46,7 @@ class HudViewModel(application: Application) : AndroidViewModel(application) {
                 val tel = app.latestTelemetry.value
                 val speed = SpeedResolver.resolve(gps, System.currentTimeMillis(), tel?.speedKmh)
                 val nav = MapsNavSource.frame.value
+                val bleReady = app.connection.value is ConnectionState.Ready
                 _ui.value = HudUiState(
                     speed = speed,
                     heading = gps
@@ -52,10 +57,12 @@ class HudViewModel(application: Application) : AndroidViewModel(application) {
                     economyKml = tel?.fuelEconKml,
                     odometerKm = tel?.odometerKm,
                     tripAKm = tel?.tripAKm,
-                    bleReady = app.connection.value is ConnectionState.Ready,
+                    bleReady = bleReady,
                     phoneBatteryPercent = phonePct(),
                     navStreet = MapsNavSource.street.value,
                     navDist = nav?.let { "${it.distNext.trimStart('0').ifEmpty { "0" }}${it.distNextUnit}" },
+                    gpsOn = speed.source == SpeedSource.GPS,
+                    readiness = ReadinessCalculator.score(tel?.fuelBars, bleReady, phonePct()),
                 )
                 delay(250)
             }
