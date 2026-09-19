@@ -19,6 +19,7 @@ private val ForgeColorScheme = darkColorScheme(
 fun BumblebeeTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = ForgeColorScheme,
+        typography = ForgeTypography,
         shapes = ForgeShapes,
         content = content,
     )

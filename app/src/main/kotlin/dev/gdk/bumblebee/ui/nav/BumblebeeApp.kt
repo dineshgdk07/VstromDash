@@ -5,11 +5,7 @@ import android.content.res.Configuration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,6 +24,7 @@ import dev.gdk.bumblebee.gps.PhoneGps
 import dev.gdk.bumblebee.ui.cockpit.CockpitScreen
 import dev.gdk.bumblebee.ui.hud.RiderHudScreen
 import dev.gdk.bumblebee.ui.journey.JourneyScreen
+import dev.gdk.bumblebee.ui.theme.ForgeBlack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -41,26 +38,21 @@ fun BumblebeeApp() {
     }
     val navController = rememberNavController()
     Scaffold(
+        containerColor = ForgeBlack,
         bottomBar = {
             val backStack by navController.currentBackStackEntryAsState()
             val currentRoute = backStack?.destination?.route
-            NavigationBar {
-                Pillar.entries.forEach { pillar ->
-                    NavigationBarItem(
-                        selected = currentRoute == pillar.route,
-                        onClick = {
-                            navController.navigate(pillar.route) {
-                                popUpTo(Pillar.COCKPIT.route) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(pillar.icon, contentDescription = pillar.label) },
-                        label = { Text(pillar.label) },
-                    )
-                }
-            }
-        }
+            CockpitCore(
+                currentRoute = currentRoute,
+                onSelect = { pillar ->
+                    navController.navigate(pillar.route) {
+                        popUpTo(Pillar.COCKPIT.route) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+            )
+        },
     ) { innerPadding ->
         NavHost(
             navController = navController,
@@ -69,9 +61,26 @@ fun BumblebeeApp() {
         ) {
             Pillar.entries.forEach { pillar ->
                 composable(pillar.route) {
-                    if (pillar == Pillar.COCKPIT) CockpitScreen()
-                    else if (pillar == Pillar.JOURNEY) JourneyScreen()
-                    else PlaceholderScreen(pillar.label)
+                    when (pillar) {
+                        Pillar.COCKPIT -> CockpitScreen(
+                            onNavigate = {
+                                navController.navigate(Pillar.JOURNEY.route) {
+                                    popUpTo(Pillar.COCKPIT.route) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            onExplore = {
+                                navController.navigate(Pillar.EXPLORER.route) {
+                                    popUpTo(Pillar.COCKPIT.route) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                        )
+                        Pillar.JOURNEY -> JourneyScreen()
+                        else -> PlaceholderScreen(pillar.label)
+                    }
                 }
             }
         }

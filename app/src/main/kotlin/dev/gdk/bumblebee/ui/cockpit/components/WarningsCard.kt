@@ -1,11 +1,10 @@
 package dev.gdk.bumblebee.ui.cockpit.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,28 +29,26 @@ fun WarningsCard(
     warnings: List<CockpitWarning>,
     modifier: Modifier = Modifier,
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = ForgeGraphite),
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(ForgeGraphite)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Warnings", style = MaterialTheme.typography.titleMedium, color = ForgeWhite)
-            if (warnings.isEmpty()) {
-                Text(
-                    "All clear · app & connection",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = SuccessGreen,
-                )
-            } else {
-                warnings.forEach { w ->
-                    val color = when (w.severity) {
-                        WarningSeverity.CRITICAL -> ErrorRed
-                        WarningSeverity.WARN -> WarningAmber
-                        WarningSeverity.INFO -> ForgeWhite
-                    }
-                    Text(w.title, style = MaterialTheme.typography.titleSmall, color = color)
-                    Text(w.detail, style = MaterialTheme.typography.bodySmall)
+        Text("WARNINGS", style = MaterialTheme.typography.labelMedium, color = ForgeWhite.copy(alpha = 0.6f))
+        if (warnings.isEmpty()) {
+            Text("All clear", style = MaterialTheme.typography.headlineMedium, color = SuccessGreen)
+            Text("App & connection", style = MaterialTheme.typography.bodySmall, color = ForgeWhite.copy(alpha = 0.5f))
+        } else {
+            warnings.forEach { w ->
+                val color = when (w.severity) {
+                    WarningSeverity.CRITICAL -> ErrorRed
+                    WarningSeverity.WARN -> WarningAmber
+                    WarningSeverity.INFO -> ForgeWhite
                 }
+                Text(w.title, style = MaterialTheme.typography.titleMedium, color = color)
+                Text(w.detail, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
