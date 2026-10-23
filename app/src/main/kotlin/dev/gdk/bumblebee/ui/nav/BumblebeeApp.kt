@@ -224,13 +224,12 @@ private fun TransferRoute(onBack: () -> Unit) {
             }
         },
     )
-    var pending by remember { mutableStateOf<dev.gdk.bumblebee.snapshot.SnapshotBundle?>(null) }
     LaunchedEffect(Unit) {
         model.onPackLoaded(withContext(Dispatchers.IO) { repository.preview() })
     }
     LaunchedEffect(model) {
         model.commits.collect { overwrite ->
-            val bundle = pending ?: return@collect
+            val bundle = model.pending ?: return@collect
             try {
                 withContext(Dispatchers.IO) { repository.commit(bundle, overwrite) }
                 model.onCommitted()
@@ -264,10 +263,7 @@ private fun TransferRoute(onBack: () -> Unit) {
                         withContext(Dispatchers.IO) { repository.commit(result.bundle, false) }
                         model.onCommitted()
                     }
-                    is BringIn.Held -> {
-                        pending = result.bundle
-                        model.onInspected(result)
-                    }
+                    is BringIn.Held -> model.onInspected(result)
                     is BringIn.Failed -> model.onInspected(result)
                 }
             } catch (error: Exception) {

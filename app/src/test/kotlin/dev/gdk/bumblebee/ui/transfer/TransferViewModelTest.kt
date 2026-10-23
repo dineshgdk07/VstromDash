@@ -75,6 +75,14 @@ class TransferViewModelTest {
     }
 
     @Test
+    fun `a held import keeps the bundle for the choice`() {
+        val model = TransferViewModel(fake)
+        val held = bundle()
+        model.onInspected(BringIn.Held(held, listOf(Clash("rides", "12", "clash ride"))))
+        assertEquals(held.rides.single().startTs, model.pending?.rides?.single()?.startTs)
+    }
+
+    @Test
     fun `a ready file waits on the data rows until commit finishes`() {
         val model = TransferViewModel(fake)
         model.onInspected(BringIn.Ready(bundle()))

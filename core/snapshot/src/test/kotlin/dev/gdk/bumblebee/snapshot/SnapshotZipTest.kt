@@ -56,6 +56,35 @@ class SnapshotZipTest {
     }
 
     @Test
+    fun `two scans cannot share one archive path`() {
+        val bundle = sample("a".toByteArray()).copy(
+            files = listOf(
+                SnapshotFile("documents/1_bill.pdf", "a".toByteArray()),
+                SnapshotFile("documents/1_bill.pdf", "b".toByteArray()),
+            ),
+        )
+        var threw = false
+        try {
+            writeSnapshot(ByteArrayOutputStream(), bundle, "debug", 1L)
+        } catch (_: IllegalStateException) {
+            threw = true
+        }
+        assertTrue(threw)
+    }
+
+    @Test
+    fun `an oversized entry is rejected`() {
+        val zip = ByteArrayOutputStream()
+        ZipOutputStream(zip).use { out ->
+            out.putNextEntry(ZipEntry("rides.json"))
+            out.write(ByteArray(32))
+            out.closeEntry()
+        }
+        val read = readSnapshot(ByteArrayInputStream(zip.toByteArray()), maxUncompressedBytes = 8)
+        assertEquals("This snapshot is too large to import.", (read as SnapshotRead.Rejected).message)
+    }
+
+    @Test
     fun `document without its scan is rejected`() {
         val doc = sample("x".toByteArray()).documents.single().copy(filePath = "files/rc.pdf")
         val bundle = sample("x".toByteArray()).copy(documents = listOf(doc), files = emptyList())
