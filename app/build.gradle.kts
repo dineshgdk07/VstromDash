@@ -15,16 +15,46 @@ android {
         versionCode = 1
         versionName = "0.1.0"
     }
+    signingConfigs {
+        getByName("debug")
+        create("release") {
+            val store = System.getenv("BUMBLEBEE_STORE_FILE")
+            if (store != null) {
+                storeFile = file(store)
+                storePassword = System.getenv("BUMBLEBEE_STORE_PASSWORD")
+                keyAlias = System.getenv("BUMBLEBEE_KEY_ALIAS")
+                keyPassword = System.getenv("BUMBLEBEE_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         debug { applicationIdSuffix = ".debug" }
-        release { isMinifyEnabled = false }
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            signingConfig = if (System.getenv("BUMBLEBEE_STORE_FILE") != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 dependencies {
@@ -34,6 +64,7 @@ dependencies {
     implementation(project(":core:ble-android"))
     implementation(project(":core:nav"))
     implementation(project(":data:local"))
+    implementation(project(":core:snapshot"))
     implementation(libs.androidx.lifecycle.service)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
@@ -44,7 +75,15 @@ dependencies {
     implementation(libs.androidx.compose.material.icons)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.core.splashscreen)
+    implementation(libs.play.services.location)
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.androidx.room.runtime)
+    testImplementation(libs.androidx.room.ktx)
 }

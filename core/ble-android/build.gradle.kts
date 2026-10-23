@@ -19,6 +19,7 @@ kotlin { jvmToolchain(17) }
 
 dependencies {
     implementation(project(":core:ble"))
+    implementation(project(":core:snapshot"))
     implementation(project(":core:protocol"))
     implementation(project(":data:local"))
     implementation(libs.androidx.core.ktx)
