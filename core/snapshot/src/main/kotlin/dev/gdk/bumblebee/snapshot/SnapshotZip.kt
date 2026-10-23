@@ -15,40 +15,42 @@ sealed class SnapshotRead {
 }
 
 fun writeSnapshot(out: OutputStream, bundle: SnapshotBundle, buildType: String, exportedAt: Long) {
-    val payload = LinkedHashMap<String, ByteArray>()
-    for (section in SnapshotSections.ORDER) {
-        payload["$section.json"] = sectionJson(section, bundle).toByteArray(Charsets.UTF_8)
-    }
-    payload["prefs.json"] = bundle.prefs.toJson().toString().toByteArray(Charsets.UTF_8)
-    bundle.files.sortedBy { it.relativePath }.forEach { file ->
-        payload["files/${file.relativePath}"] = file.bytes
-    }
     val digest = MessageDigest.getInstance("SHA-256")
-    payload.values.forEach { digest.update(it) }
-    val sha = digest.digest().joinToString("") { "%02x".format(it) }
-    val counts = sectionCounts(bundle) + (SnapshotSections.PREFS to 1)
-    val manifest = JSONObject()
-        .put("magic", SnapshotFormat.MAGIC)
-        .put("format", SnapshotFormat.FORMAT)
-        .put("schema", SnapshotFormat.APP_SCHEMA)
-        .put("exportedAt", exportedAt)
-        .put("buildType", buildType)
-        .put("counts", JSONObject(counts))
-        .put("sha256", sha)
+    val seen = mutableSetOf<String>()
     ZipOutputStream(out).use { zip ->
-        payload.forEach { (name, bytes) ->
+        fun put(name: String, bytes: ByteArray) {
+            if (!seen.add(name)) error("duplicate scan $name")
+            digest.update(bytes)
             zip.putNextEntry(ZipEntry(name))
             zip.write(bytes)
             zip.closeEntry()
         }
+        for (section in SnapshotSections.ORDER) {
+            put("$section.json", sectionJson(section, bundle).toByteArray(Charsets.UTF_8))
+        }
+        put("prefs.json", bundle.prefs.toJson().toString().toByteArray(Charsets.UTF_8))
+        bundle.files.sortedBy { it.relativePath }.forEach { file ->
+            put("files/${file.relativePath}", file.bytes)
+        }
+        val sha = digest.digest().joinToString("") { "%02x".format(it) }
+        val counts = sectionCounts(bundle) + (SnapshotSections.PREFS to 1)
+        val manifest = JSONObject()
+            .put("magic", SnapshotFormat.MAGIC)
+            .put("format", SnapshotFormat.FORMAT)
+            .put("schema", SnapshotFormat.APP_SCHEMA)
+            .put("exportedAt", exportedAt)
+            .put("buildType", buildType)
+            .put("counts", JSONObject(counts))
+            .put("sha256", sha)
         zip.putNextEntry(ZipEntry("manifest.json"))
         zip.write(manifest.toString().toByteArray(Charsets.UTF_8))
         zip.closeEntry()
     }
 }
 
-fun readSnapshot(input: InputStream): SnapshotRead {
+fun readSnapshot(input: InputStream, maxUncompressedBytes: Long = MAX_SNAPSHOT_BYTES): SnapshotRead {
     val entries = linkedMapOf<String, ByteArray>()
+    var used = 0L
     try {
         ZipInputStream(input).use { zip ->
             var entry = zip.nextEntry
@@ -57,7 +59,10 @@ fun readSnapshot(input: InputStream): SnapshotRead {
                 if (!allowedZipName(name)) {
                     return SnapshotRead.Rejected("This file is not a Bumblebee snapshot.", listOf(name))
                 }
-                entries[name] = zip.readBytes()
+                val capped = readAtMost(zip, maxUncompressedBytes - used)
+                    ?: return SnapshotRead.Rejected("This snapshot is too large to import.", listOf(name))
+                used += capped.size
+                entries[name] = capped
                 entry = zip.nextEntry
             }
         }
@@ -103,6 +108,23 @@ fun readSnapshot(input: InputStream): SnapshotRead {
         return SnapshotRead.Rejected("A paper is missing its scan.", absent)
     }
     return SnapshotRead.Ready(bundle, manifest)
+}
+
+const val MAX_SNAPSHOT_BYTES = 512L * 1024 * 1024
+
+private fun readAtMost(input: InputStream, max: Long): ByteArray? {
+    if (max < 0) return null
+    val out = java.io.ByteArrayOutputStream()
+    val chunk = ByteArray(8192)
+    var total = 0L
+    while (true) {
+        val read = input.read(chunk)
+        if (read < 0) break
+        total += read
+        if (total > max) return null
+        out.write(chunk, 0, read)
+    }
+    return out.toByteArray()
 }
 
 private fun allowedZipName(name: String): Boolean {

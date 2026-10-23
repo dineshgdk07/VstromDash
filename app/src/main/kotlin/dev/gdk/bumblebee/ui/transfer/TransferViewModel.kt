@@ -1,6 +1,7 @@
 package dev.gdk.bumblebee.ui.transfer
 
 import androidx.lifecycle.ViewModel
+import dev.gdk.bumblebee.snapshot.SnapshotBundle
 import dev.gdk.bumblebee.transfer.BringIn
 import dev.gdk.bumblebee.transfer.PackPreview
 import dev.gdk.bumblebee.transfer.TransferGateway
@@ -17,6 +18,9 @@ class TransferViewModel(val repository: TransferGateway) : ViewModel() {
 
     private val _commits = MutableSharedFlow<Boolean>(replay = 1, extraBufferCapacity = 1)
     val commits: SharedFlow<Boolean> = _commits.asSharedFlow()
+
+    var pending: SnapshotBundle? = null
+        private set
 
     fun onPackLoaded(preview: PackPreview) {
         val issue = preview.issues.firstOrNull()
@@ -46,8 +50,12 @@ class TransferViewModel(val repository: TransferGateway) : ViewModel() {
 
     fun onInspected(result: BringIn) {
         when (result) {
-            is BringIn.Ready -> _ui.value = bringIn(doneThrough = 4)
+            is BringIn.Ready -> {
+                pending = result.bundle
+                _ui.value = bringIn(doneThrough = 4)
+            }
             is BringIn.Held -> {
+                pending = result.bundle
                 val count = result.clashes.size
                 _ui.value = held(
                     message = "$count already live here. Nothing was replaced.",
@@ -56,20 +64,25 @@ class TransferViewModel(val repository: TransferGateway) : ViewModel() {
                     overwriteLabel = "Overwrite those $count",
                 )
             }
-            is BringIn.Failed -> _ui.value = held(
-                message = result.message,
-                log = result.log,
-                canWrite = false,
-                overwriteLabel = "",
-            )
+            is BringIn.Failed -> {
+                pending = null
+                _ui.value = held(
+                    message = result.message,
+                    log = result.log,
+                    canWrite = false,
+                    overwriteLabel = "",
+                )
+            }
         }
     }
 
     fun onCommitted() {
+        pending = null
         _ui.value = bringIn(doneThrough = 9)
     }
 
     fun onCommitFailed(message: String) {
+        pending = null
         _ui.value = held(message = message, log = listOf(message), canWrite = false, overwriteLabel = "")
     }
 

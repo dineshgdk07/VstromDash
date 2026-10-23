@@ -45,6 +45,79 @@ class SnapshotArchiveTest {
     }
 
     @Test
+    fun `a failed file install leaves the database and the old scan alone`() = runTest {
+        val sibling = File(garage, "keep.pdf").apply { writeBytes("original".toByteArray()) }
+        db.documentDao().insert(
+            BikeDocumentEntity(title = "Keep", kind = "RC", filePath = sibling.absolutePath, createdTs = 1L),
+        )
+        var installs = 0
+        val archive = SnapshotArchive(db, garage) { _, _ ->
+            installs += 1
+            if (installs == 2) throw java.io.IOException("disk full")
+        }
+        val bundle = prefsBundle().copy(
+            documents = listOf(
+                SnapshotDocument(id = 1, title = "A", kind = "RC", number = "1", filePath = "files/documents/1_a.pdf", createdTs = 1L),
+                SnapshotDocument(id = 2, title = "B", kind = "RC", number = "2", filePath = "files/documents/2_b.pdf", createdTs = 1L),
+            ),
+            files = listOf(
+                dev.gdk.bumblebee.snapshot.SnapshotFile("documents/1_a.pdf", "aaa".toByteArray()),
+                dev.gdk.bumblebee.snapshot.SnapshotFile("documents/2_b.pdf", "bbb".toByteArray()),
+            ),
+        )
+        var threw = false
+        try {
+            archive.apply(bundle, overwriteClashes = false)
+        } catch (_: java.io.IOException) {
+            threw = true
+        }
+        assertTrue(threw)
+        assertEquals(1, db.documentDao().all().size)
+        assertArrayEquals("original".toByteArray(), sibling.readBytes())
+    }
+
+    @Test
+    fun `two scans with the same file name both survive`() = runTest {
+        val docs = File(garage, "docs").apply { mkdirs() }
+        val svc = File(garage, "svc").apply { mkdirs() }
+        val docFile = File(docs, "bill.pdf").apply { writeBytes("doc".toByteArray()) }
+        val svcFile = File(svc, "bill.pdf").apply { writeBytes("svc".toByteArray()) }
+        db.documentDao().insert(BikeDocumentEntity(title = "Bill", kind = "INVOICE", filePath = docFile.absolutePath, createdTs = 1L))
+        db.serviceDao().insert(ServiceLogEntity(ts = 1L, odometerKm = 1, item = "OIL", filePath = svcFile.absolutePath))
+        val captured = SnapshotArchive(db, garage).capture()
+        assertEquals(2, captured.bundle.files.map { it.relativePath }.distinct().size)
+        val docPath = captured.bundle.documents.single().filePath!!.removePrefix("files/")
+        val svcPath = captured.bundle.services.single().filePath!!.removePrefix("files/")
+        assertArrayEquals("doc".toByteArray(), captured.bundle.files.first { it.relativePath == docPath }.bytes)
+        assertArrayEquals("svc".toByteArray(), captured.bundle.files.first { it.relativePath == svcPath }.bytes)
+    }
+
+    @Test
+    fun `merged ride and service plan ids are remapped`() = runTest {
+        val parentId = db.rideDao().insert(ride(startTs = 100L))
+        db.rideDao().insert(ride(startTs = 200L).copy(mergedIntoId = parentId))
+        val planId = db.planDao().insert(
+            MaintenancePlanEntity(title = "Oil", kind = "OIL", createdTs = 1L),
+        )
+        db.serviceDao().insert(ServiceLogEntity(ts = 5L, odometerKm = 10, item = "OIL", planId = planId))
+        val captured = SnapshotArchive(db, garage).capture()
+        val dest = BumblebeeDb.inMemory(ApplicationProvider.getApplicationContext())
+        val destGarage = File(createTempDir(), "garage").apply { mkdirs() }
+        try {
+            dest.rideDao().insert(ride(startTs = 1L))
+            dest.planDao().insert(MaintenancePlanEntity(title = "Chain", kind = "CHAIN", createdTs = 1L))
+            SnapshotArchive(dest, destGarage).apply(captured.bundle, overwriteClashes = false)
+            val parent = dest.rideDao().allNewestFirst().first { it.startTs == 100L }
+            val child = dest.rideDao().allNewestFirst().first { it.startTs == 200L }
+            assertEquals(parent.id, child.mergedIntoId)
+            val plan = dest.planDao().all().first { it.title == "Oil" }
+            assertEquals(plan.id, dest.serviceDao().allNewestFirst().single().planId)
+        } finally {
+            dest.close()
+        }
+    }
+
+    @Test
     fun `schema constant matches the open database`() {
         val archive = SnapshotArchive(db, garage)
         assertEquals(SnapshotFormat.APP_SCHEMA, archive.schemaVersion())

@@ -30,6 +30,10 @@ data class Capture(val bundle: SnapshotBundle, val missingFiles: List<String>)
 class SnapshotArchive(
     private val db: BumblebeeDb,
     private val garageRoot: File,
+    private val installFile: (File, File) -> Unit = { stage, final ->
+        final.parentFile?.mkdirs()
+        stage.copyTo(final, overwrite = true)
+    },
 ) {
     fun schemaVersion(): Int = db.openHelper.readableDatabase.version
 
@@ -37,11 +41,11 @@ class SnapshotArchive(
         val missing = mutableListOf<String>()
         val files = mutableListOf<SnapshotFile>()
         val documents = db.documentDao().all().map { doc ->
-            val relative = packFile(doc.filePath, files, missing)
+            val relative = packFile("documents", doc.id, doc.filePath, files, missing)
             doc.toSnapshot(relative)
         }
         val services = db.serviceDao().allNewestFirst().map { log ->
-            val relative = packFile(log.filePath, files, missing)
+            val relative = packFile("service", log.id, log.filePath, files, missing)
             log.toSnapshot(relative)
         }
         val rides = db.rideDao().allNewestFirst().map { it.toSnapshot() }
@@ -73,37 +77,44 @@ class SnapshotArchive(
         val plan = planApply(bundle, here, overwriteClashes)
         val session = File(garageRoot.parentFile, "snapshot-stage/${UUID.randomUUID()}")
         session.mkdirs()
+        val created = mutableListOf<File>()
+        var committed = false
         try {
-            val staged = mutableListOf<Pair<File, File>>()
+            val staged = stageFiles(bundle, plan, session, created)
             val retire = mutableListOf<File>()
             db.withTransaction {
                 val rideIds = applyRides(bundle, here, plan)
                 applyChildren(bundle, plan, rideIds.sourceToLocal)
+                rewriteMerged(rideIds)
                 rewriteKeptFuel(rideIds.replacedLocal)
                 applyFuel(bundle, plan, rideIds.sourceToLocal)
-                applyDocuments(bundle, plan, session, staged, retire)
-                applyServices(bundle, plan, session, staged, retire)
-                applyPlans(bundle, plan)
+                val planIds = applyPlans(bundle, plan)
+                applyDocuments(bundle, plan, staged, retire)
+                applyServices(bundle, plan, staged, retire, planIds)
                 applyRollups(bundle, plan)
                 applyCalibration(bundle, plan)
             }
-            staged.forEach { (stage, final) ->
-                final.parentFile?.mkdirs()
-                stage.copyTo(final, overwrite = true)
-            }
+            committed = true
             retire.forEach { previous ->
-                if (previous.exists() && staged.none { it.second.absolutePath == previous.absolutePath }) {
+                if (previous.exists() && created.none { it.absolutePath == previous.absolutePath }) {
                     previous.delete()
                 }
             }
             session.deleteRecursively()
         } catch (error: Exception) {
+            if (!committed) created.forEach { file -> if (file.exists()) file.delete() }
             session.deleteRecursively()
             throw error
         }
     }
 
-    private data class RideIds(val sourceToLocal: Map<Long, Long>, val replacedLocal: Map<Long, Long>)
+    private data class RideIds(
+        val sourceToLocal: Map<Long, Long>,
+        val replacedLocal: Map<Long, Long>,
+        val inserted: Set<Long>,
+    )
+
+    private data class StagedFile(val sourceId: Long, val folder: String, val finalPath: String)
 
     private suspend fun applyRides(
         bundle: SnapshotBundle,
@@ -112,6 +123,7 @@ class SnapshotArchive(
     ): RideIds {
         val ids = mutableMapOf<Long, Long>()
         val replaced = mutableMapOf<Long, Long>()
+        val inserted = mutableSetOf<Long>()
         for (decision in plan.rides) {
             val incoming = bundle.rides.first { it.id == decision.sourceId }
             val local = here.rides.firstOrNull { rideKey(it.remoteId, it.startTs) == decision.key }
@@ -127,9 +139,19 @@ class SnapshotArchive(
             }
             val newId = db.rideDao().insert(incoming.toEntity())
             ids[incoming.id] = newId
+            inserted += newId
             if (local != null) replaced[local.id] = newId
         }
-        return RideIds(ids, replaced)
+        return RideIds(ids, replaced, inserted)
+    }
+
+    private suspend fun rewriteMerged(rideIds: RideIds) {
+        for (ride in db.rideDao().allNewestFirst()) {
+            if (ride.id !in rideIds.inserted) continue
+            val source = ride.mergedIntoId ?: continue
+            val local = rideIds.sourceToLocal[source] ?: continue
+            if (local != ride.mergedIntoId) db.rideDao().update(ride.copy(mergedIntoId = local))
+        }
     }
 
     private suspend fun applyChildren(bundle: SnapshotBundle, plan: ApplyPlan, rideIds: Map<Long, Long>) {
@@ -172,22 +194,45 @@ class SnapshotArchive(
         }
     }
 
-    private suspend fun applyDocuments(
+    private fun stageFiles(
         bundle: SnapshotBundle,
         plan: ApplyPlan,
         session: File,
-        staged: MutableList<Pair<File, File>>,
+        created: MutableList<File>,
+    ): List<StagedFile> {
+        val staged = mutableListOf<StagedFile>()
+        fun stage(folder: String, decisions: List<ParentDecision>, pathFor: (Long) -> String?) {
+            for (decision in decisions) {
+                if (decision.action == RowAction.KEEP) continue
+                val payload = bytes(bundle, pathFor(decision.sourceId)) ?: continue
+                val safe = File(pathFor(decision.sourceId) ?: "file").name
+                    .replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    .take(48)
+                    .ifEmpty { "file" }
+                val stage = File(session, "$folder-${decision.sourceId}-$safe").apply { writeBytes(payload) }
+                val final = File(garageRoot, "$folder/${session.name}_${decision.sourceId}_$safe")
+                created += final
+                installFile(stage, final)
+                staged += StagedFile(decision.sourceId, folder, final.absolutePath)
+            }
+        }
+        stage("documents", plan.documents) { id -> bundle.documents.first { it.id == id }.filePath }
+        stage("service", plan.services) { id -> bundle.services.first { it.id == id }.filePath }
+        return staged
+    }
+
+    private suspend fun applyDocuments(
+        bundle: SnapshotBundle,
+        plan: ApplyPlan,
+        staged: List<StagedFile>,
         retire: MutableList<File>,
-    ) = applyFiles(
+    ) = applyRows(
         decisions = plan.documents,
         rows = bundle.documents,
         id = { it.id },
-        path = { it.filePath },
         folder = "documents",
-        session = session,
         staged = staged,
         retire = retire,
-        bytesOf = { path -> bytes(bundle, path) },
         deleteLocal = { key ->
             db.documentDao().all().firstOrNull { documentKey(it) == key }?.let { local ->
                 local.filePath?.let { retire += File(it) }
@@ -200,38 +245,35 @@ class SnapshotArchive(
     private suspend fun applyServices(
         bundle: SnapshotBundle,
         plan: ApplyPlan,
-        session: File,
-        staged: MutableList<Pair<File, File>>,
+        staged: List<StagedFile>,
         retire: MutableList<File>,
-    ) = applyFiles(
+        planIds: Map<Long, Long>,
+    ) = applyRows(
         decisions = plan.services,
         rows = bundle.services,
         id = { it.id },
-        path = { it.filePath },
         folder = "service",
-        session = session,
         staged = staged,
         retire = retire,
-        bytesOf = { path -> bytes(bundle, path) },
         deleteLocal = { key ->
             db.serviceDao().allNewestFirst().firstOrNull { serviceKey(it) == key }?.let { local ->
                 local.filePath?.let { retire += File(it) }
                 db.serviceDao().delete(local.id)
             }
         },
-        insert = { row, path -> db.serviceDao().insert(row.toEntity(path)) },
+        insert = { row, path ->
+            val mapped = row.planId?.let { planIds[it] } ?: row.planId
+            db.serviceDao().insert(row.toEntity(path).copy(planId = mapped))
+        },
     )
 
-    private suspend fun <T> applyFiles(
+    private suspend fun <T> applyRows(
         decisions: List<ParentDecision>,
         rows: List<T>,
         id: (T) -> Long,
-        path: (T) -> String?,
         folder: String,
-        session: File,
-        staged: MutableList<Pair<File, File>>,
+        staged: List<StagedFile>,
         retire: MutableList<File>,
-        bytesOf: (String?) -> ByteArray?,
         deleteLocal: suspend (String) -> Unit,
         insert: suspend (T, String?) -> Long,
     ) {
@@ -239,30 +281,26 @@ class SnapshotArchive(
             if (decision.action == RowAction.KEEP) continue
             val row = rows.first { id(it) == decision.sourceId }
             if (decision.action == RowAction.REPLACE) deleteLocal(decision.key)
-            val payload = bytesOf(path(row))
-            val newId = insert(row, null)
-            if (payload == null) continue
-            val safe = File(path(row) ?: "file").name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(48)
-            val stage = File(session, "$folder-$newId-$safe").apply { writeBytes(payload) }
-            val final = File(garageRoot, "$folder/${newId}_$safe")
-            staged += stage to final
-            when (folder) {
-                "documents" -> db.documentDao().byId(newId)?.let { db.documentDao().update(it.copy(filePath = final.absolutePath)) }
-                else -> db.serviceDao().byId(newId)?.let { db.serviceDao().update(it.copy(filePath = final.absolutePath)) }
-            }
+            val path = staged.firstOrNull { it.folder == folder && it.sourceId == decision.sourceId }?.finalPath
+            insert(row, path)
         }
     }
 
-    private suspend fun applyPlans(bundle: SnapshotBundle, plan: ApplyPlan) {
+    private suspend fun applyPlans(bundle: SnapshotBundle, plan: ApplyPlan): Map<Long, Long> {
+        val ids = mutableMapOf<Long, Long>()
         val here = db.planDao().all()
         for (decision in plan.plans) {
-            if (decision.action == RowAction.KEEP) continue
             val incoming = bundle.plans.first { it.id == decision.sourceId }
+            if (decision.action == RowAction.KEEP) {
+                here.firstOrNull { planKey(it) == decision.key }?.let { ids[incoming.id] = it.id }
+                continue
+            }
             if (decision.action == RowAction.REPLACE) {
                 here.firstOrNull { planKey(it) == decision.key }?.let { db.planDao().delete(it.id) }
             }
-            db.planDao().insert(incoming.toEntity())
+            ids[incoming.id] = db.planDao().insert(incoming.toEntity())
         }
+        return ids
     }
 
     private suspend fun applyRollups(bundle: SnapshotBundle, plan: ApplyPlan) {
@@ -282,14 +320,21 @@ class SnapshotArchive(
     }
 }
 
-private fun packFile(path: String?, files: MutableList<SnapshotFile>, missing: MutableList<String>): String? {
+private fun packFile(
+    folder: String,
+    id: Long,
+    path: String?,
+    files: MutableList<SnapshotFile>,
+    missing: MutableList<String>,
+): String? {
     if (path.isNullOrBlank()) return null
     val file = File(path)
     if (!file.exists()) {
         missing += path
         return null
     }
-    val relative = "${file.name}"
+    val safe = file.name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(48).ifEmpty { "file" }
+    val relative = "$folder/${id}_$safe"
     files += SnapshotFile(relative, file.readBytes())
     return "files/$relative"
 }
