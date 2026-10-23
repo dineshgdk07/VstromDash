@@ -16,6 +16,7 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
+    sourceSets.getByName("test").assets.srcDir("$projectDir/schemas")
 }
 
 kotlin {
@@ -28,13 +29,15 @@ ksp {
 
 dependencies {
     implementation(project(":core:ride"))
+    implementation(project(":core:snapshot"))
     implementation(project(":core:protocol"))
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
     implementation(libs.kotlinx.coroutines.core)
 
-    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.androidx.room.testing)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.kotlinx.coroutines.test)
