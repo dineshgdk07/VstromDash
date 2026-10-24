@@ -16,7 +16,6 @@ import dev.gdk.bumblebee.ride.ShareBackground
 import dev.gdk.bumblebee.ride.ShareCard
 import dev.gdk.bumblebee.ride.ShareCardModel
 import dev.gdk.bumblebee.ride.ShareShape
-import dev.gdk.bumblebee.ride.ShareStyle
 import dev.gdk.bumblebee.ride.ShareSwitches
 import dev.gdk.bumblebee.ride.TrackPlot
 import dev.gdk.bumblebee.ride.TrackSimplify
@@ -160,8 +159,7 @@ internal suspend fun buildRecap(
         track = longestTrack,
         switches = ShareSwitches(
             shape = ShareShape.STORY,
-            style = if (longestTrack.size >= 2) ShareStyle.CORRIDOR else ShareStyle.INK,
-            background = ShareBackground.BLACK,
+            background = ShareBackground.OWN,
         ),
         demo = rides.all { it.isDemo },
         zone = zone,

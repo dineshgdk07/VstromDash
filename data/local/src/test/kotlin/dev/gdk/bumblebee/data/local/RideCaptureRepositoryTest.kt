@@ -1,7 +1,12 @@
 package dev.gdk.bumblebee.data.local
 
 import androidx.test.core.app.ApplicationProvider
+import dev.gdk.bumblebee.ride.ContinuityDecision
 import dev.gdk.bumblebee.ride.DemoRideSource
+import dev.gdk.bumblebee.ride.HighlightKind
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -338,6 +343,54 @@ class RideCaptureRepositoryTest {
     }
 
     @Test
+    fun `pause time survives a restart and a later alarm cannot end a different ride`() = runTest {
+        repo.startRide(0L)
+        repo.onTelemetry(frame(1500), 1_000L)
+        val original = repo.activeRideId!!
+        repo.pauseActiveRide(10_000L)
+        val revived = RideCaptureRepository(db)
+        revived.recoverUnfinishedRides(now = 20_000L, pauseWindowMin = 45)
+        assertEquals(10_000L, revived.activePausedAt())
+
+        assertEquals(false, revived.finishIfPauseElapsed(rideId = original, now = 20_000L, windowMin = 45, bikeReady = false))
+        assertEquals(original, revived.activeRideId)
+
+        revived.onBikeBack(30_000L, odoKm = null, windowMin = 45)
+        revived.endRideNow(30_000L)
+        val newer = revived.startRide(40_000L, gpsOnly = true)
+        assertEquals(false, revived.finishIfPauseElapsed(rideId = original, now = 10_000L + 45 * 60_000L, windowMin = 45, bikeReady = false))
+        assertEquals(newer, revived.activeRideId)
+    }
+
+    @Test
+    fun `pause alarm finishes the same ride once the window has elapsed`() = runTest {
+        repo.startRide(0L)
+        repo.onTelemetry(frame(1500), 1_000L)
+        val id = repo.activeRideId!!
+        repo.pauseActiveRide(10_000L)
+        val due = 10_000L + 45 * 60_000L
+        assertEquals(true, repo.finishIfPauseElapsed(rideId = id, now = due, windowMin = 45, bikeReady = false))
+        assertNull(repo.activeRideId)
+        assertNotNull(db.rideDao().byId(id)!!.endTs)
+    }
+
+    @Test
+    fun `reconnect odometer jump starts a new ride and a matching reading resumes`() = runTest {
+        repo.startRide(0L)
+        repo.onTelemetry(frame(1500), 1_000L)
+        repo.pauseActiveRide(10_000L)
+        val jumped = repo.onBikeBack(20_000L, odoKm = 1503, windowMin = 45)
+        assertEquals(ContinuityDecision.START_NEW, jumped)
+        val started = repo.activeRideId
+        assertNotNull(started)
+
+        repo.pauseActiveRide(30_000L)
+        val resumed = repo.onBikeBack(40_000L, odoKm = 1503, windowMin = 45)
+        assertEquals(ContinuityDecision.RESUME, resumed)
+        assertEquals(started, repo.activeRideId)
+    }
+
+    @Test
     fun `empty rides are deleted`() = runTest {
         repo.startRide(0L)
         repo.finishRide(1_000L)
@@ -361,6 +414,64 @@ class RideCaptureRepositoryTest {
         assertEquals(2, fills[0].barsBefore)
         assertEquals(6, fills[0].barsAfter)
     }
+
+    @Test fun `rename cleans and clears`() = runTest {
+        val id = finishedRide(startTs = 0L)
+        repo.renameRide(id, "  Nandi   run  ")
+        assertEquals("Nandi run", repo.rideById(id)!!.name)
+        repo.renameRide(id, " ")
+        assertNull(repo.rideById(id)!!.name)
+    }
+
+    @Test fun `weather is recorded once on the active ride`() = runTest {
+        val id = repo.startRide(0L)
+        repo.recordWeatherIfMissing(22.0, 0)
+        repo.recordWeatherIfMissing(30.0, 61)
+        assertEquals(22.0, repo.rideById(id)!!.weatherTempC!!, 0.0)
+        assertEquals(0, repo.rideById(id)!!.weatherCode)
+    }
+
+    @Test fun `ride number counts finished real rides up to this one`() = runTest {
+        finishedRide(startTs = 0L)
+        demoRide(startTs = 1_000L)
+        val third = finishedRide(startTs = 2_000L)
+        assertEquals(2, repo.rideNumber(third))
+    }
+
+    @Test fun `finished events fire for real rides only`() = runTest {
+        val seen = mutableListOf<Long>()
+        val job = launch(UnconfinedTestDispatcher(testScheduler)) { repo.finishedEvents.toList(seen) }
+        val real = finishedRide(startTs = 0L)
+        demoRide(startTs = 5_000L)
+        assertEquals(listOf(real), seen)
+        job.cancel()
+    }
+
+    @Test fun `highlight compares against earlier rides`() = runTest {
+        finishedRide(startTs = 0L, maxSpeed = 90)
+        val fast = finishedRide(startTs = 10_000L, maxSpeed = 112)
+        assertEquals(HighlightKind.TOP_SPEED, repo.highlightFor(fast)?.kind)
+    }
+
+    private suspend fun finishedRide(startTs: Long, maxSpeed: Int = 40): Long {
+        val id = repo.startRide(startTs)
+        repo.onTelemetry(speedFrame(maxSpeed, 100), startTs)
+        repo.onTelemetry(speedFrame(maxSpeed, 101), startTs + 5_000L)
+        repo.finishRide(startTs + 10_000L)
+        return id
+    }
+
+    private suspend fun demoRide(startTs: Long): Long {
+        val id = repo.startRide(startTs, isDemo = true)
+        repo.onTelemetry(speedFrame(30, 50), startTs)
+        repo.onTelemetry(speedFrame(30, 51), startTs + 5_000L)
+        repo.finishRide(startTs + 10_000L)
+        return id
+    }
+
+    private fun speedFrame(speed: Int, odo: Int) = dev.gdk.bumblebee.protocol.TelemetryFrame(
+        speedKmh = speed, odometerKm = odo, tripAKm = 0.0, tripBKm = 0.0, fuelBars = 4, fuelEconKml = null,
+    )
 
     private fun frame(odo: Int) = dev.gdk.bumblebee.protocol.TelemetryFrame(
         speedKmh = 20, odometerKm = odo, tripAKm = 0.0, tripBKm = 0.0, fuelBars = 4, fuelEconKml = null,

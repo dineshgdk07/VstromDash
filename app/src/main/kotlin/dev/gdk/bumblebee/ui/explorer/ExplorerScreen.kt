@@ -85,7 +85,12 @@ fun ExplorerScreen(
     val detail = state.detail
     if (detail != null) {
         BackHandler { model.closeDetail() }
-        RideDetailPane(detail, onBack = { model.closeDetail() }, onSplit = { model.splitOpenRide() })
+        RideDetailPane(
+            detail,
+            onBack = { model.closeDetail() },
+            onSplit = { model.splitOpenRide() },
+            onRename = { model.renameRide(detail.row.id, it) },
+        )
         return
     }
     ExplorerBody(

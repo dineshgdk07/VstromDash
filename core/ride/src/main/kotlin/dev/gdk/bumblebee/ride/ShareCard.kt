@@ -1,35 +1,65 @@
 package dev.gdk.bumblebee.ride
 
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-enum class ShareShape { STORY, SQUARE }
+enum class ShareLook { NIGHT_GLOW, POSTER, COCKPIT, RIDE_PASS }
 
-enum class ShareStyle { INK, CORRIDOR, MAP }
+enum class ShareShape { STORY, FEED, SQUARE }
 
-enum class ShareBackground { BLACK, PHOTO, TRANSPARENT }
+enum class ShareBackground { OWN, MAP, PHOTO, TRANSPARENT }
+
+enum class ShareAccent(val argb: Int) {
+    YELLOW(0xFFFAC816.toInt()),
+    RED_ORANGE(0xFFFF5A36.toInt()),
+    SKY(0xFF5EC8FF.toInt()),
+    GREEN(0xFF7CF29A.toInt()),
+    WHITE(0xFFF2F2F2.toInt()),
+}
 
 data class ShareSwitches(
+    val look: ShareLook = ShareLook.NIGHT_GLOW,
     val shape: ShareShape = ShareShape.STORY,
-    val style: ShareStyle = ShareStyle.INK,
-    val background: ShareBackground = ShareBackground.BLACK,
+    val background: ShareBackground = ShareBackground.OWN,
+    val accent: ShareAccent = ShareAccent.YELLOW,
     val bigNumber: ShareMetricKind? = ShareMetricKind.DISTANCE,
     val stats: List<ShareMetricKind>? = null,
+    val showPlaces: Boolean = true,
+    val showHighlight: Boolean = true,
+    val showWeather: Boolean = true,
+)
+
+/** Facts the caller looked up. All optional. */
+data class ShareExtras(
+    val rideName: String? = null,
+    val startPlace: String? = null,
+    val endPlace: String? = null,
+    val rideNumber: Int? = null,
+    val highlight: Highlight? = null,
+    val weatherLine: String? = null,
+    val odoEndKm: Int? = null,
+    val gpsOnly: Boolean = false,
+)
+
+data class DayRide(
+    val input: RideInsightInput,
+    val track: List<GpsFix>,
+    val climbM: Double?,
+    val segmentBreaks: List<Long> = emptyList(),
 )
 
 data class SharePlot(val x: Float, val y: Float, val pace: Float)
 
 data class ShareCardModel(
     val shape: ShareShape,
-    val style: ShareStyle,
     val background: ShareBackground,
     val sentence: String,
     val whenLabel: String,
     val dateText: String,
     val timeOfDay: String,
-    val bikeName: String,
     val available: List<ShareMetric>,
     val hero: ShareMetric?,
     val stats: List<ShareMetric>,
@@ -37,11 +67,30 @@ data class ShareCardModel(
     val route: List<GpsFix>,
     val demo: Boolean,
     val needsTiles: Boolean,
+    val look: ShareLook = ShareLook.NIGHT_GLOW,
+    val accent: ShareAccent = ShareAccent.YELLOW,
+    val headline: String = "",
+    val fromCode: String? = null,
+    val toCode: String? = null,
+    val fromPlace: String? = null,
+    val toPlace: String? = null,
+    val rideNumberText: String? = null,
+    val highlight: Highlight? = null,
+    val weatherLine: String? = null,
+    val elevation: List<Float> = emptyList(),
+    val speedTrace: List<Float> = emptyList(),
+    val odoKm: Int? = null,
+    val stops: List<GpsFix> = emptyList(),
+    val mapFallback: Boolean = false,
 ) {
-    /** Missing map tiles become a corridor stroke on black. */
+    /** Missing map tiles stay on the same look, on the look's own background, and say so. */
     fun withTiles(complete: Boolean): ShareCardModel {
         if (!needsTiles || complete) return this
-        return copy(style = ShareStyle.CORRIDOR, background = ShareBackground.BLACK, needsTiles = false)
+        return copy(
+            background = ShareBackground.OWN,
+            needsTiles = false,
+            mapFallback = true,
+        )
     }
 }
 
@@ -52,21 +101,85 @@ object ShareCard {
         switches: ShareSwitches = ShareSwitches(),
         climbM: Double? = null,
         tankKmPerL: Double? = null,
-        bikeName: String = "",
+        extras: ShareExtras = ShareExtras(),
         demo: Boolean = false,
         zone: ZoneId = ZoneId.systemDefault(),
+        segmentBreaks: List<Long> = emptyList(),
     ): ShareCardModel {
         val route = trim(track)
-        val drawable = route.size >= 2
-        var style = switches.style
-        var background = switches.background
-        if (style == ShareStyle.MAP && !drawable) {
-            style = ShareStyle.INK
-            background = ShareBackground.BLACK
-        } else if (style == ShareStyle.MAP) {
-            background = ShareBackground.BLACK
+        return assemble(
+            ride, route, switches, climbM, tankKmPerL, extras, demo, zone,
+            nearestStops(route, segmentBreaks),
+            track,
+        )
+    }
+
+    fun ofDay(
+        date: LocalDate,
+        rides: List<DayRide>,
+        switches: ShareSwitches = ShareSwitches(),
+        dayName: String? = null,
+        zone: ZoneId = ZoneId.systemDefault(),
+    ): ShareCardModel {
+        val ordered = rides.sortedBy { it.input.startTs }
+        val pieces = ordered.map { it to trim(it.track) }
+        val route = pieces.flatMap { it.second }
+        val stops = ArrayList<GpsFix>()
+        var started = false
+        for ((ride, trimmed) in pieces) {
+            if (trimmed.isEmpty()) continue
+            if (started) stops += trimmed.first()
+            started = true
+            stops += nearestStops(trimmed, ride.segmentBreaks)
         }
-        val needsTiles = style == ShareStyle.MAP && drawable
+        val km = ordered.sumOf { it.input.km }
+        val moving = ordered.sumOf { it.input.movingSec }
+        val anchor = date.atStartOfDay(zone).toInstant().toEpochMilli()
+        val synthetic = RideInsightInput(
+            startTs = ordered.firstOrNull()?.input?.startTs ?: anchor,
+            endTs = ordered.lastOrNull()?.input?.endTs ?: anchor,
+            km = km,
+            movingSec = moving,
+            idleSec = 0,
+            maxSpeedKmh = ordered.maxOfOrNull { it.input.maxSpeedKmh } ?: 0,
+            avgMovingSpeedKmh = if (moving > 0) km / (moving / 3600.0) else 0.0,
+        )
+        val climb = ordered.mapNotNull { it.climbM }.takeIf { it.isNotEmpty() }?.sum()
+        val card = assemble(
+            synthetic, route, switches, climb, null, ShareExtras(), false, zone, stops.distinct(), route,
+        )
+        val kmText = String.format(Locale.US, "%.1f", km)
+        return card.copy(
+            sentence = "${ordered.size} rides · $kmText km",
+            headline = RideNames.clean(dayName) ?: dayHeadline(date),
+            fromCode = null,
+            toCode = null,
+            fromPlace = null,
+            toPlace = null,
+            rideNumberText = null,
+            highlight = null,
+            weatherLine = null,
+        )
+    }
+
+    private fun assemble(
+        ride: RideInsightInput,
+        route: List<GpsFix>,
+        switches: ShareSwitches,
+        climbM: Double?,
+        tankKmPerL: Double?,
+        extras: ShareExtras,
+        demo: Boolean,
+        zone: ZoneId,
+        stops: List<GpsFix>,
+        storyTrack: List<GpsFix>,
+    ): ShareCardModel {
+        val drawable = route.size >= 2
+        var background = switches.background
+        if (background == ShareBackground.MAP && !drawable) {
+            background = ShareBackground.OWN
+        }
+        val needsTiles = background == ShareBackground.MAP && drawable
         val available = ShareMetrics.of(ride, climbM, tankKmPerL)
         val stats = if (switches.stats == null) {
             ShareMetrics.defaultStats(available)
@@ -78,15 +191,16 @@ object ShareCard {
         } else {
             ShareMetrics.hero(available, switches.bigNumber)
         }
+        val timeOfDay = RideStory.timeOfDay(ride.startTs, zone)
+        val fromPlace = extras.startPlace?.takeIf { switches.showPlaces && it.isNotBlank() }
+        val toPlace = extras.endPlace?.takeIf { switches.showPlaces && it.isNotBlank() }
         return ShareCardModel(
             shape = switches.shape,
-            style = style,
             background = background,
-            sentence = firstSentence(RideStory.of(ride, track, zone)),
+            sentence = firstSentence(RideStory.of(ride, storyTrack, zone)),
             whenLabel = whenLabel(ride.startTs, zone),
             dateText = dateText(ride.startTs, zone),
-            timeOfDay = RideStory.timeOfDay(ride.startTs, zone),
-            bikeName = bikeName.trim(),
+            timeOfDay = timeOfDay,
             available = available,
             hero = hero,
             stats = stats,
@@ -94,8 +208,33 @@ object ShareCard {
             route = route,
             demo = demo,
             needsTiles = needsTiles,
+            look = switches.look,
+            accent = switches.accent,
+            headline = RideNames.headline(RideNames.clean(extras.rideName), fromPlace, toPlace, switches.showPlaces, timeOfDay),
+            fromCode = fromPlace?.let(RideNames::code),
+            toCode = toPlace?.let(RideNames::code),
+            fromPlace = fromPlace,
+            toPlace = toPlace,
+            rideNumberText = extras.rideNumber?.let { String.format(Locale.US, "No. %04d", it) },
+            highlight = extras.highlight.takeIf { switches.showHighlight },
+            weatherLine = extras.weatherLine.takeIf { switches.showWeather },
+            elevation = ShareTraces.elevation(route, climbM),
+            speedTrace = ShareTraces.speed(route),
+            odoKm = extras.odoEndKm.takeUnless { extras.gpsOnly },
+            stops = stops,
+            mapFallback = false,
         )
     }
+
+    private fun nearestStops(route: List<GpsFix>, breaks: List<Long>): List<GpsFix> {
+        if (route.isEmpty()) return emptyList()
+        return breaks.map { ts -> route.minBy { kotlin.math.abs(it.ts - ts) } }
+    }
+
+    private fun dayHeadline(date: LocalDate): String =
+        DateTimeFormatter.ofPattern("EEE, d MMM", Locale.ENGLISH)
+            .format(date)
+            .uppercase(Locale.ENGLISH)
 
     private fun trim(track: List<GpsFix>): List<GpsFix> {
         if (track.size < 2) return emptyList()
