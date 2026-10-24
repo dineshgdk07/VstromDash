@@ -53,6 +53,9 @@ interface TelemetryDao {
     suspend fun deleteForRide(rideId: Long)
     @Query("SELECT * FROM telemetry_samples WHERE rideId = :rideId ORDER BY ts DESC LIMIT 1")
     suspend fun lastForRide(rideId: Long): TelemetrySampleEntity?
+
+    @Query("SELECT odometerKm FROM telemetry_samples ORDER BY ts DESC LIMIT 1")
+    suspend fun latestOdometerKm(): Int?
 }
 
 @Dao
@@ -79,6 +82,8 @@ interface FuelDao {
     @Query("SELECT * FROM fuel_events WHERE id = :id") suspend fun byId(id: Long): FuelEventEntity?
     @Query("SELECT * FROM fuel_events ORDER BY ts") suspend fun allChronological(): List<FuelEventEntity>
     @Query("SELECT * FROM fuel_events ORDER BY ts") fun observeAll(): Flow<List<FuelEventEntity>>
+    @Query("SELECT * FROM fuel_events WHERE rideId = :rideId ORDER BY ts")
+    suspend fun forRide(rideId: Long): List<FuelEventEntity>
 }
 
 @Dao

@@ -113,6 +113,34 @@ class RideCaptureRepository(private val db: BumblebeeDb) {
             .sortedBy { it.ts }
             .map { it.ts to it.speedKmh }
 
+    suspend fun telemetryForRide(rideId: Long): List<TelemetrySample> =
+        memberIds(rideId).flatMap { id -> db.telemetryDao().forRide(id) }
+            .sortedBy { it.ts }
+            .map {
+                TelemetrySample(
+                    ts = it.ts,
+                    speedKmh = it.speedKmh,
+                    odometerKm = it.odometerKm,
+                    tripAKm = it.tripAKm,
+                    tripBKm = it.tripBKm,
+                    fuelBars = it.fuelBars,
+                    fuelEconKml = it.fuelEconKml,
+                )
+            }
+
+    suspend fun fuelEventsForRide(rideId: Long): List<FuelEvent> =
+        memberIds(rideId).flatMap { id -> db.fuelDao().forRide(id) }
+            .sortedBy { it.ts }
+            .map {
+                FuelEvent(
+                    ts = it.ts,
+                    odometerKm = it.odometerKm,
+                    barsBefore = it.barsBefore,
+                    barsAfter = it.barsAfter,
+                    type = FuelEventType.valueOf(it.type),
+                )
+            }
+
     suspend fun csvForRide(rideId: Long): String {
         val samples = memberIds(rideId).flatMap { id -> db.telemetryDao().forRide(id) }
             .sortedBy { it.ts }
@@ -132,6 +160,8 @@ class RideCaptureRepository(private val db: BumblebeeDb) {
     suspend fun kmPerBarJson(): String? = db.calibrationDao().get("km_per_bar")?.value
 
     suspend fun lastTelemetry(rideId: Long): TelemetrySampleEntity? = db.telemetryDao().lastForRide(rideId)
+
+    suspend fun latestKnownOdometerKm(): Int? = db.telemetryDao().latestOdometerKm()
 
     suspend fun fuelFills(): List<FuelFill> = db.fuelDao().allChronological()
         .filter { it.type == FuelEventType.REFUEL.name }
