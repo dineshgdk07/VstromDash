@@ -56,4 +56,12 @@ class BarCalibratorTest {
         assertEquals(132.0, c.estimatedRangeKm(3)!!, 0.001)
         assertNull(BarCalibrator().estimatedRangeKm(3)) // no data yet -> silent (spec principle 1)
     }
+
+    @Test
+    fun `remaining range uses the learned bars not a flat average`() {
+        val c = BarCalibrator()
+        c.update(listOf(drop(1000, from = 3), drop(1040, from = 2), drop(1088, from = 1)))
+        // Remaining 2 bars: bar 2 = 40, bar 1 = 48.
+        assertEquals(88.0, c.estimatedRangeKm(2)!!, 0.001)
+    }
 }

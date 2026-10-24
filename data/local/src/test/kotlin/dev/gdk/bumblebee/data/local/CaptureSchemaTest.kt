@@ -77,6 +77,7 @@ class CaptureSchemaTest {
         val events = db.fuelDao().allChronological()
         assertEquals(listOf(1_000L, 2_000L), events.map { it.ts })
         assertNull(events[0].litres) // rider inputs are optional
+        assertNull(events[0].note)
     }
 
     @Test
@@ -94,5 +95,17 @@ class CaptureSchemaTest {
         db.calibrationDao().put(CalibrationEntity(key = "km_per_bar", value = "{\"4\":44.0}"))
         assertEquals("{\"4\":44.0}", db.calibrationDao().get("km_per_bar")!!.value)
         assertNull(db.calibrationDao().get("missing"))
+    }
+
+    @Test
+    fun `documents and plans persist`() = runTest {
+        val docId = db.documentDao().insert(
+            BikeDocumentEntity(title = "RC", kind = "RC", expiryIso = "2027-01-01", createdTs = 1L),
+        )
+        val planId = db.planDao().insert(
+            MaintenancePlanEntity(title = "Tyres", kind = "TYRES", dueOnIso = "2026-10-01", createdTs = 1L),
+        )
+        assertEquals("RC", db.documentDao().byId(docId)!!.title)
+        assertEquals("2026-10-01", db.planDao().byId(planId)!!.dueOnIso)
     }
 }

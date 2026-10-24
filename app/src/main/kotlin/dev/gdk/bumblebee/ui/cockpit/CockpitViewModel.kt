@@ -5,14 +5,10 @@ import android.os.BatteryManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.gdk.bumblebee.DashApp
-import dev.gdk.bumblebee.ble.BikeBridgeService
 import dev.gdk.bumblebee.ble.ConnectionState
-import dev.gdk.bumblebee.ble.android.BleScanner
-import dev.gdk.bumblebee.ble.android.DiscoveredBike
-import dev.gdk.bumblebee.data.local.CaptureTick
-import dev.gdk.bumblebee.data.local.RideSession
-import dev.gdk.bumblebee.data.local.asTicks
-import dev.gdk.bumblebee.ride.DemoRideSource
+import dev.gdk.bumblebee.data.local.toRecord
+import dev.gdk.bumblebee.ride.GpsFix
+import dev.gdk.bumblebee.ride.RideRhythm
 import dev.gdk.bumblebee.ui.cockpit.components.CockpitWarning
 import dev.gdk.bumblebee.ui.cockpit.components.WarningSeverity
 import kotlinx.coroutines.Dispatchers
@@ -25,18 +21,27 @@ import kotlinx.coroutines.withContext
 
 data class CockpitUiState(
     val connection: ConnectionState = ConnectionState.Idle,
-    val running: Boolean = false,
     val speedKmh: Int? = null,
     val fuelBars: Int? = null,
     val odometerKm: Int? = null,
     val economyKml: Double? = null,
     val tripAKm: Double? = null,
+    val tripBKm: Double? = null,
+    val rangeKm: Double? = null,
+    val tankKmPerL: Double? = null,
+    val rupeesPerKm: Double? = null,
+    val costPartial: Boolean = false,
+    val serviceEta: String? = null,
     val phoneBatteryPercent: Int? = null,
-    val status: String = "Scan to pair the bike, or run a demo ride without one.",
     val bikeMac: String? = null,
-    val scanning: Boolean = false,
-    val devices: List<DiscoveredBike> = emptyList(),
     val gpsOn: Boolean = false,
+    val todayKm: Double = 0.0,
+    val todayMovingSec: Int = 0,
+    val weatherTemp: String? = null,
+    val weatherLabel: String? = null,
+    val weatherCode: Int? = null,
+    val serviceDueKm: Int? = null,
+    val parked: GpsFix? = null,
     val readiness: ReadinessScore = ReadinessCalculator.score(null, false),
     val warnings: List<CockpitWarning> = emptyList(),
 )
@@ -44,8 +49,6 @@ data class CockpitUiState(
 class CockpitViewModel(application: Application) : AndroidViewModel(application) {
 
     private val app = application as DashApp
-    private val session = RideSession(app.capture)
-    private val scanner = BleScanner(application)
 
     private val _ui = MutableStateFlow(
         CockpitUiState(
@@ -69,8 +72,10 @@ class CockpitViewModel(application: Application) : AndroidViewModel(application)
                             speedKmh = t.speedKmh,
                             fuelBars = t.fuelBars,
                             odometerKm = t.odometerKm,
-                            economyKml = t.fuelEconKml,
+                            economyKml = t.fuelEconKmlV2 ?: t.fuelEconKml,
                             tripAKm = t.tripAKm,
+                            tripBKm = t.tripBKm,
+                            serviceDueKm = app.prefs.remainingServiceKm(t.odometerKm),
                         ).derived()
                     }
                 }
@@ -82,97 +87,67 @@ class CockpitViewModel(application: Application) : AndroidViewModel(application)
                 val on = gps != null &&
                     System.currentTimeMillis() - gps.ts <= 5_000L &&
                     (acc == null || acc <= 25f)
-                _ui.update { it.copy(gpsOn = on) }
+                _ui.update { it.copy(gpsOn = on).derived() }
             }
         }
         viewModelScope.launch {
-            scanner.results.collect { map ->
-                val sorted = map.values.sortedWith(
-                    compareByDescending<DiscoveredBike> { it.looksLikeSuzuki }
-                        .thenByDescending { it.rssi },
-                )
-                _ui.update { it.copy(devices = sorted) }
+            app.phoneBattery.collect { pct ->
+                _ui.update { it.copy(phoneBatteryPercent = pct ?: phonePct()).derived() }
             }
-        }
-    }
-
-    fun startScan() {
-        scanner.start()
-        _ui.update { it.copy(scanning = true, status = "Scanning…") }
-    }
-
-    fun stopScan() {
-        scanner.stop()
-        _ui.update { it.copy(scanning = false) }
-    }
-
-    fun pair(mac: String) {
-        stopScan()
-        app.prefs.bikeMac = mac
-        _ui.update { it.copy(bikeMac = mac, status = "Connecting $mac") }
-        BikeBridgeService.start(getApplication())
-    }
-
-    fun connectSaved() {
-        val mac = app.prefs.bikeMac ?: return
-        pair(mac)
-    }
-
-    fun disconnectBike() {
-        BikeBridgeService.stop(getApplication())
-        _ui.update { it.copy(status = "Disconnecting…") }
-    }
-
-    fun startDemo() {
-        if (_ui.value.running) return
-        if (_ui.value.connection is ConnectionState.Ready) {
-            _ui.update { it.copy(status = "Stop the live bike link before running demo.") }
-            return
         }
         viewModelScope.launch {
-            _ui.update {
-                it.copy(running = true, connection = ConnectionState.Ready, status = "Capturing demo ride…").derived()
-            }
-            try {
-                val ride = withContext(Dispatchers.IO) {
-                    val ticks = DemoRideSource().asTicks()
-                    session.run(ticks) { tick ->
-                        if (tick is CaptureTick.Telemetry) {
-                            _ui.update { s ->
-                                s.copy(
-                                    speedKmh = tick.frame.speedKmh,
-                                    fuelBars = tick.frame.fuelBars,
-                                    odometerKm = tick.frame.odometerKm,
-                                    economyKml = tick.frame.fuelEconKml,
-                                    tripAKm = tick.frame.tripAKm,
-                                ).derived()
-                            }
-                        }
-                    }
-                }
-                val km = (ride.odoEndKm ?: 0) - (ride.odoStartKm ?: 0)
+            app.weather.snapshot.collect { wx ->
                 _ui.update {
                     it.copy(
-                        running = false,
-                        connection = app.connection.value,
-                        status = "Ride archived · ${ride.movingSec}s moving · ${km} km (odo)",
-                    ).derived()
-                }
-            } catch (e: Exception) {
-                _ui.update {
-                    it.copy(
-                        running = false,
-                        connection = ConnectionState.Failed(e.message ?: "error"),
-                        status = e.message ?: "Demo ride failed",
+                        weatherTemp = wx?.let { w -> "${w.tempC.toInt()}°C" },
+                        weatherLabel = wx?.label,
+                        weatherCode = wx?.code,
                     ).derived()
                 }
             }
         }
+        viewModelScope.launch {
+            app.capture.observeFuel().collect {
+                val bars = _ui.value.fuelBars
+                val eco = withContext(Dispatchers.IO) { app.capture.bikeEconomics(bars) }
+                _ui.update {
+                    it.copy(
+                        rangeKm = eco.rangeKm,
+                        tankKmPerL = eco.tankKmPerL,
+                        rupeesPerKm = eco.cost?.rollingRupeesPerKm,
+                        costPartial = eco.cost?.isPartial == true,
+                    ).derived()
+                }
+            }
+        }
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(if (app.capture.isRecording) 2_000 else 15_000)
+                refreshToday()
+            }
+        }
+        viewModelScope.launch {
+            app.capture.observeFinishedRides().collect { refreshToday() }
+        }
     }
 
-    override fun onCleared() {
-        scanner.stop()
-        super.onCleared()
+    private suspend fun refreshToday() {
+        val today = withContext(Dispatchers.IO) { app.capture.todayStats() }
+        val parked = withContext(Dispatchers.IO) { app.capture.lastParked() }
+        val due = app.prefs.remainingServiceKm(_ui.value.odometerKm)
+        val eta = withContext(Dispatchers.IO) {
+            val rides = app.capture.finishedRides().map { it.toRecord() }
+            RideRhythm.serviceEta(due, RideRhythm.paceKmPerDay(rides))
+        }
+        _ui.update {
+            it.copy(
+                todayKm = today.km,
+                todayMovingSec = today.movingSec,
+                serviceDueKm = due,
+                parked = parked,
+                serviceEta = eta?.label(),
+            ).derived()
+        }
     }
 
     private fun phonePct(): Int? {
@@ -182,16 +157,32 @@ class CockpitViewModel(application: Application) : AndroidViewModel(application)
     }
 }
 
-private fun CockpitUiState.derived(): CockpitUiState {
+private fun CockpitUiState.derived(bikeMac: String? = this.bikeMac): CockpitUiState {
     val bleReady = connection is ConnectionState.Ready
-    val scored = ReadinessCalculator.score(fuelBars, bleReady, phoneBatteryPercent)
+    val scored = ReadinessCalculator.score(
+        fuelBars,
+        bleReady,
+        phoneBatteryPercent,
+        gpsOn,
+        weatherCode,
+        weatherLabel,
+        serviceDueKm,
+        bikePaired = bikeMac != null,
+        linkFailed = connection is ConnectionState.Failed,
+    )
     val nextWarnings = buildList {
-        if (connection !is ConnectionState.Ready) {
-            add(CockpitWarning(WarningSeverity.CRITICAL, "BLE disconnected", "Reconnect or pair the bike."))
+        if (bikeMac == null) {
+            add(CockpitWarning(WarningSeverity.INFO, "Pair your bike", "Garage → scan and save the MAC."))
+        } else if (connection is ConnectionState.Failed) {
+            add(CockpitWarning(WarningSeverity.WARN, "Couldn't reach the bike", "Tap Connect in Garage."))
         }
         val f = fuelBars
         if (f != null && f <= 1) {
             add(CockpitWarning(WarningSeverity.WARN, "Low fuel", "$f bar remaining."))
+        }
+        val due = serviceDueKm
+        if (due != null && due <= 0) {
+            add(CockpitWarning(WarningSeverity.WARN, "Service overdue", "Log the last service in Garage."))
         }
     }
     return copy(readiness = scored, warnings = nextWarnings)

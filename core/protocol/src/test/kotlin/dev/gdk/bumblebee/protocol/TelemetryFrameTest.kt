@@ -5,6 +5,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Locale
 import kotlin.math.abs
 
 /** Tests for the a537 [TelemetryFrame] decoder/encoder. */
@@ -85,5 +86,28 @@ class TelemetryFrameTest {
         assertEquals(0xFF.toByte(), out[25])
         assertEquals(0xFF.toByte(), out[26])
         assertEquals(0xFF.toByte(), out[27])
+    }
+
+    @Test
+    fun `trip encoding stays ASCII under a German locale`() {
+        val previous = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.GERMANY)
+            val f = TelemetryFrame(
+                speedKmh = 0,
+                odometerKm = 0,
+                tripAKm = 12.5,
+                tripBKm = 1.5,
+                fuelBars = null,
+                fuelEconKml = null,
+            )
+            val out = f.encode()
+            val tripA = String(out, 11, 6, Charsets.US_ASCII)
+            val tripB = String(out, 17, 6, Charsets.US_ASCII)
+            assertEquals("000125", tripA)
+            assertEquals("000015", tripB)
+        } finally {
+            Locale.setDefault(previous)
+        }
     }
 }

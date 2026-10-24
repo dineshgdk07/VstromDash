@@ -1,156 +1,265 @@
 package dev.gdk.bumblebee.ui.cockpit
 
-import android.Manifest
-import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Build
-import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.LocalGasStation
-import androidx.compose.material.icons.outlined.Route
-import androidx.compose.material.icons.outlined.Speed
-import androidx.compose.material.icons.outlined.Warning
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.gdk.bumblebee.ble.ConnectionState
 import dev.gdk.bumblebee.ui.cockpit.components.BikeHeroCard
 import dev.gdk.bumblebee.ui.cockpit.components.CockpitStatusBar
-import dev.gdk.bumblebee.ui.cockpit.components.MetricCard
-import dev.gdk.bumblebee.ui.cockpit.components.QuickActionRow
+import dev.gdk.bumblebee.ui.cockpit.components.CockpitWarning
 import dev.gdk.bumblebee.ui.cockpit.components.ReadinessRadial
+import dev.gdk.bumblebee.ui.cockpit.components.WarningSeverity
 import dev.gdk.bumblebee.ui.cockpit.components.WarningsCard
-import dev.gdk.bumblebee.ui.theme.ForgeWhite
+import dev.gdk.bumblebee.ui.components.BlockColor
+import dev.gdk.bumblebee.ui.components.BlockTile
+import dev.gdk.bumblebee.ui.theme.BumblebeeTheme
+import dev.gdk.bumblebee.ui.theme.Canvas
+import dev.gdk.bumblebee.ui.theme.NumberLarge
+import dev.gdk.bumblebee.ui.theme.OnBlock
 
 @Composable
 fun CockpitScreen(
     model: CockpitViewModel = viewModel(),
     onNavigate: () -> Unit = {},
     onExplore: () -> Unit = {},
+    onRide: () -> Unit = {},
+    onGarage: () -> Unit = {},
 ) {
     val state by model.ui.collectAsStateWithLifecycle()
-    var linkOpen by remember { mutableStateOf(false) }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) { granted ->
-        if (granted.values.all { it }) model.startScan()
-    }
+    CockpitContent(
+        state = state,
+        onStartRide = onNavigate,
+        onRideStats = onRide,
+        onGarage = onGarage,
+        onSetup = onGarage,
+    )
+}
 
-    fun requestThenScan() {
-        val perms = buildList {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                add(Manifest.permission.BLUETOOTH_SCAN)
-                add(Manifest.permission.BLUETOOTH_CONNECT)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-        if (perms.isEmpty()) model.startScan()
-        else permissionLauncher.launch(perms.toTypedArray())
+@Composable
+private fun CockpitContent(
+    state: CockpitUiState,
+    onStartRide: () -> Unit,
+    onRideStats: () -> Unit,
+    onGarage: () -> Unit,
+    onSetup: () -> Unit,
+) {
+    val due = state.serviceDueKm
+    val serviceBadge = when {
+        due == null -> null
+        due <= 0 -> "Overdue"
+        else -> "est. $due km"
+    }
+    val setupBadge = when {
+        state.bikeMac == null -> "Pair"
+        state.connection is ConnectionState.Ready -> "Linked"
+        else -> "Offline"
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(top = 8.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         CockpitStatusBar(
             connection = state.connection,
-            gpsOn = state.gpsOn,
-            phoneBatteryPercent = state.phoneBatteryPercent,
+            rangeKm = state.rangeKm,
+            odometerKm = state.odometerKm,
+            fuelBars = state.fuelBars,
         )
-        ReadinessRadial(score = state.readiness)
         BikeHeroCard(
             model = "V-Strom 250 SX",
             connection = state.connection,
-            fuelBars = state.fuelBars,
-            economyKml = state.economyKml,
-            tripAKm = state.tripAKm,
-            odometerKm = state.odometerKm,
+            onOpen = onGarage,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            MetricCard("Fuel", state.fuelBars?.let { "$it bars" } ?: "—", "est. range —", Icons.Outlined.LocalGasStation, Modifier.weight(1f))
-            MetricCard("Today", "—", "no ride yet", Icons.Outlined.Route, Modifier.weight(1f))
-            MetricCard("Weather", "—", "no forecast", Icons.Outlined.Cloud, Modifier.weight(1f))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            MetricCard("Odometer", state.odometerKm?.let { "%,d".format(it) } ?: "—", "all time km", Icons.Outlined.Speed, Modifier.weight(1f))
-            MetricCard(
-                "Warnings",
-                if (state.warnings.isEmpty()) "None" else state.warnings.size.toString(),
-                "app & connection",
-                Icons.Outlined.Warning,
-                Modifier.weight(1f),
-            )
-            MetricCard("Service", "—", "not set", Icons.Outlined.Build, Modifier.weight(1f))
-        }
+        ReadinessRadial(score = state.readiness)
+        CockpitBento(
+            state = state,
+            serviceBadge = serviceBadge,
+            setupBadge = setupBadge,
+            onStartRide = onStartRide,
+            onRideStats = onRideStats,
+            onGarage = onGarage,
+            onSetup = onSetup,
+        )
         WarningsCard(warnings = state.warnings)
-        QuickActionRow(
-            onNavigate = onNavigate,
-            onFindBike = { linkOpen = true },
-            onShare = {},
-            onExplore = onExplore,
-        )
-        Text(
-            "Bike link",
-            style = MaterialTheme.typography.labelLarge,
-            color = ForgeWhite.copy(alpha = 0.7f),
-            modifier = Modifier.clickable { linkOpen = !linkOpen },
-        )
-        if (linkOpen) {
-            Text(state.status, style = MaterialTheme.typography.bodyMedium)
-            Text("MAC  ${state.bikeMac ?: "—"}", style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                Button(onClick = { if (state.scanning) model.stopScan() else requestThenScan() }) {
-                    Text(if (state.scanning) "Stop scan" else "Scan")
-                }
-                OutlinedButton(onClick = { model.connectSaved() }, enabled = state.bikeMac != null) {
-                    Text("Connect")
-                }
-                OutlinedButton(onClick = { model.disconnectBike() }) {
-                    Text("Disconnect")
-                }
-            }
-            state.devices.forEach { bike ->
-                val label = buildString {
-                    append(bike.name ?: bike.mac)
-                    if (bike.looksLikeSuzuki) append("  · Suzuki")
-                    if (bike.bonded) append("  · bonded")
-                    if (bike.rssi != Int.MIN_VALUE) append("  · ${bike.rssi} dBm")
-                }
-                Text(
-                    text = label,
+    }
+}
+
+@Composable
+private fun CockpitBento(
+    state: CockpitUiState,
+    serviceBadge: String?,
+    setupBadge: String,
+    onStartRide: () -> Unit,
+    onRideStats: () -> Unit,
+    onGarage: () -> Unit,
+    onSetup: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(248.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            BlockTile(
+                title = "Ride stats",
+                color = BlockColor.Lavender,
+                onClick = onRideStats,
+                modifier = Modifier
+                    .weight(1.15f)
+                    .fillMaxHeight(),
+                art = { TodayStatsArt(state.todayKm, state.todayMovingSec) },
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                BlockTile(
+                    title = "Garage",
+                    color = BlockColor.Yellow,
+                    onClick = onGarage,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { model.pair(bike.mac) }
-                        .padding(vertical = 8.dp),
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    art = {
+                        if (serviceBadge != null) TileFoot(serviceBadge)
+                    },
+                )
+                BlockTile(
+                    title = "Setup",
+                    color = BlockColor.Mint,
+                    onClick = onSetup,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    art = { TileFoot(setupBadge) },
                 )
             }
-            Button(onClick = { model.startDemo() }, enabled = !state.running) {
-                Text(if (state.running) "Capturing…" else "Start demo ride")
-            }
+        }
+        BlockTile(
+            title = "Start ride",
+            color = BlockColor.Coral,
+            onClick = onStartRide,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(112.dp),
+        )
+    }
+}
+
+@Composable
+private fun BoxScope.TileFoot(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = OnBlock,
+        modifier = Modifier.align(Alignment.BottomStart),
+    )
+}
+
+@Composable
+private fun BoxScope.TodayStatsArt(todayKm: Double, todayMovingSec: Int) {
+    Column(Modifier.align(Alignment.BottomStart)) {
+        Text(
+            text = if (todayKm > 0) String.format("%.1f km", todayKm) else "—",
+            style = NumberLarge,
+            color = OnBlock,
+        )
+        Text(
+            text = if (todayMovingSec > 0) formatMoving(todayMovingSec) else "no ride yet",
+            style = MaterialTheme.typography.labelSmall,
+            color = OnBlock,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+private fun formatMoving(sec: Int): String {
+    val h = sec / 3600
+    val m = (sec % 3600) / 60
+    return if (h > 0) "${h}h ${m}m" else "${m}m moving"
+}
+
+@Preview
+@Composable
+private fun CockpitConnectedPreview() {
+    PreviewCockpit(
+        CockpitUiState(
+            connection = ConnectionState.Ready,
+            fuelBars = 4,
+            odometerKm = 12480,
+            rangeKm = 186.0,
+            bikeMac = "AA:BB",
+            todayKm = 42.6,
+            todayMovingSec = 84 * 60,
+            serviceDueKm = 640,
+            readiness = ReadinessCalculator.score(4, true, 80, true, 0, "Clear", 640, true, false),
+        ),
+    )
+}
+
+@Preview
+@Composable
+private fun CockpitDisconnectedPreview() {
+    PreviewCockpit(
+        CockpitUiState(
+            connection = ConnectionState.Failed("gone"),
+            bikeMac = "AA:BB",
+            fuelBars = 1,
+            odometerKm = 12480,
+            rangeKm = 22.0,
+            serviceDueKm = 0,
+            readiness = ReadinessCalculator.score(1, false, 40, false, null, null, 0, true, true),
+            warnings = listOf(
+                CockpitWarning(WarningSeverity.WARN, "Low fuel", "1 bar remaining."),
+                CockpitWarning(WarningSeverity.WARN, "Service overdue", "Log the last service in Garage."),
+            ),
+        ),
+    )
+}
+
+@Preview
+@Composable
+private fun CockpitEmptyPreview() {
+    PreviewCockpit(
+        CockpitUiState(
+            readiness = ReadinessCalculator.score(null, false, bikePaired = false),
+            warnings = listOf(
+                CockpitWarning(WarningSeverity.INFO, "Pair your bike", "Garage → scan and save the MAC."),
+            ),
+        ),
+    )
+}
+
+@Composable
+private fun PreviewCockpit(state: CockpitUiState) {
+    BumblebeeTheme {
+        Column(Modifier.background(Canvas)) {
+            CockpitContent(state, onStartRide = {}, onRideStats = {}, onGarage = {}, onSetup = {})
         }
     }
 }

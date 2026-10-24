@@ -42,6 +42,21 @@ class NavPipelineTest {
     }
 
     @Test
+    fun `comma decimals miles and long unit names`() {
+        assertEquals("01.5" to "K", normalizeDistance("1,5 km"))
+        assertEquals("01.6" to "K", normalizeDistance("1 mi"))
+        assertEquals("01.2" to "K", normalizeDistance("1.2 kilometers"))
+        assertEquals("0200" to "M", normalizeDistance("200 meters"))
+    }
+
+    @Test
+    fun `hud distance does not strip leading zeros into a bare dot`() {
+        assertEquals("0.5 km", formatHudDistance("00.5", "K"))
+        assertEquals("1.2 km", formatHudDistance("01.2", "K"))
+        assertEquals("250 m", formatHudDistance("0250", "M"))
+    }
+
+    @Test
     fun `normalize 200 m and 1_2 km`() {
         assertEquals("0200" to "M", normalizeDistance("In 200 m turn left"))
         assertEquals("01.2" to "K", normalizeDistance("1.2 km"))
@@ -64,5 +79,24 @@ class NavPipelineTest {
         val f = parsed.toNavFrame()
         assertEquals("1", f.status)
         assertEquals(1, f.maneuverId)
+    }
+
+    @Test
+    fun `a non-nav Maps post does not clear the active turn`() {
+        val turn = ParsedNavData(1, "0200", "M", "0432PM", "01.2", "K", "turn left")
+        MapsNavSource.update(turn, key = "nav-key")
+        MapsNavSource.update(null, key = "traffic-alert")
+        assertEquals(1, MapsNavSource.frame.value?.maneuverId)
+        assertEquals("nav-key", MapsNavSource.activeKey)
+        MapsNavSource.clear()
+    }
+
+    @Test
+    fun `removing the active nav key clears the turn`() {
+        val turn = ParsedNavData(1, "0200", "M", "0432PM", "01.2", "K", "turn left")
+        MapsNavSource.update(turn, key = "nav-key")
+        MapsNavSource.update(null, key = "nav-key")
+        assertNull(MapsNavSource.frame.value)
+        assertNull(MapsNavSource.activeKey)
     }
 }

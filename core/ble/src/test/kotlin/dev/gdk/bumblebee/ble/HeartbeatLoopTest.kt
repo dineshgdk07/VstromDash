@@ -3,6 +3,7 @@ package dev.gdk.bumblebee.ble
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.LocalTime
+import java.util.Locale
 
 class HeartbeatLoopTest {
 
@@ -45,5 +46,16 @@ class HeartbeatLoopTest {
     @Test
     fun `interval is one second`() {
         assertEquals(1_000L, HeartbeatLoop.HEARTBEAT_INTERVAL_MS)
+    }
+
+    @Test
+    fun `time digits stay ASCII under a German locale`() {
+        val previous = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.GERMANY)
+            assertEquals("023005", loop(80).buildFrame().timeHhmmss)
+        } finally {
+            Locale.setDefault(previous)
+        }
     }
 }

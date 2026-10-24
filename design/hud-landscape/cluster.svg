@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1672 941" width="1672" height="941">
+  <title>Bumblebee landscape HUD chassis — 1672×941, matches ClusterGeom</title>
+  <defs>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1C2028"/>
+      <stop offset="100%" stop-color="#08080A"/>
+    </linearGradient>
+    <clipPath id="leftBite">
+      <path d="M38 118 L478 88 L548 168 L548 662 L478 742 L38 718 L16 662 L16 174 Z
+               M836 430 m-287 0 a287 287 0 1 1 574 0 a287 287 0 1 1 -574 0" clip-rule="evenodd"/>
+    </clipPath>
+  </defs>
+  <rect width="1672" height="941" fill="#08080A"/>
+  <path fill="#0A0B0E" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="1.4"
+        d="M26 0 H1646 L1672 26 V915 L1646 941 H26 L0 915 V26 Z"/>
+  <path fill="url(#card)" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="1.6" fill-rule="evenodd"
+        d="M38 118 L478 88 L548 168 L548 662 L478 742 L38 718 L16 662 L16 174 Z
+           M836 430 m-287 0 a287 287 0 1 1 574 0 a287 287 0 1 1 -574 0"/>
+  <path fill="url(#card)" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="1.6" fill-rule="evenodd"
+        d="M1194 88 L1634 118 L1656 174 L1656 662 L1634 718 L1194 742 L1124 662 L1124 168 Z
+           M836 430 m-287 0 a287 287 0 1 1 574 0 a287 287 0 1 1 -574 0"/>
+  <circle cx="836" cy="428" r="268" fill="#050506"/>
+  <circle cx="836" cy="428" r="248" fill="none" stroke="#8D9198" stroke-width="18"/>
+  <path fill="url(#card)" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="1.5"
+        d="M52 762 H1620 L1594 868 H78 Z"/>
+  <circle cx="836" cy="790" r="46" fill="#0A0B0E" stroke="#FAC816" stroke-width="4"/>
+</svg>

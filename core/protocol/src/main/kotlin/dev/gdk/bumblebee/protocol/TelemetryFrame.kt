@@ -148,7 +148,7 @@ data class TelemetryFrame(
             val clamped = max(0.0, min(99999.9, t))
             // Python f"{t:07.1f}" → e.g. 1.5 → "00001.5"; strip "." → "000015"; take last 6 → "000015".
             // For values up to 99999.9 the width-7 format always gives exactly 7 chars including ".".
-            val s = "%07.1f".format(clamped).replace(".", "")
+            val s = rootFormat("%07.1f", clamped).replace(".", "")
             return s.takeLast(6).toByteArray(Charsets.US_ASCII)
         }
 

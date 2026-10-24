@@ -2,119 +2,101 @@ package dev.gdk.bumblebee.ui.cockpit.components
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Bluetooth
-import androidx.compose.material.icons.outlined.LocalGasStation
-import androidx.compose.material.icons.outlined.Speed
-import androidx.compose.material.icons.outlined.Route
-import androidx.compose.material3.Icon
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.gdk.bumblebee.R
 import dev.gdk.bumblebee.ble.ConnectionState
-import dev.gdk.bumblebee.ui.theme.ForgeBlack
-import dev.gdk.bumblebee.ui.theme.ForgeGraphite
-import dev.gdk.bumblebee.ui.theme.ForgeWhite
-import dev.gdk.bumblebee.ui.theme.SuccessGreen
-import dev.gdk.bumblebee.ui.theme.WarningAmber
+import dev.gdk.bumblebee.ui.components.ChunkyIconButton
+import dev.gdk.bumblebee.ui.components.ChunkyStyle
+import dev.gdk.bumblebee.ui.theme.BlockYellow
+import dev.gdk.bumblebee.ui.theme.Lime
+import dev.gdk.bumblebee.ui.theme.ShapeLg
+import dev.gdk.bumblebee.ui.theme.Surface
+import dev.gdk.bumblebee.ui.theme.TextPrimary
+import dev.gdk.bumblebee.ui.theme.TextSecondary
+import dev.gdk.bumblebee.ui.theme.Warning
 
 @Composable
 fun BikeHeroCard(
     model: String,
     connection: ConnectionState,
-    fuelBars: Int?,
-    economyKml: Double?,
-    tripAKm: Double?,
-    odometerKm: Int?,
+    onOpen: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val bleReady = connection is ConnectionState.Ready
-    val health = if (bleReady && (fuelBars == null || fuelBars >= 2)) "Link & Fuel OK" else "Check link"
+    val (status, statusColor) = when (connection) {
+        is ConnectionState.Ready -> "Connected" to Lime
+        is ConnectionState.Connecting, ConnectionState.Discovering -> "Connecting" to TextSecondary
+        is ConnectionState.Failed, is ConnectionState.Disconnected -> "Not connected" to Warning
+        else -> "Not connected" to TextSecondary
+    }
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(188.dp)
-            .background(ForgeGraphite),
+            .height(220.dp)
+            .clip(ShapeLg)
+            .background(Surface),
     ) {
+        Box(
+            Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .fillMaxHeight(0.4f)
+                .background(BlockYellow),
+        )
         Image(
             painter = painterResource(R.drawable.vstrom_hero),
             contentDescription = model,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(),
-        )
-        Box(
-            Modifier
-                .matchParentSize()
-                .background(ForgeBlack.copy(alpha = 0.35f)),
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 8.dp, end = 8.dp)
+                .width(200.dp)
+                .height(148.dp),
         )
         Column(
-            Modifier
-                .align(Alignment.TopStart)
-                .padding(14.dp),
-        ) {
-            Text(model.uppercase(), style = MaterialTheme.typography.titleLarge)
-            Text(
-                if (bleReady) "Connected" else "Not connected",
-                style = MaterialTheme.typography.labelLarge,
-                color = if (bleReady) SuccessGreen else WarningAmber,
-            )
-        }
-        Column(
-            Modifier
-                .align(Alignment.CenterEnd)
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            HeroStat(Icons.Outlined.LocalGasStation, "Fuel", fuelBars?.let { "$it bars" } ?: "—")
-            HeroStat(Icons.Outlined.Speed, "Economy", economyKml?.let { "%.1f km/L".format(it) } ?: "—")
-            HeroStat(Icons.Outlined.Bluetooth, "Link", if (bleReady) "connected" else "none")
-            HeroStat(Icons.Outlined.Route, "Trip", tripAKm?.let { "%.1f km".format(it) } ?: "—")
-        }
-        Row(
             Modifier
                 .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .background(ForgeBlack.copy(alpha = 0.55f))
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(start = 20.dp, end = 72.dp, bottom = 20.dp),
         ) {
-            FooterStat("Odometer", odometerKm?.let { "%,d km".format(it) } ?: "—")
-            FooterStat("Next service", "—")
-            FooterStat("Health", health)
+            Text(
+                text = model,
+                style = MaterialTheme.typography.titleMedium,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = status,
+                style = MaterialTheme.typography.bodyMedium,
+                color = statusColor,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
-    }
-}
-
-@Composable
-private fun HeroStat(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Icon(icon, contentDescription = null, tint = ForgeWhite.copy(alpha = 0.7f), modifier = Modifier.size(14.dp))
-        Column {
-            Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = ForgeWhite.copy(alpha = 0.55f))
-            Text(value, style = MaterialTheme.typography.titleSmall)
-        }
-    }
-}
-
-@Composable
-private fun FooterStat(label: String, value: String) {
-    Column {
-        Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = ForgeWhite.copy(alpha = 0.5f))
-        Text(value, style = MaterialTheme.typography.titleSmall, color = ForgeWhite)
+        ChunkyIconButton(
+            icon = Icons.Rounded.ChevronRight,
+            onClick = onOpen,
+            style = ChunkyStyle.Lime,
+            contentDescription = "Open garage",
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 16.dp),
+        )
     }
 }

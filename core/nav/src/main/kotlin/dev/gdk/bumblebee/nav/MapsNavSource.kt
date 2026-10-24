@@ -20,27 +20,40 @@ object MapsNavSource {
     private val _street = MutableStateFlow<String?>(null)
     val street: StateFlow<String?> = _street.asStateFlow()
 
+    @Volatile var activeKey: String? = null
+        private set
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile private var staleJob: Job? = null
 
-    fun update(parsed: ParsedNavData?) {
-        _frame.value = parsed?.toNavFrame()
-        _street.value = parsed?.streetName
+    fun update(parsed: ParsedNavData?, key: String? = null) {
+        if (parsed == null) {
+            if (key != null && activeKey != null && key != activeKey) return
+            clear()
+            return
+        }
+        activeKey = key
+        _frame.value = parsed.toNavFrame()
+        _street.value = parsed.streetName
         staleJob?.cancel()
-        if (_frame.value != null) {
-            staleJob = scope.launch {
-                delay(STALE_AFTER_MS)
-                if (_frame.value != null) {
-                    _frame.value = null
-                    _street.value = null
-                }
+        staleJob = scope.launch {
+            delay(STALE_AFTER_MS)
+            if (_frame.value != null) {
+                _frame.value = null
+                _street.value = null
+                activeKey = null
             }
         }
+    }
+
+    fun clearIf(key: String) {
+        if (activeKey == null || activeKey == key) clear()
     }
 
     fun clear() {
         _frame.value = null
         _street.value = null
+        activeKey = null
         staleJob?.cancel()
     }
 }
