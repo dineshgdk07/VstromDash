@@ -13,6 +13,7 @@ import dev.gdk.bumblebee.ride.ShareLook
 import dev.gdk.bumblebee.ride.TileId
 import dev.gdk.bumblebee.ui.sharecard.looks.CardLook
 import dev.gdk.bumblebee.ui.sharecard.looks.LookContext
+import dev.gdk.bumblebee.ui.sharecard.looks.NightGlowLook
 import dev.gdk.bumblebee.ui.sharecard.looks.PlaceholderLook
 import java.io.File
 import java.io.FileOutputStream
@@ -65,7 +66,8 @@ object ShareCardPainter {
     }
 
     fun lookFor(look: ShareLook): CardLook = when (look) {
-        ShareLook.NIGHT_GLOW, ShareLook.POSTER, ShareLook.COCKPIT, ShareLook.RIDE_PASS -> PlaceholderLook
+        ShareLook.NIGHT_GLOW -> NightGlowLook
+        ShareLook.POSTER, ShareLook.COCKPIT, ShareLook.RIDE_PASS -> PlaceholderLook
     }
 
     fun decodePhoto(context: Context, uri: Uri, reqW: Int, reqH: Int): Bitmap? = runCatching {
