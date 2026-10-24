@@ -19,10 +19,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import dev.gdk.bumblebee.BuildConfig
 import dev.gdk.bumblebee.DashApp
 import dev.gdk.bumblebee.MainActivity
@@ -30,8 +32,12 @@ import dev.gdk.bumblebee.ble.BikeBridgeService
 import dev.gdk.bumblebee.gps.PhoneGps
 import dev.gdk.bumblebee.ui.cockpit.CockpitScreen
 import dev.gdk.bumblebee.ui.explorer.ExplorerScreen
+import dev.gdk.bumblebee.ui.explorer.YearRecapScreen
 import dev.gdk.bumblebee.ui.fuel.FuelLogScreen
+import dev.gdk.bumblebee.ui.garage.documents.DocumentsScreen
 import dev.gdk.bumblebee.ui.garage.GarageScreen
+import dev.gdk.bumblebee.ui.garage.GarageSettingsScreen
+import dev.gdk.bumblebee.ui.garage.ServiceScreen
 import dev.gdk.bumblebee.ui.hud.RiderHudScreen
 import dev.gdk.bumblebee.ui.journey.JourneyScreen
 import dev.gdk.bumblebee.ui.ride.RideScreen
@@ -86,17 +92,22 @@ fun BumblebeeApp() {
         bottomBar = {
             val backStack by navController.currentBackStackEntryAsState()
             val currentRoute = backStack?.destination?.route
-            val coreRoute = if (currentRoute == "fuel" || currentRoute == "transfer") Pillar.GARAGE.route else currentRoute
-            CockpitCore(
-                currentRoute = coreRoute,
-                onSelect = { pillar ->
-                    navController.navigate(pillar.route) {
-                        popUpTo(Pillar.COCKPIT.route) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                },
-            )
+            val coreRoute = when (currentRoute) {
+                "fuel", "transfer", "garage/documents", "garage/service", "garage/settings" -> Pillar.GARAGE.route
+                else -> currentRoute
+            }
+            if (currentRoute?.startsWith("explorer/recap") != true) {
+                CockpitCore(
+                    currentRoute = coreRoute,
+                    onSelect = { pillar ->
+                        navController.navigate(pillar.route) {
+                            popUpTo(Pillar.COCKPIT.route) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                )
+            }
         },
     ) { innerPadding ->
         NavHost(
@@ -113,36 +124,31 @@ fun BumblebeeApp() {
             Pillar.entries.forEach { pillar ->
                 composable(pillar.route) {
                     when (pillar) {
-                        Pillar.COCKPIT -> CockpitScreen(
-                            onNavigate = {
-                                navController.navigate(Pillar.JOURNEY.route) {
-                                    popUpTo(Pillar.COCKPIT.route) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            onExplore = {
-                                navController.navigate(Pillar.EXPLORER.route) {
-                                    popUpTo(Pillar.COCKPIT.route) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            onRide = {
+                        Pillar.COCKPIT -> {
+                            val dash = LocalContext.current.applicationContext as DashApp
+                            fun openRideTab(rideId: Long?) {
+                                dash.pendingRideId.value = rideId
                                 navController.navigate(Pillar.RIDE.route) {
                                     popUpTo(Pillar.COCKPIT.route) { saveState = true }
                                     launchSingleTop = true
                                     restoreState = true
                                 }
-                            },
-                            onGarage = {
-                                navController.navigate(Pillar.GARAGE.route) {
-                                    popUpTo(Pillar.COCKPIT.route) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                        )
+                            }
+                            CockpitScreen(
+                                onStartRide = {
+                                    navController.navigate(Pillar.JOURNEY.route) {
+                                        popUpTo(Pillar.COCKPIT.route) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                },
+                                onLiveRide = { openRideTab(null) },
+                                onOpenLastRide = { openRideTab(it) },
+                                onFuel = { navController.navigate("fuel") },
+                                onService = { navController.navigate("garage/service") },
+                                onSettings = { navController.navigate("garage/settings") },
+                            )
+                        }
                         Pillar.JOURNEY -> JourneyScreen()
                         Pillar.RIDE -> RideScreen(
                             onOpenExplorer = {
@@ -153,10 +159,15 @@ fun BumblebeeApp() {
                                 }
                             },
                         )
-                        Pillar.EXPLORER -> ExplorerScreen()
+                        Pillar.EXPLORER -> ExplorerScreen(
+                            onOpenRecap = { year -> navController.navigate("explorer/recap/$year") },
+                        )
                         Pillar.GARAGE -> GarageScreen(
                             onOpenFuel = { navController.navigate("fuel") },
                             onOpenTransfer = { navController.navigate("transfer") },
+                            onOpenDocuments = { navController.navigate("garage/documents") },
+                            onOpenService = { navController.navigate("garage/service") },
+                            onOpenSettings = { navController.navigate("garage/settings") },
                         )
                     }
                 }
@@ -166,6 +177,24 @@ fun BumblebeeApp() {
             }
             composable("transfer") {
                 TransferRoute(onBack = { navController.popBackStack() })
+            }
+            composable("garage/documents") {
+                DocumentsScreen(onBack = { navController.popBackStack() })
+            }
+            composable("garage/service") {
+                ServiceScreen(onBack = { navController.popBackStack() })
+            }
+            composable("garage/settings") {
+                GarageSettingsScreen(onBack = { navController.popBackStack() })
+            }
+            composable(
+                route = "explorer/recap/{year}",
+                arguments = listOf(navArgument("year") { type = NavType.IntType }),
+            ) { entry ->
+                YearRecapScreen(
+                    year = entry.arguments?.getInt("year") ?: java.time.Year.now().value,
+                    onBack = { navController.popBackStack() },
+                )
             }
         }
     }

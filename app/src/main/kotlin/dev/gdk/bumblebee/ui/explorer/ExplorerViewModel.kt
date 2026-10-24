@@ -12,7 +12,10 @@ import dev.gdk.bumblebee.ride.GpxExport
 import dev.gdk.bumblebee.ride.RideInsightInput
 import dev.gdk.bumblebee.ride.RideInsights
 import dev.gdk.bumblebee.ride.RideRhythm
+import dev.gdk.bumblebee.ride.GpsFix
 import dev.gdk.bumblebee.ride.RideStory
+import dev.gdk.bumblebee.ride.RideTimeline
+import dev.gdk.bumblebee.ride.SegmentSpan
 import dev.gdk.bumblebee.ride.SpeedHistogram
 import dev.gdk.bumblebee.ride.StreakInfo
 import dev.gdk.bumblebee.ride.TrackPlot
@@ -31,6 +34,8 @@ import java.time.Instant
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.util.Locale
 
 data class DayDigest(
     val date: String,
@@ -49,6 +54,11 @@ data class ExplorerUiState(
     val rides: List<RideRow> = emptyList(),
     val day: DayDigest? = null,
     val monthKm: Double = 0.0,
+    val monthRideCount: Int = 0,
+    val monthMovingSec: Int = 0,
+    val vsPrevious: String? = null,
+    val longest: LongestRide? = null,
+    val tracks: Map<Long, List<GpsFix>> = emptyMap(),
     val monthDays: Int = 0,
     val detail: RideDetail? = null,
     val weekdayKm: List<Double> = List(7) { 0.0 },
@@ -60,6 +70,13 @@ data class ExplorerUiState(
     val routes: List<dev.gdk.bumblebee.ride.RouteStats> = emptyList(),
     val journeys: List<JourneyCard> = emptyList(),
     val selectedIds: Set<Long> = emptySet(),
+)
+
+data class LongestRide(
+    val id: Long,
+    val label: String,
+    val km: Double,
+    val movingSec: Int,
 )
 
 data class JourneyCard(
@@ -79,14 +96,22 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { reload() }
     }
 
-    fun shiftMonth(delta: Int) {
-        _ui.value = _ui.value.copy(month = _ui.value.month.plusMonths(delta.toLong()), selectedDate = null)
+    fun showMonth(month: YearMonth) {
+        if (month == _ui.value.month) return
+        _ui.value = _ui.value.copy(month = month, selectedDate = null)
         viewModelScope.launch { reload() }
     }
 
     fun selectDate(date: String?) {
         val next = if (date == _ui.value.selectedDate) null else date
         _ui.value = _ui.value.copy(selectedDate = next)
+        viewModelScope.launch { reload(keepMonth = true) }
+    }
+
+    /** Selects [date] without toggling it off. The calendar uses [selectDate] for tap-again-to-clear. */
+    fun focusDate(date: String) {
+        if (date == _ui.value.selectedDate) return
+        _ui.value = _ui.value.copy(selectedDate = date)
         viewModelScope.launch { reload(keepMonth = true) }
     }
 
@@ -141,9 +166,8 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
         val selected = _ui.value.selectedDate
         val zone = ZoneId.systemDefault()
         val packed = withContext(Dispatchers.IO) {
-            val rollups = app.capture.rollups()
-            val km = rollups.associate { it.date to it.km }
             val all = app.capture.finishedRides()
+            val km = all.groupBy { dateOf(it.startTs) }.mapValues { (_, rides) -> rides.sumOf { it.km() } }
             val pb = app.capture.allTimeMaxSpeed()
             val monthStart = month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
             val monthEnd = month.plusMonths(1).atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
@@ -156,6 +180,19 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
             }
             val rows = filtered.map { it.toRow(pb, monthLongest) }
             val monthKm = monthRides.sumOf { it.km() }
+            val monthRideCount = monthRides.size
+            val monthMovingSec = monthRides.sumOf { it.movingSec }
+            val prev = month.minusMonths(1)
+            val prevStart = prev.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
+            val prevKm = all.filter { it.startTs in prevStart until monthStart }.sumOf { it.km() }
+            val vsPrevious = vsPreviousCaption(monthKm, prevKm, prev)
+            val dayLabel = DateTimeFormatter.ofPattern("d MMM").withZone(zone)
+            val longest = monthRides.maxByOrNull { it.km() }?.takeIf { it.km() > 0 }?.let { ride ->
+                LongestRide(ride.id, dayLabel.format(Instant.ofEpochMilli(ride.startTs)), ride.km(), ride.movingSec)
+            }
+            val tracks = monthRides.associate { ride ->
+                ride.id to TrackPlot.downsample(app.capture.trackForRide(ride.id), 32)
+            }
             val monthDays = monthRides.map { dateOf(it.startTs) }.toSet().size
             val day = if (selected != null) {
                 val title = DateTimeFormatter.ofPattern("EEEE d MMM")
@@ -204,7 +241,10 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
                         totalKm = sug.totalKm,
                     )
                 }
-            Packed(km, rows, day, monthKm, monthDays, weekday, tod, streak, wrapped, monthStory, monthTitle, routes, journeys)
+            Packed(
+                km, rows, day, monthKm, monthRideCount, monthMovingSec, vsPrevious, longest, tracks,
+                monthDays, weekday, tod, streak, wrapped, monthStory, monthTitle, routes, journeys,
+            )
         }
         _ui.value = _ui.value.copy(
             month = month,
@@ -213,6 +253,11 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
             rides = packed.rows,
             day = packed.day,
             monthKm = packed.monthKm,
+            monthRideCount = packed.monthRideCount,
+            monthMovingSec = packed.monthMovingSec,
+            vsPrevious = packed.vsPrevious,
+            longest = packed.longest,
+            tracks = packed.tracks,
             monthDays = packed.monthDays,
             weekdayKm = packed.weekdayKm,
             timeOfDayKm = packed.timeOfDayKm,
@@ -240,7 +285,21 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
         val gpx = if (track.size >= 2) GpxExport.toGpx(entity.name ?: "Ride ${entity.id}", entity.startTs, track) else null
         val csv = app.capture.csvForRide(entity.id)
         val segments = app.capture.segmentsFor(entity.id)
+        val telemetry = app.capture.telemetryForRide(entity.id)
+        val fuelEvents = app.capture.fuelEventsForRide(entity.id)
         val endTs = entity.endTs ?: System.currentTimeMillis()
+        val timeline = RideTimeline.fromRide(
+            startTs = entity.startTs,
+            endTs = endTs,
+            gpsOnly = entity.gpsOnly,
+            odoStartKm = entity.odoStartKm,
+            odoEndKm = entity.odoEndKm,
+            gpsDistanceM = entity.gpsDistanceM,
+            track = track,
+            telemetry = telemetry,
+            fuelEvents = fuelEvents,
+            segments = segments.map { SegmentSpan(it.startTs, it.endTs) },
+        )
         val overnight = Instant.ofEpochMilli(entity.startTs).atZone(ZoneId.systemDefault()).toLocalDate() !=
             Instant.ofEpochMilli(endTs).atZone(ZoneId.systemDefault()).toLocalDate()
         return RideDetail(
@@ -250,11 +309,17 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
             fuelBarsStart = entity.fuelBarsStart,
             fuelBarsEnd = entity.fuelBarsEnd,
             odoEndKm = entity.odoEndKm,
+            odoStartKm = entity.odoStartKm,
+            timeline = timeline,
+            events = timeline.events,
             parked = parked,
             track = track,
             speeds = speeds,
             story = story,
             tripAKm = last?.tripAKm,
+            tripAStartKm = telemetry.firstOrNull()?.tripAKm,
+            gpsDistanceM = entity.gpsDistanceM,
+            gpsOnly = entity.gpsOnly,
             tripBKm = last?.tripBKm,
             bikeEconKml = bike,
             tankKmPerL = tank,
@@ -283,11 +348,24 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
     }
 }
 
+internal fun vsPreviousCaption(monthKm: Double, prevKm: Double, prevMonth: YearMonth): String? {
+    if (prevKm <= 0.0) return null
+    val pct = (((monthKm - prevKm) / prevKm) * 100).toInt()
+    val sign = if (pct > 0) "+" else ""
+    val name = prevMonth.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+    return "vs $name $sign$pct%"
+}
+
 private data class Packed(
     val kmByDate: Map<String, Double>,
     val rows: List<RideRow>,
     val day: DayDigest?,
     val monthKm: Double,
+    val monthRideCount: Int,
+    val monthMovingSec: Int,
+    val vsPrevious: String?,
+    val longest: LongestRide?,
+    val tracks: Map<Long, List<GpsFix>>,
     val monthDays: Int,
     val weekdayKm: List<Double>,
     val timeOfDayKm: List<Double>,
@@ -349,6 +427,8 @@ private fun RideEntity.toRow(pb: Int, monthLongest: Double): RideRow {
         headline = lead.ifBlank { String.format("%.1f km", km()) },
         fuelBarsEnd = fuelBarsEnd,
         name = name,
+        odoStartKm = odoStartKm,
+        odoEndKm = odoEndKm,
     )
 }
 

@@ -25,6 +25,9 @@ class DashApp : Application() {
     val phoneBattery = MutableStateFlow<Int?>(null)
     val weather = WeatherRepository()
 
+    /** Set before opening the Ride tab to show that ride. The Ride screen clears it. */
+    val pendingRideId = MutableStateFlow<Long?>(null)
+
     override fun onCreate() {
         super.onCreate()
         appScope.launch {

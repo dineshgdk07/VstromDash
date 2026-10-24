@@ -19,7 +19,10 @@ import dev.gdk.bumblebee.ride.ResolvedSpeed
 import dev.gdk.bumblebee.ride.RideAggregates
 import dev.gdk.bumblebee.ride.RideInsightInput
 import dev.gdk.bumblebee.ride.RideInsights
+import dev.gdk.bumblebee.ride.RideEvent
 import dev.gdk.bumblebee.ride.RideStory
+import dev.gdk.bumblebee.ride.RideTimeline
+import dev.gdk.bumblebee.ride.SegmentSpan
 import dev.gdk.bumblebee.ride.SpeedBand
 import dev.gdk.bumblebee.ride.SpeedHistogram
 import dev.gdk.bumblebee.ride.SpeedResolver
@@ -52,6 +55,8 @@ data class RideRow(
     val headline: String,
     val fuelBarsEnd: Int? = null,
     val name: String? = null,
+    val odoStartKm: Int? = null,
+    val odoEndKm: Int? = null,
 )
 
 data class BandShare(val label: String, val fraction: Float, val band: SpeedBand)
@@ -63,11 +68,17 @@ data class RideDetail(
     val fuelBarsStart: Int?,
     val fuelBarsEnd: Int?,
     val odoEndKm: Int?,
+    val odoStartKm: Int? = null,
+    val timeline: RideTimeline = RideTimeline.empty(),
+    val events: List<RideEvent> = emptyList(),
     val parked: GpsFix?,
     val track: List<GpsFix> = emptyList(),
     val speeds: List<Pair<Long, Int>> = emptyList(),
     val story: String = "",
     val tripAKm: Double? = null,
+    val tripAStartKm: Double? = null,
+    val gpsDistanceM: Double = 0.0,
+    val gpsOnly: Boolean = false,
     val tripBKm: Double? = null,
     val bikeEconKml: Double? = null,
     val tankKmPerL: Double? = null,
@@ -112,6 +123,8 @@ data class RideUiState(
     val recent: List<RideRow> = emptyList(),
     val lastTrack: List<GpsFix> = emptyList(),
     val lastSpeeds: List<Pair<Long, Int>> = emptyList(),
+    val lastTimeline: RideTimeline = RideTimeline.empty(),
+    val recentThumbs: Map<Long, List<GpsFix>> = emptyMap(),
     val detail: RideDetail? = null,
     val tripAKm: Double? = null,
     val tripBKm: Double? = null,
@@ -128,6 +141,8 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
     private var cachedPb = 0
     private var cachedLastTrack: List<GpsFix> = emptyList()
     private var cachedLastSpeeds: List<Pair<Long, Int>> = emptyList()
+    private var cachedLastTimeline: RideTimeline = RideTimeline.empty()
+    private var cachedThumbs: Map<Long, List<GpsFix>> = emptyMap()
     private var cachedLastTrackRideId: Long? = null
     private var cachedRange: Double? = null
     private var cachedTankKmPerL: Double? = null
@@ -230,16 +245,23 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
             cachedRides = app.capture.finishedRides()
             cachedParked = app.capture.lastParked()
             cachedPb = app.capture.allTimeMaxSpeed()
-            val lastId = cachedRides.firstOrNull()?.id
+            val recentIds = cachedRides.take(3).map { it.id }
+            val lastId = recentIds.firstOrNull()
             if (lastId != null && lastId != cachedLastTrackRideId) {
                 val plots = plotsFor(lastId)
                 cachedLastTrack = plots.track
                 cachedLastSpeeds = plots.speeds
+                cachedLastTimeline = timelineFor(cachedRides.first(), plots.track)
                 cachedLastTrackRideId = lastId
             } else if (lastId == null) {
                 cachedLastTrack = emptyList()
                 cachedLastSpeeds = emptyList()
+                cachedLastTimeline = RideTimeline.empty()
                 cachedLastTrackRideId = null
+            }
+            cachedThumbs = recentIds.associateWith { id ->
+                val track = if (id == cachedLastTrackRideId) cachedLastTrack else app.capture.trackForRide(id)
+                TrackPlot.downsample(track, 32)
             }
             val eco = app.capture.bikeEconomics(app.latestTelemetry.value?.fuelBars)
             cachedRange = eco.rangeKm
@@ -311,6 +333,8 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
             recent = rows.take(3),
             lastTrack = cachedLastTrack,
             lastSpeeds = cachedLastSpeeds,
+            lastTimeline = cachedLastTimeline,
+            recentThumbs = cachedThumbs,
             detail = detail,
         )
     }
@@ -331,8 +355,22 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
         }
         val csv = withContext(Dispatchers.IO) { app.capture.csvForRide(entity.id) }
         val segments = withContext(Dispatchers.IO) { app.capture.segmentsFor(entity.id) }
+        val telemetry = withContext(Dispatchers.IO) { app.capture.telemetryForRide(entity.id) }
+        val fuelEvents = withContext(Dispatchers.IO) { app.capture.fuelEventsForRide(entity.id) }
         val canSplit = withContext(Dispatchers.IO) { app.capture.canSplit(entity.id) }
         val endTs = entity.endTs ?: System.currentTimeMillis()
+        val timeline = RideTimeline.fromRide(
+            startTs = entity.startTs,
+            endTs = endTs,
+            gpsOnly = entity.gpsOnly,
+            odoStartKm = entity.odoStartKm,
+            odoEndKm = entity.odoEndKm,
+            gpsDistanceM = entity.gpsDistanceM,
+            track = plots.track,
+            telemetry = telemetry,
+            fuelEvents = fuelEvents,
+            segments = segments.map { SegmentSpan(it.startTs, it.endTs) },
+        )
         val overnight = Instant.ofEpochMilli(entity.startTs).atZone(ZoneId.systemDefault()).toLocalDate() !=
             Instant.ofEpochMilli(endTs).atZone(ZoneId.systemDefault()).toLocalDate()
         return RideDetail(
@@ -342,11 +380,17 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
             fuelBarsStart = entity.fuelBarsStart,
             fuelBarsEnd = entity.fuelBarsEnd,
             odoEndKm = entity.odoEndKm,
+            odoStartKm = entity.odoStartKm,
+            timeline = timeline,
+            events = timeline.events,
             parked = parked,
             track = plots.track,
             speeds = plots.speeds,
             story = story,
             tripAKm = last?.tripAKm,
+            tripAStartKm = telemetry.firstOrNull()?.tripAKm,
+            gpsDistanceM = entity.gpsDistanceM,
+            gpsOnly = entity.gpsOnly,
             tripBKm = last?.tripBKm,
             bikeEconKml = bike,
             tankKmPerL = tank,
@@ -376,6 +420,25 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
 
     private data class RidePlots(val track: List<GpsFix>, val speeds: List<Pair<Long, Int>>)
 
+    private suspend fun timelineFor(entity: RideEntity, track: List<GpsFix>): RideTimeline {
+        val telemetry = app.capture.telemetryForRide(entity.id)
+        val fuelEvents = app.capture.fuelEventsForRide(entity.id)
+        val segments = app.capture.segmentsFor(entity.id)
+        val endTs = entity.endTs ?: System.currentTimeMillis()
+        return RideTimeline.fromRide(
+            startTs = entity.startTs,
+            endTs = endTs,
+            gpsOnly = entity.gpsOnly,
+            odoStartKm = entity.odoStartKm,
+            odoEndKm = entity.odoEndKm,
+            gpsDistanceM = entity.gpsDistanceM,
+            track = track,
+            telemetry = telemetry,
+            fuelEvents = fuelEvents,
+            segments = segments.map { SegmentSpan(it.startTs, it.endTs) },
+        )
+    }
+
     private suspend fun plotsFor(rideId: Long): RidePlots {
         val track = app.capture.trackForRide(rideId)
         val speeds = TrackPlot.stride(app.capture.speedsForRide(rideId))
@@ -401,6 +464,8 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
         recent: List<RideRow>,
         lastTrack: List<GpsFix>,
         lastSpeeds: List<Pair<Long, Int>>,
+        lastTimeline: RideTimeline,
+        recentThumbs: Map<Long, List<GpsFix>>,
         detail: RideDetail?,
     ): RideUiState {
         val heading = bearing
@@ -424,6 +489,8 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
             recent = recent,
             lastTrack = lastTrack,
             lastSpeeds = lastSpeeds,
+            lastTimeline = lastTimeline,
+            recentThumbs = recentThumbs,
             detail = detail,
         )
         val liveBits = base.copy(
@@ -549,6 +616,8 @@ private fun RideEntity.toRow(pb: Int, monthLongest: Double): RideRow {
         headline = lead.ifBlank { String.format("%.1f km", km()) },
         fuelBarsEnd = fuelBarsEnd,
         name = name,
+        odoStartKm = odoStartKm,
+        odoEndKm = odoEndKm,
     )
 }
 
