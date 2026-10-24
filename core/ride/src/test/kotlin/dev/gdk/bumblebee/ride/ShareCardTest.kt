@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 import java.time.ZoneOffset
 
 class ShareCardTest {
@@ -259,6 +260,29 @@ class ShareCardTest {
         assertEquals(ShareShape.FEED, ShareCard.of(ride(), switches = ShareSwitches(shape = ShareShape.FEED), zone = zone).shape)
     }
 
+    @Test fun `day card sums rides and marks stops between them`() {
+        val a = DayRide(ride(km = 40.0, movingSec = 3600, max = 90), eastbound(40_000.0), 50.0)
+        val b = DayRide(ride(km = 30.0, movingSec = 2400, max = 104), eastbound(30_000.0, startLng = 1.0), 30.0)
+        val card = ShareCard.ofDay(LocalDate.of(2026, 10, 24), listOf(a, b), zone = zone)
+        assertEquals("70.0", card.stats.first { it.kind == ShareMetricKind.DISTANCE }.value)
+        assertEquals(1, card.stops.size)
+        assertEquals("2 rides · 70.0 km", card.sentence)
+        assertEquals("SAT, 24 OCT", card.headline)
+        assertNull(card.rideNumberText)
+    }
+
+    @Test fun `day name overrides date headline`() =
+        assertEquals(
+            "Coorg loop",
+            ShareCard.ofDay(LocalDate.of(2026, 10, 24), listOf(dayRide(), dayRide()), dayName = " Coorg loop ", zone = zone).headline,
+        )
+
+    @Test fun `merged ride segment breaks become stops`() {
+        val track = eastbound(40_000.0)
+        val card = ShareCard.of(ride(km = 40.0), track = track, segmentBreaks = listOf(track[track.size / 2].ts), zone = zone)
+        assertEquals(1, card.stops.size)
+    }
+
     private fun ride(
         km: Double = 86.4,
         movingSec: Int = 3600,
@@ -275,7 +299,7 @@ class ShareCardTest {
     )
 
     /** Roughly [meters] of eastbound travel, copied from ShareCardRenderTest. */
-    private fun eastbound(meters: Double): List<GpsFix> {
+    private fun eastbound(meters: Double, startLng: Double = 77.59): List<GpsFix> {
         val total = meters + 1_200.0
         val steps = 80
         return List(steps) { i ->
@@ -285,11 +309,13 @@ class ShareCardTest {
             GpsFix(
                 ts = i * 1_000L,
                 lat = 12.97 + northM / 111_320.0,
-                lng = 77.59 + eastM / (111_320.0 * kotlin.math.cos(Math.toRadians(12.97))),
+                lng = startLng + eastM / (111_320.0 * kotlin.math.cos(Math.toRadians(12.97))),
                 speedMps = 12f + 8f * t,
             )
         }
     }
+
+    private fun dayRide() = DayRide(ride(), eastbound(20_000.0), climbM = null)
 
     /** Northbound fixes whose haversine distance from the start is each given metre. */
     private fun atMeters(vararg meters: Double): List<GpsFix> {

@@ -1,6 +1,7 @@
 package dev.gdk.bumblebee.ride
 
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -44,6 +45,13 @@ data class ShareExtras(
     val weatherLine: String? = null,
     val odoEndKm: Int? = null,
     val gpsOnly: Boolean = false,
+)
+
+data class DayRide(
+    val input: RideInsightInput,
+    val track: List<GpsFix>,
+    val climbM: Double?,
+    val segmentBreaks: List<Long> = emptyList(),
 )
 
 data class SharePlot(val x: Float, val y: Float, val pace: Float)
@@ -101,8 +109,76 @@ object ShareCard {
         extras: ShareExtras = ShareExtras(),
         demo: Boolean = false,
         zone: ZoneId = ZoneId.systemDefault(),
+        segmentBreaks: List<Long> = emptyList(),
     ): ShareCardModel {
         val route = trim(track)
+        return assemble(
+            ride, route, switches, climbM, tankKmPerL, extras, demo, zone,
+            nearestStops(route, segmentBreaks),
+            track,
+        )
+    }
+
+    fun ofDay(
+        date: LocalDate,
+        rides: List<DayRide>,
+        switches: ShareSwitches = ShareSwitches(),
+        dayName: String? = null,
+        zone: ZoneId = ZoneId.systemDefault(),
+    ): ShareCardModel {
+        val ordered = rides.sortedBy { it.input.startTs }
+        val pieces = ordered.map { it to trim(it.track) }
+        val route = pieces.flatMap { it.second }
+        val stops = ArrayList<GpsFix>()
+        var started = false
+        for ((ride, trimmed) in pieces) {
+            if (trimmed.isEmpty()) continue
+            if (started) stops += trimmed.first()
+            started = true
+            stops += nearestStops(trimmed, ride.segmentBreaks)
+        }
+        val km = ordered.sumOf { it.input.km }
+        val moving = ordered.sumOf { it.input.movingSec }
+        val anchor = date.atStartOfDay(zone).toInstant().toEpochMilli()
+        val synthetic = RideInsightInput(
+            startTs = ordered.firstOrNull()?.input?.startTs ?: anchor,
+            endTs = ordered.lastOrNull()?.input?.endTs ?: anchor,
+            km = km,
+            movingSec = moving,
+            idleSec = 0,
+            maxSpeedKmh = ordered.maxOfOrNull { it.input.maxSpeedKmh } ?: 0,
+            avgMovingSpeedKmh = if (moving > 0) km / (moving / 3600.0) else 0.0,
+        )
+        val climb = ordered.mapNotNull { it.climbM }.takeIf { it.isNotEmpty() }?.sum()
+        val card = assemble(
+            synthetic, route, switches, climb, null, ShareExtras(), false, zone, stops.distinct(), route,
+        )
+        val kmText = String.format(Locale.US, "%.1f", km)
+        return card.copy(
+            sentence = "${ordered.size} rides · $kmText km",
+            headline = RideNames.clean(dayName) ?: dayHeadline(date),
+            fromCode = null,
+            toCode = null,
+            fromPlace = null,
+            toPlace = null,
+            rideNumberText = null,
+            highlight = null,
+            weatherLine = null,
+        )
+    }
+
+    private fun assemble(
+        ride: RideInsightInput,
+        route: List<GpsFix>,
+        switches: ShareSwitches,
+        climbM: Double?,
+        tankKmPerL: Double?,
+        extras: ShareExtras,
+        demo: Boolean,
+        zone: ZoneId,
+        stops: List<GpsFix>,
+        storyTrack: List<GpsFix>,
+    ): ShareCardModel {
         val drawable = route.size >= 2
         var background = switches.background
         if (background == ShareBackground.MAP && !drawable) {
@@ -128,7 +204,7 @@ object ShareCard {
             shape = switches.shape,
             style = style,
             background = background,
-            sentence = firstSentence(RideStory.of(ride, track, zone)),
+            sentence = firstSentence(RideStory.of(ride, storyTrack, zone)),
             whenLabel = whenLabel(ride.startTs, zone),
             dateText = dateText(ride.startTs, zone),
             timeOfDay = timeOfDay,
@@ -152,10 +228,20 @@ object ShareCard {
             elevation = ShareTraces.elevation(route, climbM),
             speedTrace = ShareTraces.speed(route),
             odoKm = extras.odoEndKm.takeUnless { extras.gpsOnly },
-            stops = emptyList(),
+            stops = stops,
             mapFallback = false,
         )
     }
+
+    private fun nearestStops(route: List<GpsFix>, breaks: List<Long>): List<GpsFix> {
+        if (route.isEmpty()) return emptyList()
+        return breaks.map { ts -> route.minBy { kotlin.math.abs(it.ts - ts) } }
+    }
+
+    private fun dayHeadline(date: LocalDate): String =
+        DateTimeFormatter.ofPattern("EEE, d MMM", Locale.ENGLISH)
+            .format(date)
+            .uppercase(Locale.ENGLISH)
 
     private fun trim(track: List<GpsFix>): List<GpsFix> {
         if (track.size < 2) return emptyList()
