@@ -125,7 +125,10 @@ private fun RideArchive(
             )
         } else {
             DistanceTriple(state)
-            if (state.phase == RidePhase.LIVE) LiveSpeed(state)
+            if (state.phase == RidePhase.LIVE) {
+                LiveSpeed(state)
+                LiveExtras(state)
+            }
             if (state.phase == RidePhase.PAUSED) PausedNote(state)
             state.headline?.let { InsightCard(it, featured = true) }
             if (last != null && state.lastTrack.size >= 2) {

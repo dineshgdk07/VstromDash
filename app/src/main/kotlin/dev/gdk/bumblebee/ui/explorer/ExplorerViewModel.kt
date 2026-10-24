@@ -23,6 +23,7 @@ import dev.gdk.bumblebee.ride.WrappedRecap
 import dev.gdk.bumblebee.ui.ride.BandShare
 import dev.gdk.bumblebee.ui.ride.RideDetail
 import dev.gdk.bumblebee.ui.ride.RideRow
+import dev.gdk.bumblebee.ui.ride.detailExtras
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -312,6 +313,17 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
         )
         val overnight = Instant.ofEpochMilli(entity.startTs).atZone(ZoneId.systemDefault()).toLocalDate() !=
             Instant.ofEpochMilli(endTs).atZone(ZoneId.systemDefault()).toLocalDate()
+        val rupeesPerKm = FuelEconomics.costStats(app.capture.fuelFills())?.rollingRupeesPerKm
+        val extras = detailExtras(
+            capture = app.capture,
+            entity = entity,
+            track = track,
+            timeline = timeline,
+            litres = litres?.first,
+            rupeesPerKm = rupeesPerKm,
+            rides = app.capture.finishedRides(),
+            routes = emptyMap(),
+        )
         return RideDetail(
             row = entity.toRow(pb, entity.km()),
             insights = RideInsights.debrief(input, pb, entity.km(), track),
@@ -333,7 +345,7 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
             tripBKm = last?.tripBKm,
             bikeEconKml = bike,
             tankKmPerL = tank,
-            rupeesPerKm = FuelEconomics.costStats(app.capture.fuelFills())?.rollingRupeesPerKm,
+            rupeesPerKm = rupeesPerKm,
             litresEst = litres?.first,
             litresFromFills = litres?.second == true,
             gpx = gpx,
@@ -343,6 +355,9 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
             elapsedSec = ((endTs - entity.startTs) / 1000L).toInt().coerceAtLeast(0),
             stopLines = pauseStopLines(segments),
             demo = entity.isDemo,
+            score = extras.score,
+            usual = extras.usual,
+            cost = extras.cost,
             shareText = GpxExport.recap(
                 title = "Ride ${DateTimeFormatter.ofPattern("EEE d MMM").withZone(ZoneId.systemDefault()).format(java.time.Instant.ofEpochMilli(entity.startTs))}",
                 km = entity.km(),

@@ -254,6 +254,12 @@ fun RideDetailPane(
         seekNonce += 1
         scope.launch { scroll.scrollTo(0) }
     }
+
+    /** Moves the replay without scrolling, for scrubbing from further down the page. */
+    fun seek(ts: Long) {
+        seekTs = ts
+        seekNonce += 1
+    }
     val avg = if (detail.row.avgMovingSpeedKmh > 0) {
         String.format("%.0f", detail.row.avgMovingSpeedKmh)
     } else {
@@ -369,6 +375,9 @@ fun RideDetailPane(
                 color = TextSecondary,
             )
         }
+        detail.score?.let { RideScoreCard(it) }
+        UsualCard(detail.usual, detail.cost)
+        SpeedElevationChart(detail.track) { seek(it) }
         OdoCard(detail)
         if (detail.insights.isNotEmpty()) {
             SectionLabel(text = "What stood out")

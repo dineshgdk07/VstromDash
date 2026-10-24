@@ -12,6 +12,13 @@ import dev.gdk.bumblebee.data.local.asTicks
 import dev.gdk.bumblebee.ride.CompassCardinal
 import dev.gdk.bumblebee.ride.DemoRideSource
 import dev.gdk.bumblebee.ride.FuelEconomics
+import dev.gdk.bumblebee.ride.Ghost
+import dev.gdk.bumblebee.ride.RideAnalytics
+import dev.gdk.bumblebee.ride.RideCost
+import dev.gdk.bumblebee.ride.RideScore
+import dev.gdk.bumblebee.ride.RouteClustering
+import dev.gdk.bumblebee.ride.Split
+import dev.gdk.bumblebee.ride.TrackSimplify
 import dev.gdk.bumblebee.ride.GpsFix
 import dev.gdk.bumblebee.ride.GpxExport
 import dev.gdk.bumblebee.ride.InsightLine
@@ -93,6 +100,10 @@ data class RideDetail(
     val elapsedSec: Int = 0,
     val stopLines: List<String> = emptyList(),
     val demo: Boolean = false,
+    val score: RideScore? = null,
+    /** How the ride compares with the rider's others. */
+    val usual: List<String> = emptyList(),
+    val cost: RideCost? = null,
 )
 
 data class RideUiState(
@@ -131,6 +142,14 @@ data class RideUiState(
     val tripBKm: Double? = null,
     val economyKml: Double? = null,
     val rangeKm: Double? = null,
+    /** Completed 10 km splits of the live ride. */
+    val splits: List<Split> = emptyList(),
+    /** Seconds since the last stop of three minutes or more. */
+    val sinceStopSec: Int? = null,
+    /** Minutes until the range runs out at the live average. */
+    val fuelMinutes: Int? = null,
+    /** Against the quickest earlier ride from the same start, at the same distance. */
+    val ghost: Ghost? = null,
 )
 
 class RideViewModel(application: Application) : AndroidViewModel(application) {
@@ -152,6 +171,18 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
     private var pendingShareId: Long? = null
     private var cachedDetail: RideDetail? = null
     private var cachedDetailId: Long? = null
+    /** Route cluster of each finished ride; rebuilt when the archive changes. */
+    private var cachedClusters: Map<Long, Int>? = null
+    private var liveExtras = LiveExtras()
+    private var liveExtrasAt = 0L
+    private var ghostRideId: Long? = null
+    private var ghostTracks: Map<Long, List<GpsFix>> = emptyMap()
+
+    private data class LiveExtras(
+        val splits: List<Split> = emptyList(),
+        val sinceStopSec: Int? = null,
+        val ghost: Ghost? = null,
+    )
 
     private val _ui = MutableStateFlow(RideUiState())
     val ui: StateFlow<RideUiState> = _ui.asStateFlow()
@@ -288,7 +319,51 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
             cachedRange = eco.rangeKm
             cachedTankKmPerL = eco.tankKmPerL
             cachedRupeesPerKm = eco.cost?.rollingRupeesPerKm
+            cachedClusters = null
         }
+    }
+
+    /**
+     * Splits, time since the last stop, and the ghost for the live ride. Reads the track, so it
+     * runs at most every ten seconds; the earlier rides the ghost compares with load once a ride.
+     */
+    private suspend fun refreshLiveExtras(now: Long) {
+        val rideId = app.capture.activeRideId ?: return
+        if (now - liveExtrasAt < 10_000L) return
+        liveExtrasAt = now
+        liveExtras = withContext(Dispatchers.IO) {
+            val track = app.capture.trackForRide(rideId)
+            if (ghostRideId != rideId && track.isNotEmpty()) {
+                val start = track.first()
+                ghostTracks = cachedRides.filter { !it.isDemo && it.mergedIntoId == null }.take(40).mapNotNull { ride ->
+                    val past = app.capture.trackForRide(ride.id)
+                    val first = past.firstOrNull() ?: return@mapNotNull null
+                    val near = dev.gdk.bumblebee.ride.Geo.haversineMeters(first.lat, first.lng, start.lat, start.lng) <= 400.0
+                    if (near) ride.id to TrackPlot.downsample(past, 600) else null
+                }.toMap()
+                ghostRideId = rideId
+            }
+            LiveExtras(
+                splits = RideAnalytics.splits(track),
+                sinceStopSec = RideAnalytics.sinceLastStopSec(track, now),
+                ghost = RideAnalytics.ghost(TrackPlot.downsample(track, 600), ghostTracks),
+            )
+        }
+    }
+
+    /** Ride id → route cluster over the latest 50 rides, built on first use. */
+    private suspend fun clusters(): Map<Long, Int> {
+        cachedClusters?.let { return it }
+        val built = withContext(Dispatchers.IO) {
+            val rides = cachedRides.filter { !it.isDemo }.take(50)
+            val tracks = rides.associate { it.id to TrackSimplify.douglasPeucker(app.capture.trackForRide(it.id)) }
+            RouteClustering.cluster(rides.map { it.id }, tracks)
+                .filter { it.clusterId != RouteClustering.UNTRACKED }
+                .flatMap { c -> c.rideIds.map { it to c.clusterId } }
+                .toMap()
+        }
+        cachedClusters = built
+        return built
     }
 
     private suspend fun tick() {
@@ -320,6 +395,7 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
             cachedRides.filter { it.startTs >= monthStart }.maxOfOrNull { it.km() } ?: 0.0,
             liveKm,
         )
+        if (live != null && !paused) refreshLiveExtras(now) else ghostRideId = null
         val pb = maxOf(cachedPb, live?.maxSpeedKmh ?: 0)
         val rows = cachedRides.map { it.toRow(pb, monthLongest) }
         val last = cachedRides.firstOrNull()
@@ -394,6 +470,16 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
         )
         val overnight = Instant.ofEpochMilli(entity.startTs).atZone(ZoneId.systemDefault()).toLocalDate() !=
             Instant.ofEpochMilli(endTs).atZone(ZoneId.systemDefault()).toLocalDate()
+        val extras = detailExtras(
+            capture = app.capture,
+            entity = entity,
+            track = plots.track,
+            timeline = timeline,
+            litres = litres?.first,
+            rupeesPerKm = cachedRupeesPerKm,
+            rides = cachedRides,
+            routes = if (entity.isDemo) emptyMap() else clusters(),
+        )
         return RideDetail(
             row = entity.toRow(pb, monthLongest),
             insights = RideInsights.debrief(input, pb, monthLongest, plots.track),
@@ -425,6 +511,9 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
             elapsedSec = ((endTs - entity.startTs) / 1000L).toInt().coerceAtLeast(0),
             stopLines = pauseStopLines(segments),
             demo = entity.isDemo,
+            score = extras.score,
+            usual = extras.usual,
+            cost = extras.cost,
             shareText = GpxExport.recap(
                 title = "Ride ${DateTimeFormatter.ofPattern("EEE d MMM").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(entity.startTs))}",
                 km = entity.km(),
@@ -537,6 +626,10 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
             )
             live != null -> liveBits.copy(
                 phase = RidePhase.LIVE,
+                splits = liveExtras.splits,
+                sinceStopSec = liveExtras.sinceStopSec,
+                ghost = liveExtras.ghost,
+                fuelMinutes = RideAnalytics.minutesOfRange(cachedRange, live.avgMovingSpeedKmh),
                 elapsedSec = ((now - live.startTs) / 1000L).toInt().coerceAtLeast(0),
                 movingSec = live.movingSec,
                 idleSec = live.idleSec,
