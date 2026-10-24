@@ -88,7 +88,7 @@ fun ExplorerScreen(
     onOpenRecap: (Int) -> Unit = {},
     onOpenMonthRecap: (YearMonth) -> Unit = {},
     onOpenDiscover: (Discover) -> Unit = {},
-    onCompare: (Long, Long) -> Unit = {},
+    onCompare: (Long, Long) -> Unit = { _, _ -> },
 ) {
     val state by model.ui.collectAsStateWithLifecycle()
     val detail = state.detail
@@ -132,7 +132,7 @@ private fun ExplorerBody(
     onOpenRecap: (Int) -> Unit = {},
     onOpenMonthRecap: (YearMonth) -> Unit = {},
     onOpenDiscover: (Discover) -> Unit = {},
-    onCompare: (Long, Long) -> Unit = {},
+    onCompare: (Long, Long) -> Unit = { _, _ -> },
     onSetGoal: (Double?) -> Unit = {},
 ) {
     var goalOpen by remember { mutableStateOf(false) }

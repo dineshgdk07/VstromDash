@@ -497,10 +497,13 @@ internal fun dev.gdk.bumblebee.data.local.RideEntity.toFact(): dev.gdk.bumblebee
     val s = odoStartKm
     val e = odoEndKm
     val km = if (s != null && e != null) (e - s).toDouble() else gpsDistanceM / 1000.0
+    val name = name
+    val start = startPlace
+    val end = endPlace
     val label = when {
         !name.isNullOrBlank() -> name
-        !startPlace.isNullOrBlank() && !endPlace.isNullOrBlank() && startPlace != endPlace -> "$startPlace → $endPlace"
-        !endPlace.isNullOrBlank() -> endPlace
+        !start.isNullOrBlank() && !end.isNullOrBlank() && start != end -> "$start → $end"
+        !end.isNullOrBlank() -> end
         else -> "Ride"
     }
     return dev.gdk.bumblebee.ride.RideFact(id, startTs, km, movingSec, maxSpeedKmh, climbM, label)
