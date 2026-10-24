@@ -6,9 +6,18 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,6 +25,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -23,22 +33,26 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -47,6 +61,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -76,6 +91,7 @@ import dev.gdk.bumblebee.ui.sharecard.ShareCardMapTransform
 import dev.gdk.bumblebee.ui.sharecard.ShareCardPainter
 import dev.gdk.bumblebee.ui.theme.Canvas
 import dev.gdk.bumblebee.ui.theme.Lime
+import dev.gdk.bumblebee.ui.theme.OnBlock
 import dev.gdk.bumblebee.ui.theme.ShapeLg
 import dev.gdk.bumblebee.ui.theme.ShapeMd
 import dev.gdk.bumblebee.ui.theme.ShapeXs
@@ -86,6 +102,7 @@ import dev.gdk.bumblebee.ui.theme.TextPrimary
 import dev.gdk.bumblebee.ui.theme.TextSecondary
 import dev.gdk.bumblebee.ui.theme.Warning
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -102,7 +119,8 @@ fun ShareScreen(subject: ShareSubject, onDismiss: () -> Unit) {
     val ui by vm.ui.collectAsState()
     val card = ui.previews[ui.switches.look]
     val scope = rememberCoroutineScope()
-    var saveMessage by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    var saved by remember { mutableIntStateOf(0) }
     var photoError by remember { mutableStateOf<String?>(null) }
     var statHint by remember { mutableStateOf(false) }
     var sawPlaces by remember { mutableStateOf(false) }
@@ -143,9 +161,17 @@ fun ShareScreen(subject: ShareSubject, onDismiss: () -> Unit) {
         }
     }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    // The view model outlives the dialog. Start every open on the design grid.
+    val close = {
+        vm.back()
+        onDismiss()
+    }
+    Dialog(
+        onDismissRequest = { if (ui.selected != null) vm.back() else close() },
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
         Column(
-            Modifier.fillMaxSize().background(Canvas).padding(top = 12.dp),
+            Modifier.fillMaxSize().background(Canvas).safeDrawingPadding().padding(top = 12.dp),
         ) {
             Header(
                 title = if (ui.selected == null) {
@@ -155,7 +181,7 @@ fun ShareScreen(subject: ShareSubject, onDismiss: () -> Unit) {
                 },
                 showBack = ui.selected != null,
                 onBack = vm::back,
-                onClose = onDismiss,
+                onClose = close,
             )
             if (ui.selected == null || card == null) {
                 PickStep(
@@ -176,7 +202,8 @@ fun ShareScreen(subject: ShareSubject, onDismiss: () -> Unit) {
                     tiles = tiles.tiles,
                     mapNotice = mapNotice,
                     photoError = photoError,
-                    saveMessage = saveMessage,
+                    saving = saving,
+                    saved = saved,
                     statHint = statHint,
                     showPlaces = sawPlaces,
                     showHighlight = sawHighlight,
@@ -211,20 +238,28 @@ fun ShareScreen(subject: ShareSubject, onDismiss: () -> Unit) {
                     onHighlight = { vm.update { it.copy(showHighlight = !it.showHighlight) } },
                     onWeather = { vm.update { it.copy(showWeather = !it.showWeather) } },
                     onSave = {
-                        scope.launch {
-                            val bmp = render(context, card, ui.photo, tiles.tiles, sticker = false)
-                            val name = when (subject) {
-                                is ShareSubject.Ride -> "bumblebee-ride-${subject.rideId}.png"
-                                is ShareSubject.Day -> "bumblebee-day-${subject.date}.png"
+                        if (!saving) {
+                            saving = true
+                            scope.launch {
+                                val bmp = withContext(Dispatchers.Default) { render(context, card, ui.photo, tiles.tiles, sticker = false) }
+                                val name = when (subject) {
+                                    is ShareSubject.Ride -> "bumblebee-ride-${subject.rideId}.png"
+                                    is ShareSubject.Day -> "bumblebee-day-${subject.date}.png"
+                                }
+                                val ok = withContext(Dispatchers.IO) { ShareCardGallery.savePng(context, bmp, name) }
+                                saving = false
+                                if (ok.isSuccess) {
+                                    saved++
+                                } else {
+                                    Toast.makeText(context, "Couldn't save the image", Toast.LENGTH_SHORT).show()
+                                }
                             }
-                            val ok = withContext(Dispatchers.IO) { ShareCardGallery.savePng(context, bmp, name) }
-                            saveMessage = if (ok.isSuccess) "Saved to Gallery" else "Could not save image"
                         }
                     },
                     onSticker = {
                         vm.commitName()
                         scope.launch {
-                            val bmp = render(context, card, ui.photo, tiles.tiles, sticker = true)
+                            val bmp = withContext(Dispatchers.Default) { render(context, card, ui.photo, tiles.tiles, sticker = true) }
                             val file = withContext(Dispatchers.IO) { ShareCardPainter.writePng(context, bmp, fileId(subject)) }
                             shareSticker(context, file)
                         }
@@ -232,7 +267,7 @@ fun ShareScreen(subject: ShareSubject, onDismiss: () -> Unit) {
                     onShare = {
                         vm.commitName()
                         scope.launch {
-                            val bmp = render(context, card, ui.photo, tiles.tiles, sticker = false)
+                            val bmp = withContext(Dispatchers.Default) { render(context, card, ui.photo, tiles.tiles, sticker = false) }
                             val file = withContext(Dispatchers.IO) { ShareCardPainter.writePng(context, bmp, fileId(subject)) }
                             shareCardImage(context, file, card.sentence)
                         }
@@ -320,7 +355,7 @@ private fun PickStep(
         looks.chunked(2).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (look in row) {
-                    Thumb(look, thumbs[look], ui.switches.shape, Modifier.weight(1f)) { onPick(look) }
+                    Thumb(look, thumbs[look], ui.switches.shape, look == ui.switches.look, Modifier.weight(1f)) { onPick(look) }
                 }
                 if (row.size == 1) Box(Modifier.weight(1f))
             }
@@ -335,7 +370,14 @@ private fun PickStep(
 }
 
 @Composable
-private fun Thumb(look: ShareLook, bitmap: Bitmap?, shape: ShareShape, modifier: Modifier, onClick: () -> Unit) {
+private fun Thumb(
+    look: ShareLook,
+    bitmap: Bitmap?,
+    shape: ShareShape,
+    lastUsed: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier
@@ -343,6 +385,7 @@ private fun Thumb(look: ShareLook, bitmap: Bitmap?, shape: ShareShape, modifier:
                 .aspectRatio(shape.ratio())
                 .clip(ShapeLg)
                 .background(Surface)
+                .border(if (lastUsed) 2.dp else 0.dp, if (lastUsed) Lime else Color.Transparent, ShapeLg)
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
@@ -357,7 +400,7 @@ private fun Thumb(look: ShareLook, bitmap: Bitmap?, shape: ShareShape, modifier:
                 )
             }
         }
-        Text(look.label(), style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+        Text(look.label(), style = MaterialTheme.typography.labelMedium, color = if (lastUsed) Lime else TextSecondary)
     }
 }
 
@@ -370,7 +413,8 @@ private fun CustomiseStep(
     tiles: Map<TileId, Bitmap>,
     mapNotice: Boolean,
     photoError: String?,
-    saveMessage: String?,
+    saving: Boolean,
+    saved: Int,
     statHint: Boolean,
     showPlaces: Boolean,
     showHighlight: Boolean,
@@ -393,20 +437,35 @@ private fun CustomiseStep(
             render(context, card, ui.photo, tiles, sticker = false)
         }
     }
+    var showSaved by remember { mutableStateOf(false) }
+    val pulse = remember { Animatable(1f) }
+    LaunchedEffect(saved) {
+        if (saved == 0) return@LaunchedEffect
+        showSaved = true
+        pulse.snapTo(0.93f)
+        pulse.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = Spring.StiffnessMediumLow))
+        delay(1_300)
+        showSaved = false
+    }
     Column(modifier.fillMaxWidth()) {
-        Box(
+        // Fit the card inside its slot. Width-first sizing let a tall story spill under the header and options.
+        BoxWithConstraints(
             Modifier
-                .weight(1f)
+                .weight(0.58f)
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             contentAlignment = Alignment.Center,
         ) {
+            val ratio = card.shape.ratio()
+            val w = minOf(maxWidth, maxHeight * ratio)
             val bmp = rendered
             Box(
                 Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(card.shape.ratio())
-                    .heightIn(max = 520.dp)
+                    .size(w, w / ratio)
+                    .graphicsLayer {
+                        scaleX = pulse.value
+                        scaleY = pulse.value
+                    }
                     .clip(ShapeLg)
                     .background(Surface),
                 contentAlignment = Alignment.Center,
@@ -421,14 +480,15 @@ private fun CustomiseStep(
                         contentScale = ContentScale.Fit,
                     )
                 }
+                SavedBadge(showSaved)
             }
         }
         Column(
             Modifier
+                .weight(0.42f)
                 .fillMaxWidth()
-                .heightIn(max = 280.dp)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (mapNotice) {
@@ -506,15 +566,40 @@ private fun CustomiseStep(
                     if (showWeather) PillChip("Weather", ui.switches.showWeather, onClick = onWeather)
                 }
             }
-            saveMessage?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = TextSecondary) }
         }
-        Column(
+        Row(
             Modifier.fillMaxWidth().background(Surface).padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            ChunkyButton(text = "Save", onClick = onSave, style = ChunkyStyle.Outline, compact = true)
-            ChunkyButton(text = "Sticker", onClick = onSticker, style = ChunkyStyle.Outline, compact = true)
-            ChunkyButton(text = "Share", onClick = onShare, style = ChunkyStyle.Lime, compact = true)
+            ChunkyButton(
+                text = if (saving) "Saving…" else "Save",
+                onClick = onSave,
+                modifier = Modifier.weight(1f),
+                style = ChunkyStyle.Outline,
+                enabled = !saving,
+                compact = true,
+            )
+            ChunkyButton(text = "Sticker", onClick = onSticker, modifier = Modifier.weight(1f), style = ChunkyStyle.Outline, compact = true)
+            ChunkyButton(text = "Share", onClick = onShare, modifier = Modifier.weight(1f), style = ChunkyStyle.Lime, compact = true)
+        }
+    }
+}
+
+/** A check that pops over the preview when the card lands in the gallery. */
+@Composable
+private fun SavedBadge(visible: Boolean) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn() + scaleIn(initialScale = 0.4f, animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium)),
+        exit = fadeOut() + scaleOut(targetScale = 0.85f),
+    ) {
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.size(72.dp).clip(CircleShape).background(Lime), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Check, contentDescription = null, tint = OnBlock, modifier = Modifier.size(40.dp))
+                }
+                Text("Saved to Gallery", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+            }
         }
     }
 }

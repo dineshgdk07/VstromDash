@@ -31,7 +31,15 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.automirrored.rounded.Notes
+import androidx.compose.material.icons.rounded.Route
+import androidx.compose.material.icons.rounded.TableChart
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
@@ -65,6 +74,7 @@ import dev.gdk.bumblebee.ui.components.ChunkyIconButton
 import dev.gdk.bumblebee.ui.components.ChunkyStyle
 import dev.gdk.bumblebee.ui.components.ForgeTopBar
 import dev.gdk.bumblebee.ui.components.ListRow
+import dev.gdk.bumblebee.ui.components.ListRowChevron
 import dev.gdk.bumblebee.ui.components.ListRowIcon
 import dev.gdk.bumblebee.ui.components.SectionCard
 import dev.gdk.bumblebee.ui.components.SectionLabel
@@ -80,6 +90,8 @@ import dev.gdk.bumblebee.ui.theme.ShapeMd
 import dev.gdk.bumblebee.ui.theme.ShapePill
 import dev.gdk.bumblebee.ui.theme.ShapeSm
 import dev.gdk.bumblebee.ui.theme.Stroke as GridStroke
+import dev.gdk.bumblebee.ui.theme.Scrim
+import dev.gdk.bumblebee.ui.theme.ShapeSheet
 import dev.gdk.bumblebee.ui.theme.Surface
 import dev.gdk.bumblebee.ui.theme.SurfaceRaised
 import dev.gdk.bumblebee.ui.theme.TextDisabled
@@ -233,6 +245,9 @@ fun RideDetailPane(
     var seekTs by remember(detail.row.id) { mutableStateOf<Long?>(null) }
     var seekNonce by remember(detail.row.id) { mutableIntStateOf(0) }
     var renaming by remember(detail.row.id) { mutableStateOf(false) }
+    var shareMenu by remember(detail.row.id) { mutableStateOf(false) }
+    var shareCard by remember(detail.row.id) { mutableStateOf(false) }
+    val actions = shareActions(detail, context, openCard = { shareCard = true })
     var draft by remember(detail.row.id, detail.row.name) { mutableStateOf(detail.row.name.orEmpty()) }
     fun jump(ts: Long) {
         seekTs = ts
@@ -256,9 +271,9 @@ fun RideDetailPane(
         ForgeTopBar(
             title = detailTitle(detail.row),
             onBack = onBack,
-            trailing = if (onRename != null || detail.shareText.isNotBlank()) {
+            trailing = if (onRename != null || actions.isNotEmpty()) {
                 {
-                    Row {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (onRename != null) {
                             ChunkyIconButton(
                                 icon = Icons.Rounded.Edit,
@@ -266,11 +281,11 @@ fun RideDetailPane(
                                 onClick = { renaming = true },
                             )
                         }
-                        if (detail.shareText.isNotBlank()) {
+                        if (actions.isNotEmpty()) {
                             ChunkyIconButton(
                                 icon = Icons.Rounded.Share,
-                                contentDescription = "Share recap",
-                                onClick = { shareRide(context, detail.shareText, null, detail.row.id) },
+                                contentDescription = "Share",
+                                onClick = { shareMenu = true },
                             )
                         }
                     }
@@ -279,6 +294,12 @@ fun RideDetailPane(
                 null
             },
         )
+        if (shareMenu) {
+            ShareMenu(actions, onDismiss = { shareMenu = false })
+        }
+        if (shareCard) {
+            ShareScreen(ShareSubject.Ride(detail.row.id), onDismiss = { shareCard = false })
+        }
         if (renaming && onRename != null) {
             AlertDialog(
                 onDismissRequest = { renaming = false },
@@ -405,7 +426,9 @@ fun RideDetailPane(
             }
         }
         DetailFuel(detail)
-        DetailShare(detail, context)
+        actions.forEach { action ->
+            ChunkyButton(text = action.label, onClick = action.run, style = ChunkyStyle.Outline)
+        }
     }
 }
 
@@ -572,40 +595,56 @@ private fun FuelFact(label: String, value: String, valueColor: Color) {
     }
 }
 
-@Composable
-private fun DetailShare(detail: RideDetail, context: android.content.Context) {
+/** One way to share a ride. The header menu and the buttons at the bottom list the same ones. */
+private class ShareAction(val label: String, val hint: String, val icon: ImageVector, val run: () -> Unit)
+
+private fun shareActions(detail: RideDetail, context: Context, openCard: () -> Unit): List<ShareAction> = buildList {
+    if (detail.row.endTs != null) add(ShareAction("Share card", "Pick a design and share an image", Icons.Rounded.Image, openCard))
     if (detail.shareText.isNotBlank()) {
-        ChunkyButton(
-            text = "Share recap",
-            onClick = { shareRide(context, detail.shareText, null, detail.row.id) },
-            style = ChunkyStyle.Outline,
-        )
-        if (detail.row.endTs != null) ShareCardButton(detail)
-        if (detail.gpx != null) {
-            ChunkyButton(
-                text = "Share GPX",
-                onClick = { shareRide(context, detail.shareText, detail.gpx, detail.row.id) },
-                style = ChunkyStyle.Outline,
-            )
+        add(ShareAction("Share recap", "A short text summary", Icons.AutoMirrored.Rounded.Notes) { shareRide(context, detail.shareText, null, detail.row.id) })
+        detail.gpx?.let { gpx ->
+            add(ShareAction("Share GPX", "The track, for maps and Strava", Icons.Rounded.Route) { shareRide(context, detail.shareText, gpx, detail.row.id) })
         }
-        if (detail.csv != null) {
-            ChunkyButton(
-                text = "Share CSV",
-                onClick = { shareCsv(context, detail.csv, detail.row.id) },
-                style = ChunkyStyle.Outline,
-            )
+        detail.csv?.let { csv ->
+            add(ShareAction("Share CSV", "Raw ride data", Icons.Rounded.TableChart) { shareCsv(context, csv, detail.row.id) })
         }
-    } else if (detail.row.endTs != null) {
-        ShareCardButton(detail)
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ShareCardButton(detail: RideDetail) {
-    var open by remember(detail.row.id) { mutableStateOf(false) }
-    ChunkyButton(text = "Share card", onClick = { open = true }, style = ChunkyStyle.Outline)
-    if (open) {
-        ShareScreen(ShareSubject.Ride(detail.row.id), onDismiss = { open = false })
+private fun ShareMenu(actions: List<ShareAction>, onDismiss: () -> Unit) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        shape = ShapeSheet,
+        containerColor = Surface,
+        contentColor = TextPrimary,
+        tonalElevation = 0.dp,
+        scrimColor = Scrim,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = TextSecondary) },
+    ) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+            Text(
+                "SHARE",
+                style = MaterialTheme.typography.headlineSmall,
+                color = TextPrimary,
+                modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp),
+            )
+            actions.forEachIndexed { i, action ->
+                ListRow(
+                    title = action.label,
+                    subtitle = action.hint,
+                    onClick = {
+                        onDismiss()
+                        action.run()
+                    },
+                    showDivider = i < actions.lastIndex,
+                    leading = { ListRowIcon(action.icon) },
+                    trailing = { ListRowChevron() },
+                )
+            }
+        }
     }
 }
 
