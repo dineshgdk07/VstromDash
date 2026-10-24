@@ -147,50 +147,52 @@ class ShareCardTest {
     }
 
     @Test
-    fun `map with a drawable track needs tiles, and without one becomes ink on black`() {
+    fun `map with a drawable track needs tiles, and without one becomes ink on own`() {
         val drawn = ShareCard.of(
             ride(km = 2.0),
             track = atMeters(0.0, 100.0, 500.0, 1200.0, 1600.0, 2000.0),
-            switches = ShareSwitches(style = ShareStyle.MAP, background = ShareBackground.PHOTO),
+            switches = ShareSwitches(background = ShareBackground.MAP),
             zone = zone,
         )
         assertEquals(ShareStyle.MAP, drawn.style)
-        assertEquals(ShareBackground.BLACK, drawn.background)
+        assertEquals(ShareBackground.MAP, drawn.background)
         assertTrue(drawn.needsTiles)
 
         val short = ShareCard.of(
             ride(km = 0.4),
             track = atMeters(0.0, 200.0, 400.0),
-            switches = ShareSwitches(style = ShareStyle.MAP),
+            switches = ShareSwitches(background = ShareBackground.MAP),
             zone = zone,
         )
         assertEquals(ShareStyle.INK, short.style)
-        assertEquals(ShareBackground.BLACK, short.background)
+        assertEquals(ShareBackground.OWN, short.background)
         assertFalse(short.needsTiles)
     }
 
     @Test
-    fun `map cannot use transparent`() {
+    fun `transparent background stays transparent`() {
         val card = ShareCard.of(
             ride(km = 2.0),
             track = atMeters(0.0, 100.0, 500.0, 1200.0, 1600.0, 2000.0),
-            switches = ShareSwitches(style = ShareStyle.MAP, background = ShareBackground.TRANSPARENT),
+            switches = ShareSwitches(background = ShareBackground.TRANSPARENT),
             zone = zone,
         )
-        assertEquals(ShareBackground.BLACK, card.background)
+        assertEquals(ShareBackground.TRANSPARENT, card.background)
     }
 
     @Test
-    fun `missing tiles become corridor on black`() {
+    fun `missing tiles become own and flag a fallback`() {
         val map = ShareCard.of(
             ride(km = 2.0),
             track = atMeters(0.0, 100.0, 500.0, 1200.0, 1600.0, 2000.0),
-            switches = ShareSwitches(style = ShareStyle.MAP),
+            switches = ShareSwitches(background = ShareBackground.MAP),
             zone = zone,
         )
         val painted = map.withTiles(complete = false)
-        assertEquals(ShareStyle.CORRIDOR, painted.style)
-        assertEquals(ShareBackground.BLACK, painted.background)
+        assertEquals(ShareStyle.INK, painted.style)
+        assertEquals(ShareBackground.OWN, painted.background)
+        assertTrue(painted.mapFallback)
+        assertEquals(ShareLook.NIGHT_GLOW, painted.look)
         assertFalse(painted.needsTiles)
     }
 
@@ -205,7 +207,56 @@ class ShareCardTest {
     fun `default style is ink without a stats bar`() {
         val card = ShareCard.of(ride(), zone = zone)
         assertEquals(ShareStyle.INK, card.style)
-        assertEquals(ShareBackground.BLACK, card.background)
+        assertEquals(ShareBackground.OWN, card.background)
+        assertEquals(ShareLook.NIGHT_GLOW, card.look)
+    }
+
+    @Test fun `headline uses the ride name and never puts it in the bike slot`() {
+        val card = ShareCard.of(ride(), extras = ShareExtras(rideName = "Nandi run"), zone = zone)
+        assertEquals("Nandi run", card.headline)
+    }
+
+    @Test fun `place codes and ride number are filled for ride pass`() {
+        val card = ShareCard.of(
+            ride(),
+            extras = ShareExtras(startPlace = "Bengaluru", endPlace = "Nandi Hills", rideNumber = 147),
+            zone = zone,
+        )
+        assertEquals("BEN", card.fromCode)
+        assertEquals("NAN", card.toCode)
+        assertEquals("No. 0147", card.rideNumberText)
+    }
+
+    @Test fun `places off hides place fields`() {
+        val card = ShareCard.of(
+            ride(),
+            switches = ShareSwitches(showPlaces = false),
+            extras = ShareExtras(startPlace = "Bengaluru", endPlace = "Nandi Hills"),
+            zone = zone,
+        )
+        assertNull(card.fromPlace)
+        assertNull(card.fromCode)
+    }
+
+    @Test fun `gps only ride has no odometer`() {
+        val card = ShareCard.of(ride(), extras = ShareExtras(odoEndKm = 24816, gpsOnly = true), zone = zone)
+        assertNull(card.odoKm)
+    }
+
+    @Test fun `missing tiles flag a map fallback instead of silently switching`() {
+        val card = ShareCard.of(
+            ride(km = 20.0),
+            track = eastbound(20_000.0),
+            switches = ShareSwitches(background = ShareBackground.MAP),
+            zone = zone,
+        ).withTiles(complete = false)
+        assertTrue(card.mapFallback)
+        assertEquals(ShareBackground.OWN, card.background)
+        assertEquals(ShareLook.NIGHT_GLOW, card.look)
+    }
+
+    @Test fun `feed shape is carried`() {
+        assertEquals(ShareShape.FEED, ShareCard.of(ride(), switches = ShareSwitches(shape = ShareShape.FEED), zone = zone).shape)
     }
 
     private fun ride(
@@ -222,6 +273,23 @@ class ShareCardTest {
         maxSpeedKmh = max,
         avgMovingSpeedKmh = avg,
     )
+
+    /** Roughly [meters] of eastbound travel, copied from ShareCardRenderTest. */
+    private fun eastbound(meters: Double): List<GpsFix> {
+        val total = meters + 1_200.0
+        val steps = 80
+        return List(steps) { i ->
+            val t = i / (steps - 1).toFloat()
+            val eastM = total * t
+            val northM = kotlin.math.sin(t * 12.0) * 900.0 + t * 400.0
+            GpsFix(
+                ts = i * 1_000L,
+                lat = 12.97 + northM / 111_320.0,
+                lng = 77.59 + eastM / (111_320.0 * kotlin.math.cos(Math.toRadians(12.97))),
+                speedMps = 12f + 8f * t,
+            )
+        }
+    }
 
     /** Northbound fixes whose haversine distance from the start is each given metre. */
     private fun atMeters(vararg meters: Double): List<GpsFix> {

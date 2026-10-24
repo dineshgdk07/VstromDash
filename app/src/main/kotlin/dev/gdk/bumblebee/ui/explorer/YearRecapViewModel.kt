@@ -160,13 +160,13 @@ internal suspend fun buildRecap(
         track = longestTrack,
         switches = ShareSwitches(
             shape = ShareShape.STORY,
-            style = if (longestTrack.size >= 2) ShareStyle.CORRIDOR else ShareStyle.INK,
-            background = ShareBackground.BLACK,
+            background = ShareBackground.OWN,
         ),
         demo = rides.all { it.isDemo },
         zone = zone,
     )
     val card = painted.copy(
+        style = if (longestTrack.size >= 2) ShareStyle.CORRIDOR else painted.style,
         sentence = "${kmText(totalKm)} km across ${rides.size} rides.",
         whenLabel = year.toString(),
         dateText = year.toString(),

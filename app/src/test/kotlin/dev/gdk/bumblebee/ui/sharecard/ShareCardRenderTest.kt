@@ -9,7 +9,7 @@ import dev.gdk.bumblebee.ride.GpsFix
 import dev.gdk.bumblebee.ride.RideInsightInput
 import dev.gdk.bumblebee.ride.ShareCard
 import dev.gdk.bumblebee.ride.ShareShape
-import dev.gdk.bumblebee.ride.ShareStyle
+import dev.gdk.bumblebee.ride.ShareBackground
 import dev.gdk.bumblebee.ride.ShareSwitches
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -39,7 +39,7 @@ class ShareCardRenderTest {
                 avgMovingSpeedKmh = 66.0,
             ),
             track = track,
-            switches = ShareSwitches(shape = ShareShape.STORY, style = ShareStyle.MAP),
+            switches = ShareSwitches(shape = ShareShape.STORY, background = ShareBackground.MAP),
             climbM = 262.0,
             zone = ZoneOffset.UTC,
         )
