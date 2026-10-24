@@ -23,8 +23,9 @@ That README still owns **what data may appear**. This file owns **how it looks**
    shadow (§4.1). Static content is flat. Users should be able to tell what's tappable from that alone.
 4. **Lime = selected / go.** Lime is reserved for selected state, progress and "go" affordances.
    Don't use it for decoration.
-5. **Bento, not lists.** Group navigation and quick actions as tiles of mixed size (2×2, 1×2,
-   1×1) inside rounded section cards, as in `menu-sheet.jpeg` and `more-menu.jpeg`.
+5. **Bento for actions, rows for status.** Quick actions can be block tiles of mixed size (2×2,
+   1×2, 1×1), as in `menu-sheet.jpeg` and `more-menu.jpeg`. Anything that shows a live value or
+   status per item is a `ListRow` inside a `SectionCard` (§6).
 6. **Glanceable beats playful on the bike.** See §7, HUD exceptions.
 
 ## 2. Tokens
@@ -104,12 +105,13 @@ Rules: Anton is **only** used UPPERCASE and at 26sp or larger. Every number that
 | `ShapeSm` | 12dp | Icon tiles, inputs, small buttons |
 | `ShapeMd` | 16dp | Chunky buttons, dialogs' buttons, stat pills (rect) |
 | `ShapeLg` | 20dp | Section cards, block tiles, dialogs |
-| `ShapeXl` | 28dp | Bottom sheets (top corners only) |
+| `ShapeXl` | 28dp | Extra-large surfaces |
+| `ShapeSheet` | 28dp top, square bottom | Bottom sheets |
 | `ShapePill` | 50% | Filter chips, stat pills, progress bars |
 
 ### 2.4 Spacing & sizing
 
-4dp grid. Screen gutter **20dp**. Gap between section cards **16dp**. Card inner padding **20dp**.
+4dp grid. Screen gutter **16dp**. Gap between section cards **16dp**. Card inner padding **16dp**.
 Gap inside a bento grid **12dp**. Icon tiles **64dp** square with a 28dp icon. Minimum touch target
 48dp. Top bar height 64dp; back button is a 48dp chunky square.
 
@@ -192,7 +194,7 @@ text, `labelSmall`).
 
 ### 4.4 `SectionCard`
 
-`Surface` background, `ShapeLg`, 20dp padding. An optional header is either a `SectionLabel` (small)
+`Surface` background, `ShapeLg`, 16dp padding. An optional header is either a `SectionLabel` (small)
 or an Anton `headlineMedium` title ("PLAY", "SOCIAL" in `more-menu.jpeg`).
 
 ### 4.5 `IconTile`
@@ -260,13 +262,65 @@ Sits on `Canvas` with no top border, 72dp high, 5 slots (the five pillars). Each
 icon over a `labelSmall` label. Inactive is `TextSecondary`. Active is `Lime` icon and label with
 no indicator pill. Badges are a `Danger` dot or a small `Danger` count pill.
 
+### 4.16 `ListRow`
+
+A 56dp row (about 64dp with a subtitle) inside a `SectionCard`. Not a nested card.
+
+```kotlin
+@Composable
+fun ListRow(
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    onClick: (() -> Unit)? = null,
+    showDivider: Boolean = true,
+    leading: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+)
+```
+
+Title is `titleMedium`, subtitle `bodyMedium` `TextSecondary`. Leading is a 40dp icon tile (`ListRowIcon`) or a status dot (`ListRowDot`). Trailing is a value, a `StatusChip`, or `ListRowChevron`. A 1dp `Stroke` hairline sits under the row; the last row in a card passes `showDivider = false`. The row is flat. Tapping the row is the affordance; the leading icon is not its own button.
+
+### 4.17 `ForgeSheet`
+
+A `ModalBottomSheet` for add/edit forms. `Surface` container, `ShapeSheet` (top corners only), drag handle, Anton `headlineSmall` title, scrollable body, and a sticky Lime `ChunkyButton` at the bottom. Scrim is `Scrim`. Tonal elevation is 0. Show it by composing it; dismiss calls `onDismiss`.
+
+### 4.18 `DateField`
+
+A read-only field. The label is `labelMedium` `TextSecondary`. The value is `bodyLarge` on `SurfaceSunken` with a 1dp `Stroke` outline and `ShapeSm`. Empty state reads "Pick a date". Tap opens a Material 3 `DatePickerDialog` using the Forge colour scheme, `ShapeLg`, and zero tonal elevation. The value is shown as `23 Oct 2026`, never as `yyyy-MM-dd`.
+
+### 4.19 `StatusChip`
+
+A small `ShapePill` caption in `labelSmall`.
+
+| Tone | Fill | Border | Text |
+|---|---|---|---|
+| `Ok` | none | `Lime` | `Lime` — "OK" |
+| `DueSoon` | `BlockYellow` | none | `OnBlock` — "DUE SOON" |
+| `Overdue` | `Danger` | none | `TextPrimary` — "OVERDUE" |
+| `NoExpiry` | none | `Stroke` | `TextSecondary` — "NO EXPIRY" |
+
+Pass `text` only to override the default label.
+
+### 4.20 `DueMeter`
+
+A flat progress pill: a status-coloured capsule with `used / total` in `numberMedium`, then a `SurfaceRaised` track whose fill matches the tone (`Lime`, `BlockYellow`, `Danger`, or `Stroke` when there is no interval). The caller picks the tone and the fraction. This component does not decide whether kilometres or days are closer to due.
+
+### 4.21 `MonthSwitcher`
+
+`‹  OCTOBER 2026  ›`. The label is Anton `headlineSmall`. The chevrons are `ChunkyIconButton`s and step one month. Tapping the label opens a month/year picker (Forge dialog chrome, not `AlertDialog`): year chevrons and a grid of month chips. Choosing a month commits and closes.
+
+### 4.22 `InsightPager`
+
+A horizontal pager of equal-height cards with a dot row under it. The current dot is `Lime`; the others are `Stroke`. Pages are measured up front so a short card matches the tallest one. Swipe between pages. The caller supplies the cards; the pager has no screen-specific content.
+
 ## 5. Screen direction
 
 Restyle one screen per PR, in this order. "Ref" names the reference image(s) to open alongside.
 
 | # | Screen | File | Ref | Direction |
 |---|---|---|---|---|
-| 1 | Shell / bottom nav | `ui/nav/BumblebeeApp.kt` | `home.jpeg` | `ForgeBottomNav` on `Canvas`; screens get the 20dp gutter. |
+| 1 | Shell / bottom nav | `ui/nav/BumblebeeApp.kt` | `home.jpeg` | `ForgeBottomNav` on `Canvas`; screens get the 16dp gutter. |
 | 2 | Cockpit (portrait home) | `ui/cockpit/CockpitScreen.kt` | `home.jpeg`, `menu-sheet.jpeg` | Top row of `StatPill`s (connection, fuel est., odo). A Yellow-band bike hero card (band top 40%, bike art bleeding over the band, name and status below on `Surface`, lime chevron button). The readiness verdict as the one Anton shout. Then a bento of `BlockTile`s: Start ride (Coral, 1×2), Ride stats (Lavender, 2×2 with line chart), Setup/pairing help (Mint), Garage (Yellow). Warnings become a `SectionCard` list, not a block. |
 | 3 | Ride / ride detail | `ui/ride/RideScreen.kt` | `insights.jpeg` | `ForgeTopBar` + `DropdownLabel` scope row (bike · period). `PillChip` tabs (Overview, Speed, Fuel, Route). A `StatTriple` for distance/time/avg. Charts follow the `dataviz` rules: flat bars, `Stroke` grid, `labelSmall` axes, block colours as series. |
 | 4 | Journey | `ui/journey/JourneyScreen.kt` | `home.jpeg` | Destination entry as a big `SectionCard` with a Coral "GO" chunky CTA. The cluster preview keeps its look (it mirrors the bike TFT). |
@@ -283,6 +337,7 @@ Restyle one screen per PR, in this order. "Ref" names the reference image(s) to 
 - Keep one Anton shout per screen, and put Anton titles on block tiles.
 - Leave generous space between sections: let the canvas breathe.
 - Mark estimated values with "est." in `labelSmall` (golden rule).
+- No card inside a card; rows inside a `SectionCard` use `ListRow` with hairline dividers. A lone `BlockTile` in a row spans full width. No inline forms on hub screens; use `ForgeSheet`.
 
 **Don't**
 - Hard-code `Color(0x…)`, `.dp` radii, or `fontSize` in screen files.

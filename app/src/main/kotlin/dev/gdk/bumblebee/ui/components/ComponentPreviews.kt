@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.DirectionsBike
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Garage
@@ -36,12 +37,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import dev.gdk.bumblebee.ui.theme.BlockLavender
+import dev.gdk.bumblebee.ui.theme.BlockMint
+import dev.gdk.bumblebee.ui.theme.BlockYellow
 import dev.gdk.bumblebee.ui.theme.BumblebeeTheme
 import dev.gdk.bumblebee.ui.theme.Canvas
+import dev.gdk.bumblebee.ui.theme.OnBlock
+import dev.gdk.bumblebee.ui.theme.ShapeLg
 import dev.gdk.bumblebee.ui.theme.ShapeMd
+import dev.gdk.bumblebee.ui.theme.Surface
 import dev.gdk.bumblebee.ui.theme.SurfaceRaised
 import dev.gdk.bumblebee.ui.theme.SurfaceSunken
+import dev.gdk.bumblebee.ui.theme.TextPrimary
+import dev.gdk.bumblebee.ui.theme.TextSecondary
 import dev.gdk.bumblebee.ui.theme.Warning
+import java.time.LocalDate
+import java.time.YearMonth
 
 @Composable
 private fun PreviewCanvas(content: @Composable () -> Unit) {
@@ -319,5 +330,157 @@ private fun ForgeBottomNavPreview() {
             ),
             onItemClick = {},
         )
+    }
+}
+
+@Preview
+@Composable
+private fun ListRowPreview() {
+    PreviewCanvas {
+        SectionCard {
+            ListRow(
+                title = "Documents",
+                subtitle = "RC, insurance, PUC",
+                onClick = {},
+                leading = { ListRowIcon(Icons.Rounded.Description) },
+                trailing = { StatusChip(StatusChipTone.DueSoon) },
+            )
+            ListRow(
+                title = "Service",
+                subtitle = "Oil in 420 km",
+                onClick = {},
+                leading = { ListRowDot(Warning) },
+                trailing = { ListRowChevron() },
+            )
+            ListRow(
+                title = "Fuel log",
+                onClick = {},
+                showDivider = false,
+                leading = { ListRowIcon(Icons.Rounded.LocalGasStation) },
+                trailing = {
+                    Text(
+                        text = "38.2 km/l",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary,
+                    )
+                },
+            )
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun ForgeSheetPreview() {
+    PreviewCanvas {
+        ForgeSheetBody(
+            title = "Log service",
+            primaryLabel = "Save",
+            onPrimary = {},
+            primaryEnabled = true,
+        ) {
+            Text(
+                text = "Item, odo, cost and a bill photo.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = TextPrimary,
+            )
+        }
+        ForgeSheetBody(
+            title = "Add plan",
+            primaryLabel = "Save",
+            onPrimary = {},
+            primaryEnabled = false,
+        ) {
+            Text(
+                text = "Save stays disabled until the interval is set.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = TextPrimary,
+            )
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun DateFieldPreview() {
+    PreviewCanvas {
+        DateField(label = "Expiry", value = null, onValueChange = {})
+        DateField(label = "Expiry", value = LocalDate.of(2026, 10, 23), onValueChange = {})
+    }
+}
+
+@Preview
+@Composable
+private fun StatusChipPreview() {
+    PreviewCanvas {
+        StatusChipTone.entries.forEach { tone ->
+            StatusChip(tone)
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun DueMeterPreview() {
+    PreviewCanvas {
+        DueMeter("1,200", "3,000 km", 0.4f, StatusChipTone.Ok)
+        DueMeter("2,580", "3,000 km", 0.86f, StatusChipTone.DueSoon)
+        DueMeter("3,240", "3,000 km", 1f, StatusChipTone.Overdue)
+        DueMeter("—", "no interval", 0f, StatusChipTone.NoExpiry)
+    }
+}
+
+@Preview
+@Composable
+private fun MonthSwitcherPreview() {
+    PreviewCanvas {
+        MonthSwitcher(month = YearMonth.of(2026, 10), onMonthChange = {})
+        MonthYearPicker(
+            month = YearMonth.of(2026, 10),
+            onMonthChange = {},
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Surface, ShapeLg)
+                .padding(16.dp),
+        )
+    }
+}
+
+@Preview
+@Composable
+private fun InsightPagerPreview() {
+    PreviewCanvas {
+        InsightPager(pageCount = 3) { page ->
+            val color = when (page) {
+                0 -> BlockLavender
+                1 -> BlockYellow
+                else -> BlockMint
+            }
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(color, ShapeLg)
+                    .padding(16.dp),
+            ) {
+                repeat(page + 2) { line ->
+                    Text(
+                        text = "Card ${page + 1} line ${line + 1}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = OnBlock,
+                    )
+                }
+            }
+        }
+        InsightPager(pageCount = 1) { _ ->
+            Text(
+                text = "Single card",
+                style = MaterialTheme.typography.bodyLarge,
+                color = OnBlock,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(BlockLavender, ShapeLg)
+                    .padding(16.dp),
+            )
+        }
     }
 }

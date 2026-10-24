@@ -22,6 +22,9 @@ enum class StatTone {
     Good,
     Bad,
     Neutral,
+
+    /** A plain reading such as an odometer, not a comparison. */
+    Plain,
 }
 
 data class StatTripleColumn(
@@ -35,6 +38,7 @@ private fun StatTone.toColor() =
         StatTone.Good -> Lime
         StatTone.Bad -> Danger
         StatTone.Neutral -> TextDisabled
+        StatTone.Plain -> TextPrimary
     }
 
 /** Three-column stats with optional headline (§4.9). Ref: `insights.jpeg`. */
