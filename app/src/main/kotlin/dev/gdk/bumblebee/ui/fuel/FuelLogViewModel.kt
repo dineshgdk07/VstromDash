@@ -85,9 +85,18 @@ data class FuelLogUiState(
     val clusterSummary: String = "",
     val tanks: List<TankHistoryRow> = emptyList(),
     val tankTrend: List<Double> = emptyList(),
-    val status: String = "Log a fill at the pump. The cluster also writes bar drops and guessed fills here — you don't enter drops.",
+    val status: String = "",
     val editingId: Long? = null,
     val entries: List<FuelLogEntry> = emptyList(),
+    /** The month the calendar and history show. */
+    val month: YearMonth = YearMonth.now(),
+    /** A day picked on the calendar, "2026-10-12". Null shows the whole month. */
+    val selectedDate: String? = null,
+    val shown: List<FuelLogEntry> = emptyList(),
+    val marks: Map<String, DayMarks> = emptyMap(),
+    val insights: FuelMonthInsights = FuelMonthInsights(),
+    val formOpen: Boolean = false,
+    val formError: String? = null,
 )
 
 class FuelLogViewModel(application: Application) : AndroidViewModel(application) {
@@ -128,10 +137,42 @@ class FuelLogViewModel(application: Application) : AndroidViewModel(application)
     fun setNote(value: String) { _ui.update { it.copy(note = value) } }
     fun setFullTank(value: Boolean) { _ui.update { it.copy(fullTank = value) } }
 
+    fun showMonth(month: YearMonth) {
+        _ui.update { withMonth(it.copy(month = month, selectedDate = null)) }
+    }
+
+    /** Picks a day on the calendar; picking it again shows the whole month. */
+    fun selectDate(date: String) {
+        _ui.update { withMonth(it.copy(selectedDate = if (it.selectedDate == date) null else date)) }
+    }
+
+    fun openForm() {
+        _ui.update {
+            it.copy(
+                formOpen = true,
+                formError = null,
+                editingId = null,
+                odo = it.odometerKm?.toString() ?: "",
+                date = LocalDate.now().toString(),
+                barsAfter = it.fuelBars?.toString() ?: "6",
+                litres = "",
+                rupees = "",
+                note = "",
+                fullTank = true,
+            )
+        }
+    }
+
+    fun closeForm() {
+        _ui.update { it.copy(formOpen = false, formError = null, editingId = null, litres = "", rupees = "", note = "") }
+    }
+
     fun beginEdit(entry: FuelLogEntry) {
         val date = Instant.ofEpochMilli(entry.ts).atZone(ZoneId.systemDefault()).toLocalDate().toString()
         _ui.update {
             it.copy(
+                formOpen = true,
+                formError = null,
                 editingId = entry.id,
                 odo = entry.odometerKm.toString(),
                 date = date,
@@ -145,23 +186,13 @@ class FuelLogViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun cancelEdit() {
-        _ui.update {
-            it.copy(
-                editingId = null,
-                litres = "",
-                rupees = "",
-                note = "",
-                status = "Edit cancelled.",
-            )
-        }
-    }
+    fun cancelEdit() = closeForm()
 
     fun saveFill() {
         val odo = _ui.value.odo.toIntOrNull() ?: _ui.value.odometerKm
         val bars = _ui.value.barsAfter.toIntOrNull()?.coerceIn(1, 6)
         if (odo == null || bars == null) {
-            _ui.update { it.copy(status = "Need odometer km and bars after fill (1–6).") }
+            _ui.update { it.copy(formError = "Need odometer km and bars after fill (1–6).") }
             return
         }
         val litres = _ui.value.litres.toDoubleOrNull()
@@ -178,8 +209,14 @@ class FuelLogViewModel(application: Application) : AndroidViewModel(application)
                     app.capture.logRefuel(odo, bars, litres, rupees, note, ts, isFullTank = full)
                 }
             }
+            // Show the month the fill landed in, so it is on screen.
+            val landed = YearMonth.from(Instant.ofEpochMilli(ts).atZone(ZoneId.systemDefault()))
             _ui.update {
                 it.copy(
+                    formOpen = false,
+                    formError = null,
+                    month = landed,
+                    selectedDate = null,
                     editingId = null,
                     litres = "",
                     rupees = "",
@@ -285,7 +322,7 @@ class FuelLogViewModel(application: Application) : AndroidViewModel(application)
         val (triple, tankPair) = pair
         val entries = lines(triple.first)
         _ui.update {
-            it.copy(
+            withMonth(it.copy(
                 rangeKm = triple.second.rangeKm,
                 tankKmPerL = triple.second.tankKmPerL,
                 rupeesPerKm = triple.second.cost?.rollingRupeesPerKm,
@@ -301,8 +338,18 @@ class FuelLogViewModel(application: Application) : AndroidViewModel(application)
                 clusterSummary = extra.second,
                 tanks = extra.third,
                 tankTrend = extra.third.filter { !it.outlier }.map { it.kmPerL }.asReversed().takeLast(12),
-            )
+            ))
         }
+    }
+
+    /** Recomputes what the month shows from the full log. */
+    private fun withMonth(state: FuelLogUiState): FuelLogUiState {
+        val zone = ZoneId.systemDefault()
+        return state.copy(
+            shown = FuelMonth.shown(state.entries, state.month, state.selectedDate, zone),
+            marks = FuelMonth.marks(state.entries, state.month, zone),
+            insights = FuelMonth.insights(state.entries, state.month, zone),
+        )
     }
 
     private fun monthSpend(events: List<FuelEventEntity>): Double? {
