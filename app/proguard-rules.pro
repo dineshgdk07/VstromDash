@@ -1,0 +1,4 @@
+-keep class androidx.room.** { *; }
+-keep class dev.gdk.bumblebee.data.local.** { *; }
+-keep class dev.gdk.bumblebee.protocol.** { *; }
+-dontwarn com.google.android.gms.**
