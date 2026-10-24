@@ -56,10 +56,10 @@ import dev.gdk.bumblebee.map.OsmTileStore
 import dev.gdk.bumblebee.ride.RideInsightInput
 import dev.gdk.bumblebee.ride.ShareBackground
 import dev.gdk.bumblebee.ride.ShareCard
+import dev.gdk.bumblebee.ride.ShareExtras
 import dev.gdk.bumblebee.ride.ShareMetricKind
 import dev.gdk.bumblebee.ride.ShareMetrics
 import dev.gdk.bumblebee.ride.ShareShape
-import dev.gdk.bumblebee.ride.ShareStyle
 import dev.gdk.bumblebee.ride.ShareSwitches
 import dev.gdk.bumblebee.ride.TileId
 import dev.gdk.bumblebee.ride.TrackInsights
@@ -105,8 +105,7 @@ private fun ShareCardDialog(detail: RideDetail, onDismiss: () -> Unit) {
         mutableStateOf(
             ShareSwitches(
                 shape = ShareShape.STORY,
-                style = ShareStyle.INK,
-                background = ShareBackground.BLACK,
+                background = ShareBackground.OWN,
                 bigNumber = ShareMetrics.defaultHero(available)?.kind,
                 stats = ShareMetrics.defaultStats(available).map { it.kind },
             ),
@@ -122,7 +121,7 @@ private fun ShareCardDialog(detail: RideDetail, onDismiss: () -> Unit) {
             switches = switches,
             climbM = climb,
             tankKmPerL = tank,
-            bikeName = detail.row.name.orEmpty(),
+            extras = ShareExtras(rideName = detail.row.name),
             demo = detail.demo,
         )
     }
@@ -151,14 +150,14 @@ private fun ShareCardDialog(detail: RideDetail, onDismiss: () -> Unit) {
         if (decoded == null) {
             photo = null
             photoError = "Couldn't use that photo"
-            switches = switches.copy(background = ShareBackground.BLACK)
+            switches = switches.copy(background = ShareBackground.OWN)
         } else {
             photo = decoded
             photoError = null
             switches = switches.copy(background = ShareBackground.PHOTO)
         }
     }
-    val map = switches.style == ShareStyle.MAP
+    val map = switches.background == ShareBackground.MAP
     val ratio = if (switches.shape == ShareShape.STORY) 9f / 16f else 1f
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
@@ -226,35 +225,26 @@ private fun ShareCardDialog(detail: RideDetail, onDismiss: () -> Unit) {
                     Seg("Story", switches.shape == ShareShape.STORY) { switches = switches.copy(shape = ShareShape.STORY) }
                     Seg("Square", switches.shape == ShareShape.SQUARE) { switches = switches.copy(shape = ShareShape.SQUARE) }
                 }
-                Label("STYLE")
+                Label("BACKGROUND")
                 Segment {
-                    Seg("Ink", switches.style == ShareStyle.INK) {
-                        switches = switches.copy(style = ShareStyle.INK)
+                    Seg("Own", switches.background == ShareBackground.OWN) {
+                        switches = switches.copy(background = ShareBackground.OWN)
                     }
-                    Seg("Corridor", switches.style == ShareStyle.CORRIDOR) {
-                        switches = switches.copy(style = ShareStyle.CORRIDOR)
+                    Seg("Map", switches.background == ShareBackground.MAP) {
+                        switches = switches.copy(background = ShareBackground.MAP)
                     }
-                    Seg("Map", switches.style == ShareStyle.MAP) {
-                        switches = switches.copy(style = ShareStyle.MAP, background = ShareBackground.BLACK)
+                    Seg("Photo", switches.background == ShareBackground.PHOTO) {
+                        if (photo == null) {
+                            picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        } else {
+                            switches = switches.copy(background = ShareBackground.PHOTO)
+                        }
+                    }
+                    Seg("Transparent", switches.background == ShareBackground.TRANSPARENT) {
+                        switches = switches.copy(background = ShareBackground.TRANSPARENT)
                     }
                 }
                 if (!map) {
-                    Label("BACKGROUND")
-                    Segment {
-                        Seg("None", switches.background == ShareBackground.BLACK) {
-                            switches = switches.copy(background = ShareBackground.BLACK)
-                        }
-                        Seg("Photo", switches.background == ShareBackground.PHOTO) {
-                            if (photo == null) {
-                                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                            } else {
-                                switches = switches.copy(background = ShareBackground.PHOTO)
-                            }
-                        }
-                        Seg("Transparent", switches.background == ShareBackground.TRANSPARENT) {
-                            switches = switches.copy(background = ShareBackground.TRANSPARENT)
-                        }
-                    }
                     if (switches.background == ShareBackground.PHOTO) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             photo?.let {
@@ -278,7 +268,7 @@ private fun ShareCardDialog(detail: RideDetail, onDismiss: () -> Unit) {
                                     text = "Remove photo",
                                     onClick = {
                                         photo = null
-                                        switches = switches.copy(background = ShareBackground.BLACK)
+                                        switches = switches.copy(background = ShareBackground.OWN)
                                     },
                                     style = ChunkyStyle.Neutral,
                                     compact = true,

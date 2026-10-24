@@ -85,8 +85,6 @@ object ShareCardChrome {
         if (card.demo) {
             val demo = text(18f, YELLOW, fonts.body).apply { letterSpacing = 0.2f }
             canvas.drawText("DEMO", subX, 114f, demo)
-        } else if (card.bikeName.isNotBlank()) {
-            canvas.drawText(card.bikeName.uppercase(), subX, 114f, sub)
         }
         val date = text(22f, WHITE, fonts.body).apply {
             textAlign = Paint.Align.RIGHT
