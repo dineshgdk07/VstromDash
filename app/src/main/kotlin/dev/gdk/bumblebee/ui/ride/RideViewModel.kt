@@ -233,6 +233,15 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { tick() }
     }
 
+    fun renameRide(id: Long, name: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { app.capture.renameRide(id, name) }
+            if (cachedDetailId == id) cachedDetailId = null
+            refreshArchive()
+            tick()
+        }
+    }
+
     fun closeDetail() {
         openRideId = null
         cachedDetail = null
