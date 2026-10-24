@@ -1,5 +1,7 @@
 package dev.gdk.bumblebee.snapshot
 
+private const val OLDEST_SCHEMA = 8
+
 sealed class SnapshotVerdict {
     data object Ok : SnapshotVerdict()
     data class Rejected(val message: String, val log: List<String>) : SnapshotVerdict()
@@ -16,7 +18,7 @@ fun inspectManifest(
     if (manifest.format > SnapshotFormat.FORMAT || manifest.schema > SnapshotFormat.APP_SCHEMA) {
         return SnapshotVerdict.Rejected("This file was made by a newer app.", emptyList())
     }
-    if (manifest.schema < SnapshotFormat.APP_SCHEMA) {
+    if (manifest.schema < OLDEST_SCHEMA) {
         return SnapshotVerdict.Rejected(
             "This file was made by an older app. Pack it again with this version.",
             emptyList(),

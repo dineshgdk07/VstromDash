@@ -227,6 +227,11 @@ private fun SnapshotRide.toJson() = JSONObject()
     .put("gpsOnly", gpsOnly)
     .put("rideState", rideState)
     .putNullable("pausedAt", pausedAt)
+    .putNullable("startPlace", startPlace)
+    .putNullable("endPlace", endPlace)
+    .putNullable("weatherTempC", weatherTempC)
+    .putNullable("weatherCode", weatherCode)
+    .putNullable("climbM", climbM)
 
 private fun JSONObject.toRide() = SnapshotRide(
     id = getLong("id"),
@@ -251,6 +256,11 @@ private fun JSONObject.toRide() = SnapshotRide(
     gpsOnly = getBoolean("gpsOnly"),
     rideState = getString("rideState"),
     pausedAt = longOrNull("pausedAt"),
+    startPlace = str("startPlace"),
+    endPlace = str("endPlace"),
+    weatherTempC = dblOrNull("weatherTempC"),
+    weatherCode = intOrNull("weatherCode"),
+    climbM = dblOrNull("climbM"),
 )
 
 private fun SnapshotSegment.toJson() = JSONObject()

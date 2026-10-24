@@ -29,6 +29,11 @@ data class RideEntity(
     val gpsOnly: Boolean = false,
     val rideState: String = RIDE_FINISHED,
     val pausedAt: Long? = null,
+    val startPlace: String? = null,
+    val endPlace: String? = null,
+    val weatherTempC: Double? = null,
+    val weatherCode: Int? = null,
+    val climbM: Double? = null,
 )
 
 const val RIDE_ACTIVE = "ACTIVE"

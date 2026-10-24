@@ -3,7 +3,7 @@ package dev.gdk.bumblebee.snapshot
 object SnapshotFormat {
     const val MAGIC = "bumblebee-snapshot"
     const val FORMAT = 1
-    const val APP_SCHEMA = 8
+    const val APP_SCHEMA = 9
     const val EXTENSION = "bbpack"
 }
 
@@ -57,6 +57,11 @@ data class SnapshotRide(
     val gpsOnly: Boolean = false,
     val rideState: String = "FINISHED",
     val pausedAt: Long? = null,
+    val startPlace: String? = null,
+    val endPlace: String? = null,
+    val weatherTempC: Double? = null,
+    val weatherCode: Int? = null,
+    val climbM: Double? = null,
 )
 
 data class SnapshotSegment(
