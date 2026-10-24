@@ -122,6 +122,16 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun renameRide(id: Long, name: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { app.capture.renameRide(id, name) }
+            if (_ui.value.detail?.row?.id == id) {
+                _ui.value = _ui.value.copy(detail = withContext(Dispatchers.IO) { buildDetail(id) })
+            }
+            reload(keepMonth = true)
+        }
+    }
+
     fun closeDetail() {
         _ui.value = _ui.value.copy(detail = null)
     }

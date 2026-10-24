@@ -385,12 +385,14 @@ private fun RideEntity.toSnapshot() = SnapshotRide(
     id, startTs, endTs, odoStartKm, odoEndKm, gpsDistanceM, movingSec, idleSec, maxSpeedKmh,
     avgMovingSpeedKmh, fuelBarsStart, fuelBarsEnd, speedHistogramJson, name, tags, mergedIntoId,
     remoteId, syncedAt, isDemo, gpsOnly, rideState, pausedAt,
+    startPlace, endPlace, weatherTempC, weatherCode, climbM,
 )
 
 private fun SnapshotRide.toEntity() = RideEntity(
     id = 0, startTs, endTs, odoStartKm, odoEndKm, gpsDistanceM, movingSec, idleSec, maxSpeedKmh,
     avgMovingSpeedKmh, fuelBarsStart, fuelBarsEnd, speedHistogramJson, name, tags, mergedIntoId,
     remoteId, syncedAt, isDemo, gpsOnly, rideState, pausedAt,
+    startPlace, endPlace, weatherTempC, weatherCode, climbM,
 )
 
 private fun RideSegmentEntity.toSnapshot() = SnapshotSegment(id, rideId, startTs, endTs, odoStartKm, odoEndKm)

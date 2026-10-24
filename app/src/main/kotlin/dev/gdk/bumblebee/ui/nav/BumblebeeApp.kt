@@ -28,6 +28,8 @@ import androidx.navigation.navArgument
 import dev.gdk.bumblebee.BuildConfig
 import dev.gdk.bumblebee.DashApp
 import dev.gdk.bumblebee.MainActivity
+import dev.gdk.bumblebee.share.SharePrompt
+import dev.gdk.bumblebee.ui.ride.RideViewModel
 import dev.gdk.bumblebee.ble.BikeBridgeService
 import dev.gdk.bumblebee.gps.PhoneGps
 import dev.gdk.bumblebee.ui.cockpit.CockpitScreen
@@ -75,7 +77,17 @@ fun BumblebeeApp() {
     }
     val activity = LocalContext.current as? ComponentActivity
     val open = activity?.intent?.getStringExtra(MainActivity.EXTRA_OPEN)
+    val rideModel: RideViewModel? = activity?.let { viewModel(viewModelStoreOwner = it) }
     LaunchedEffect(open) {
+        val shareId = SharePrompt.parse(open)
+        if (shareId != null) {
+            navController.navigate(Pillar.RIDE.route) {
+                popUpTo(Pillar.COCKPIT.route) { saveState = true }
+                launchSingleTop = true
+            }
+            rideModel?.openShare(shareId)
+            return@LaunchedEffect
+        }
         val route = when (open) {
             "fuel" -> "fuel"
             "garage" -> Pillar.GARAGE.route

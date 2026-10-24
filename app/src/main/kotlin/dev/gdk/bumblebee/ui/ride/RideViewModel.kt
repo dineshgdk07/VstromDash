@@ -126,6 +126,7 @@ data class RideUiState(
     val lastTimeline: RideTimeline = RideTimeline.empty(),
     val recentThumbs: Map<Long, List<GpsFix>> = emptyMap(),
     val detail: RideDetail? = null,
+    val openShareId: Long? = null,
     val tripAKm: Double? = null,
     val tripBKm: Double? = null,
     val economyKml: Double? = null,
@@ -148,6 +149,7 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
     private var cachedTankKmPerL: Double? = null
     private var cachedRupeesPerKm: Double? = null
     private var openRideId: Long? = null
+    private var pendingShareId: Long? = null
     private var cachedDetail: RideDetail? = null
     private var cachedDetailId: Long? = null
 
@@ -231,6 +233,25 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
         openRideId = id
         cachedDetailId = null
         viewModelScope.launch { tick() }
+    }
+
+    fun openShare(rideId: Long) {
+        pendingShareId = rideId
+        openRide(rideId)
+    }
+
+    fun consumeOpenShare() {
+        pendingShareId = null
+        _ui.value = _ui.value.copy(openShareId = null)
+    }
+
+    fun renameRide(id: Long, name: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { app.capture.renameRide(id, name) }
+            if (cachedDetailId == id) cachedDetailId = null
+            refreshArchive()
+            tick()
+        }
     }
 
     fun closeDetail() {
@@ -492,6 +513,7 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
             lastTimeline = lastTimeline,
             recentThumbs = recentThumbs,
             detail = detail,
+            openShareId = pendingShareId,
         )
         val liveBits = base.copy(
             tripAKm = app.latestTelemetry.value?.tripAKm,

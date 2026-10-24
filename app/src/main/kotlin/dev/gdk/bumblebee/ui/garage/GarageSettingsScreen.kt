@@ -179,6 +179,15 @@ fun GarageSettingsScreen(
                     )
                     Switch(checked = state.autoConnect, onCheckedChange = model::setAutoConnect)
                 }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Share prompt after record rides",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextPrimary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(checked = state.sharePrompt, onCheckedChange = model::setSharePrompt)
+                }
                 ChunkyButton(text = "Do not auto-connect today", onClick = model::skipAutoConnectToday, style = ChunkyStyle.Outline)
                 Text(
                     "On Xiaomi, Oppo and similar phones, allow Autostart and set battery to No restrictions, or the link dies with the screen off.",

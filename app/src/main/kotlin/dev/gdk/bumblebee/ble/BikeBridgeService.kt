@@ -1,11 +1,15 @@
 package dev.gdk.bumblebee.ble
 
+import android.Manifest
+import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.BatteryManager
 import android.os.Build
@@ -16,6 +20,7 @@ import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import dev.gdk.bumblebee.DashApp
@@ -29,7 +34,11 @@ import dev.gdk.bumblebee.protocol.IdentityFrame
 import dev.gdk.bumblebee.protocol.TelemetryFrame
 import dev.gdk.bumblebee.protocol.decodeFrame
 import dev.gdk.bumblebee.nav.MapsNavSource
+import dev.gdk.bumblebee.ride.AbandonAction
 import dev.gdk.bumblebee.ride.GpsCapturePolicy
+import dev.gdk.bumblebee.ride.RideContinuity
+import dev.gdk.bumblebee.share.SharePrompt
+import dev.gdk.bumblebee.ui.share.SharePrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -58,7 +67,10 @@ class BikeBridgeService : LifecycleService() {
     private var cachedCellBars = 0
     @Suppress("DEPRECATION")
     private var cellListener: PhoneStateListener? = null
-    private var pausedAtMs: Long? = null
+    @Volatile private var pausedAtMs: Long? = null
+    @Volatile private var pendingOdoCheck = false
+    @Volatile private var deferTelemetry = false
+    private var deferredNotify: ByteArray? = null
     private var crashWatch: CrashWatch? = null
 
     override fun onCreate() {
@@ -92,6 +104,24 @@ class BikeBridgeService : LifecycleService() {
         }
 
         lifecycleScope.launch {
+            app.weather.snapshot.collect { snap ->
+                if (snap != null && app.capture.activeRideId != null) {
+                    withContext(Dispatchers.IO) { app.capture.recordWeatherIfMissing(snap.tempC, snap.code) }
+                }
+            }
+        }
+        lifecycleScope.launch {
+            app.capture.finishedEvents.collect { id ->
+                if (!SharePrefs(app).promptEnabled) return@collect
+                val highlight = withContext(Dispatchers.IO) { app.capture.highlightFor(id) } ?: return@collect
+                if (!canPostHighlights()) return@collect
+                val note = SharePrompt.notification(this@BikeBridgeService, id, highlight)
+                val notificationId = (1000 + (id % 1000)).toInt()
+                getSystemService(NotificationManager::class.java).notify(notificationId, note)
+            }
+        }
+
+        lifecycleScope.launch {
             bleClient.state.collect { state ->
                 app.connection.value = state
                 refreshNotification()
@@ -99,17 +129,29 @@ class BikeBridgeService : LifecycleService() {
                     is ConnectionState.Ready -> {
                         val fresh = !lastWasReady
                         lastWasReady = true
-                        pausedAtMs = null
                         finishRideJob?.cancel()
                         finishRideJob = null
+                        deferTelemetry = true
                         lifecycleScope.launch {
-                            withContext(Dispatchers.IO) {
-                                app.capture.onBikeBack(
-                                    System.currentTimeMillis(),
-                                    app.latestTelemetry.value?.odometerKm,
-                                    app.prefs.pauseWindowMin,
-                                )
+                            val pausedAt = withContext(Dispatchers.IO) { app.capture.activePausedAt() }
+                            val window = app.prefs.pauseWindowMin
+                            val now = System.currentTimeMillis()
+                            pendingOdoCheck = pausedAt != null &&
+                                RideContinuity.needsFreshOdometer(window, pausedAt, now)
+                            if (!pendingOdoCheck) {
+                                pausedAtMs = null
+                                cancelPauseAlarm()
+                                withContext(Dispatchers.IO) {
+                                    app.capture.onBikeBack(now, odoKm = null, windowMin = window)
+                                }
+                                noteWeather(app)
                             }
+                            deferTelemetry = false
+                            deferredNotify?.let { held ->
+                                deferredNotify = null
+                                acceptNotify(app, held)
+                            }
+                            refreshNotification()
                             frameWriter.enqueue(
                                 FrameWriter.Entry(
                                     FrameWriter.Priority.URGENT,
@@ -126,29 +168,13 @@ class BikeBridgeService : LifecycleService() {
                     is ConnectionState.Disconnected, is ConnectionState.Failed, is ConnectionState.Idle -> {
                         drainJob?.cancel()
                         drainJob = null
-                        if (lastWasReady) {
+                        if (lastWasReady || pendingOdoCheck) {
+                            val wasReady = lastWasReady
                             lastWasReady = false
-                            finishRideJob?.cancel()
-                            finishRideJob = lifecycleScope.launch {
-                                delay(DISCONNECT_GRACE_MS)
-                                val window = app.prefs.pauseWindowMin
-                                if (window <= 0) {
-                                    runCatching { telemetrySink.onDisconnected(System.currentTimeMillis()) }
-                                } else {
-                                    val at = System.currentTimeMillis()
-                                    runCatching { app.capture.pauseActiveRide(at) }
-                                    pausedAtMs = at
-                                    refreshNotification()
-                                    delay(window * 60_000L)
-                                    pausedAtMs = null
-                                    runCatching {
-                                        app.capture.endRideNow(System.currentTimeMillis())
-                                        publishGarageWidget(app)
-                                    }
-                                }
-                                syncGps(app)
-                                refreshNotification()
-                            }
+                            pendingOdoCheck = false
+                            deferTelemetry = false
+                            deferredNotify = null
+                            armRidePause(app, justDisconnected = wasReady)
                         }
                         heartbeatJob?.cancel()
                         heartbeatJob = null
@@ -160,13 +186,10 @@ class BikeBridgeService : LifecycleService() {
 
         lifecycleScope.launch {
             bleClient.notifications.collect { bytes ->
-                runCatching {
-                    telemetrySink.onNotify(bytes, System.currentTimeMillis())
-                    val frame = decodeFrame(bytes)
-                    if (frame is TelemetryFrame) {
-                        app.latestTelemetry.value = frame
-                        ensureCrashWatch(app).onSpeed(frame.speedKmh, System.currentTimeMillis())
-                    }
+                if (deferTelemetry) {
+                    deferredNotify = bytes
+                } else {
+                    runCatching { acceptNotify(app, bytes) }
                 }
             }
         }
@@ -194,6 +217,7 @@ class BikeBridgeService : LifecycleService() {
             }
         }
         fullyStarted = true
+        running = true
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -215,9 +239,13 @@ class BikeBridgeService : LifecycleService() {
                 lifecycleScope.launch {
                     val app = application as DashApp
                     if (app.capture.activeRideId == null) {
+                        cancelPauseAlarm()
+                        pausedAtMs = null
                         app.capture.startRide(System.currentTimeMillis(), gpsOnly = true)
+                        noteWeather(app)
                     }
                     syncGps(app)
+                    refreshNotification()
                 }
             }
             ACTION_SKIP_AUTO_TODAY -> {
@@ -226,11 +254,50 @@ class BikeBridgeService : LifecycleService() {
                 refreshNotification()
             }
             ACTION_END_RIDE -> {
+                pendingOdoCheck = false
+                deferTelemetry = false
+                deferredNotify = null
                 pausedAtMs = null
+                cancelPauseAlarm()
+                finishRideJob?.cancel()
+                finishRideJob = null
                 lifecycleScope.launch(Dispatchers.IO) {
                     val dash = application as DashApp
                     dash.capture.endRideNow(System.currentTimeMillis())
                     publishGarageWidget(dash)
+                    withContext(Dispatchers.Main.immediate) {
+                        syncGps(dash)
+                        refreshNotification()
+                    }
+                }
+            }
+            ACTION_PAUSE_ELAPSED -> {
+                val rideId = intent.getLongExtra(EXTRA_RIDE_ID, -1L)
+                lifecycleScope.launch {
+                    val dash = application as DashApp
+                    val ended = if (rideId >= 0) {
+                        withContext(Dispatchers.IO) {
+                            dash.capture.finishIfPauseElapsed(
+                                rideId = rideId,
+                                now = System.currentTimeMillis(),
+                                windowMin = dash.prefs.pauseWindowMin,
+                                bikeReady = bleClient.state.value is ConnectionState.Ready,
+                            )
+                        }
+                    } else {
+                        false
+                    }
+                    if (ended) {
+                        pendingOdoCheck = false
+                        pausedAtMs = null
+                        cancelPauseAlarm()
+                        finishRideJob?.cancel()
+                        finishRideJob = null
+                        publishGarageWidget(dash)
+                        syncGps(dash)
+                    } else if (dash.capture.activePausedAt() != null) {
+                        armRidePause(dash, justDisconnected = false)
+                    }
                     refreshNotification()
                 }
             }
@@ -238,6 +305,10 @@ class BikeBridgeService : LifecycleService() {
                 lifecycleScope.launch {
                     val app = application as DashApp
                     if (app.capture.activeRideId != null && !lastWasReady) {
+                        cancelPauseAlarm()
+                        pausedAtMs = null
+                        finishRideJob?.cancel()
+                        finishRideJob = null
                         app.capture.finishRide(System.currentTimeMillis())
                     }
                     syncGps(app)
@@ -261,14 +332,26 @@ class BikeBridgeService : LifecycleService() {
                 withTimeoutOrNull(2_000) {
                     withContext(Dispatchers.IO) {
                         val app = application as DashApp
-                        if (app.prefs.pauseWindowMin > 0 && app.capture.activeRideId != null) {
-                            runCatching { app.capture.pauseActiveRide(System.currentTimeMillis()) }
+                        val rideId = app.capture.activeRideId
+                        if (app.prefs.pauseWindowMin > 0 && rideId != null) {
+                            val existing = app.capture.activePausedAt()
+                            val at = existing ?: System.currentTimeMillis().also { app.capture.pauseActiveRide(it) }
+                            val stored = app.capture.activePausedAt() ?: at
+                            val still = app.capture.activeRideId
+                            if (still != null) {
+                                schedulePauseAlarm(
+                                    RideContinuity.pauseDeadlineMs(stored, app.prefs.pauseWindowMin),
+                                    still,
+                                )
+                            }
                         } else {
+                            cancelPauseAlarm()
                             runCatching { telemetrySink.onDisconnected(System.currentTimeMillis()) }
                         }
                     }
                 }
             }
+            running = false
             crashWatch?.stop()
             stopCellListener()
             bleClient.disconnect()
@@ -277,9 +360,43 @@ class BikeBridgeService : LifecycleService() {
         super.onDestroy()
     }
 
+    private suspend fun noteWeather(app: DashApp) {
+        val snap = app.weather.snapshot.value ?: return
+        if (app.capture.activeRideId == null) return
+        withContext(Dispatchers.IO) { app.capture.recordWeatherIfMissing(snap.tempC, snap.code) }
+    }
+
+    private fun canPostHighlights(): Boolean {
+        if (Build.VERSION.SDK_INT < 33) return true
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
     override fun onBind(intent: Intent): IBinder? {
         super.onBind(intent)
         return null
+    }
+
+    private suspend fun acceptNotify(app: DashApp, bytes: ByteArray) {
+        val frame = runCatching { decodeFrame(bytes) }.getOrNull()
+        if (frame is TelemetryFrame && pendingOdoCheck) {
+            pendingOdoCheck = false
+            val now = System.currentTimeMillis()
+            withContext(Dispatchers.IO) {
+                app.capture.onBikeBack(now, frame.odometerKm, app.prefs.pauseWindowMin)
+            }
+            noteWeather(app)
+            pausedAtMs = null
+            cancelPauseAlarm()
+            refreshNotification()
+        }
+        telemetrySink.onNotify(bytes, System.currentTimeMillis())
+        if (frame is TelemetryFrame) {
+            app.latestTelemetry.value = frame
+            ensureCrashWatch(app).onSpeed(frame.speedKmh, System.currentTimeMillis())
+        }
     }
 
     private fun weatherForCluster(app: DashApp): Pair<Int, Int> {
@@ -385,18 +502,121 @@ class BikeBridgeService : LifecycleService() {
     }
 
     private fun armAbandonedBikeRide(app: DashApp) {
-        if (app.capture.activeRideId == null || app.capture.isGpsOnly) return
-        if (bleClient.state.value is ConnectionState.Ready) return
-        finishRideJob?.cancel()
-        finishRideJob = lifecycleScope.launch {
-            delay(DISCONNECT_GRACE_MS)
-            if (bleClient.state.value !is ConnectionState.Ready && !app.capture.isGpsOnly) {
-                runCatching { app.capture.finishAtLastSample() }
-                syncGps(app)
-                refreshNotification()
+        lifecycleScope.launch {
+            val paused = withContext(Dispatchers.IO) { app.capture.activePausedAt() != null }
+            when (
+                RideContinuity.abandonAction(
+                    hasRide = app.capture.activeRideId != null,
+                    gpsOnly = app.capture.isGpsOnly,
+                    paused = paused,
+                    bikeReady = bleClient.state.value is ConnectionState.Ready,
+                )
+            ) {
+                AbandonAction.NONE -> Unit
+                AbandonAction.RESTORE_PAUSE -> armRidePause(app, justDisconnected = false)
+                AbandonAction.FINISH_UNPAUSED -> {
+                    finishRideJob?.cancel()
+                    finishRideJob = lifecycleScope.launch {
+                        delay(DISCONNECT_GRACE_MS)
+                        if (bleClient.state.value !is ConnectionState.Ready && !app.capture.isGpsOnly) {
+                            runCatching { app.capture.finishAtLastSample() }
+                            syncGps(app)
+                            refreshNotification()
+                        }
+                    }
+                }
             }
         }
     }
+
+    /**
+     * Marks the ride paused immediately and ends it from a wall-clock alarm.
+     * [delay] follows uptime, so it freezes in deep sleep and the window never elapses.
+     */
+    private fun armRidePause(app: DashApp, justDisconnected: Boolean) {
+        finishRideJob?.cancel()
+        finishRideJob = null
+        if (justDisconnected && app.prefs.pauseWindowMin > 0 && pausedAtMs == null) {
+            pausedAtMs = System.currentTimeMillis()
+            refreshNotification()
+        }
+        lifecycleScope.launch {
+            val window = app.prefs.pauseWindowMin
+            val rideId = app.capture.activeRideId ?: run {
+                pausedAtMs = null
+                cancelPauseAlarm()
+                refreshNotification()
+                return@launch
+            }
+            if (window <= 0) {
+                if (justDisconnected) {
+                    pausedAtMs = null
+                    schedulePauseAlarm(System.currentTimeMillis() + DISCONNECT_GRACE_MS, rideId)
+                    refreshNotification()
+                }
+                return@launch
+            }
+            val existing = withContext(Dispatchers.IO) { app.capture.activePausedAt() }
+            val at = existing ?: System.currentTimeMillis().also { ts ->
+                withContext(Dispatchers.IO) { app.capture.pauseActiveRide(ts) }
+            }
+            val stored = withContext(Dispatchers.IO) { app.capture.activePausedAt() } ?: at
+            pausedAtMs = stored
+            val deadline = RideContinuity.pauseDeadlineMs(stored, window)
+            val trigger = if (justDisconnected) {
+                maxOf(deadline, System.currentTimeMillis() + DISCONNECT_GRACE_MS)
+            } else {
+                deadline
+            }
+            if (!justDisconnected && trigger <= System.currentTimeMillis()) {
+                withContext(Dispatchers.IO) {
+                    app.capture.finishIfPauseElapsed(rideId, System.currentTimeMillis(), window, bikeReady = false)
+                }
+                pausedAtMs = null
+                cancelPauseAlarm()
+            } else {
+                schedulePauseAlarm(trigger, rideId)
+            }
+            refreshNotification()
+        }
+    }
+
+    private fun schedulePauseAlarm(triggerAtMs: Long, rideId: Long) {
+        val am = getSystemService(AlarmManager::class.java) ?: return
+        val pi = pauseAlarmPending(rideId)
+        try {
+            val canExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) am.canScheduleExactAlarms() else true
+            if (canExact) {
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMs, pi)
+            } else {
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMs, pi)
+            }
+        } catch (_: SecurityException) {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMs, pi)
+        }
+    }
+
+    private fun cancelPauseAlarm() {
+        val am = getSystemService(AlarmManager::class.java) ?: return
+        val pi = PendingIntent.getBroadcast(
+            this,
+            PAUSE_ALARM_REQUEST,
+            Intent(this, PauseWindowReceiver::class.java).setAction(ACTION_PAUSE_ELAPSED),
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+        ) ?: return
+        am.cancel(pi)
+        pi.cancel()
+    }
+
+    private fun pauseAlarmPending(rideId: Long): PendingIntent =
+        PendingIntent.getBroadcast(
+            this,
+            PAUSE_ALARM_REQUEST,
+            Intent(this, PauseWindowReceiver::class.java)
+                .setAction(ACTION_PAUSE_ELAPSED)
+                .putExtra(EXTRA_RIDE_ID, rideId),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
 
     @Suppress("DEPRECATION")
     private fun listenCellBars() {
@@ -481,7 +701,7 @@ class BikeBridgeService : LifecycleService() {
         val linked = app.connection.value is ConnectionState.Ready
         val speed = app.latestTelemetry.value?.speedKmh
         val bars = app.latestTelemetry.value?.fuelBars
-        val pausedFor = pausedAtMs?.let { ((System.currentTimeMillis() - it) / 60_000L).toInt().coerceAtLeast(0) }
+        val pausedFor = pausedAtMs?.let { RideContinuity.pausedMinutes(it, System.currentTimeMillis()) }
         val text = if (pausedFor != null) {
             "Ride paused · $pausedFor min · resumes when you start the bike"
         } else {
@@ -568,13 +788,20 @@ class BikeBridgeService : LifecycleService() {
         private const val CHANNEL_ID = "ble"
         private const val NOTIFICATION_ID = 1
         private const val DISCONNECT_GRACE_MS = 20_000L
+        private const val PAUSE_ALARM_REQUEST = 11
+
+        @Volatile
+        var running: Boolean = false
+
         const val ACTION_STOP = "dev.gdk.bumblebee.ble.STOP"
         const val ACTION_CONNECT = "dev.gdk.bumblebee.ble.CONNECT"
         const val ACTION_START_GPS_RIDE = "dev.gdk.bumblebee.ble.START_GPS_RIDE"
         const val ACTION_STOP_GPS_RIDE = "dev.gdk.bumblebee.ble.STOP_GPS_RIDE"
         const val ACTION_END_RIDE = "dev.gdk.bumblebee.ble.END_RIDE"
+        const val ACTION_PAUSE_ELAPSED = "dev.gdk.bumblebee.ble.PAUSE_ELAPSED"
         const val ACTION_SKIP_AUTO_TODAY = "dev.gdk.bumblebee.ble.SKIP_AUTO_TODAY"
         const val EXTRA_MAC = "mac"
+        const val EXTRA_RIDE_ID = "rideId"
 
         fun start(context: Context) {
             launch(context, Intent(context, BikeBridgeService::class.java))
@@ -619,5 +846,44 @@ class BikeBridgeService : LifecycleService() {
                 context.startService(intent)
             }
         }
+    }
+}
+
+/**
+ * Fires the pause-window deadline while the phone is asleep.
+ * A running bridge service refreshes itself. If the process was dead, the ride
+ * is closed here and the service is left stopped.
+ */
+class PauseWindowReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        if (intent?.action != BikeBridgeService.ACTION_PAUSE_ELAPSED) return
+        val rideId = intent.getLongExtra(BikeBridgeService.EXTRA_RIDE_ID, -1L)
+        if (rideId < 0) return
+        if (BikeBridgeService.running) {
+            val delivered = runCatching {
+                context.startService(
+                    Intent(context, BikeBridgeService::class.java)
+                        .setAction(BikeBridgeService.ACTION_PAUSE_ELAPSED)
+                        .putExtra(BikeBridgeService.EXTRA_RIDE_ID, rideId),
+                )
+            }.isSuccess
+            if (delivered) return
+        }
+        val pending = goAsync()
+        Thread {
+            try {
+                val app = context.applicationContext as? DashApp ?: return@Thread
+                runBlocking(Dispatchers.IO) {
+                    app.capture.finishIfPauseElapsed(
+                        rideId = rideId,
+                        now = System.currentTimeMillis(),
+                        windowMin = app.prefs.pauseWindowMin,
+                        bikeReady = false,
+                    )
+                }
+            } finally {
+                pending.finish()
+            }
+        }.start()
     }
 }
