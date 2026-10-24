@@ -66,7 +66,11 @@ fun RideScreen(
     val detail = state.detail
     if (detail != null) {
         BackHandler { model.closeDetail() }
-        RideDetailPane(detail = detail, onBack = { model.closeDetail() })
+        RideDetailPane(
+            detail = detail,
+            onBack = { model.closeDetail() },
+            onRename = { model.renameRide(detail.row.id, it) },
+        )
         return
     }
     RideArchive(

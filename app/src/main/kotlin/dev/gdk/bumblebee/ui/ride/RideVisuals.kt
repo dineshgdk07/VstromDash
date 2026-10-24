@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,6 +29,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -72,11 +76,13 @@ import dev.gdk.bumblebee.ui.theme.Lime
 import dev.gdk.bumblebee.ui.theme.NumberMedium
 import dev.gdk.bumblebee.ui.theme.OnBlock
 import dev.gdk.bumblebee.ui.theme.ShapeLg
+import dev.gdk.bumblebee.ui.theme.ShapeMd
 import dev.gdk.bumblebee.ui.theme.ShapePill
 import dev.gdk.bumblebee.ui.theme.ShapeSm
 import dev.gdk.bumblebee.ui.theme.Stroke as GridStroke
 import dev.gdk.bumblebee.ui.theme.Surface
 import dev.gdk.bumblebee.ui.theme.SurfaceRaised
+import dev.gdk.bumblebee.ui.theme.TextDisabled
 import dev.gdk.bumblebee.ui.theme.TextDisabled
 import dev.gdk.bumblebee.ui.theme.TextPrimary
 import dev.gdk.bumblebee.ui.theme.TextSecondary
@@ -215,12 +221,19 @@ internal fun InsightCard(line: InsightLine, featured: Boolean = false, onJump: (
 }
 
 @Composable
-fun RideDetailPane(detail: RideDetail, onBack: () -> Unit, onSplit: (() -> Unit)? = null) {
+fun RideDetailPane(
+    detail: RideDetail,
+    onBack: () -> Unit,
+    onSplit: (() -> Unit)? = null,
+    onRename: ((String) -> Unit)? = null,
+) {
     val context = LocalContext.current
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     var seekTs by remember(detail.row.id) { mutableStateOf<Long?>(null) }
     var seekNonce by remember(detail.row.id) { mutableIntStateOf(0) }
+    var renaming by remember(detail.row.id) { mutableStateOf(false) }
+    var draft by remember(detail.row.id, detail.row.name) { mutableStateOf(detail.row.name.orEmpty()) }
     fun jump(ts: Long) {
         seekTs = ts
         seekNonce += 1
@@ -243,18 +256,73 @@ fun RideDetailPane(detail: RideDetail, onBack: () -> Unit, onSplit: (() -> Unit)
         ForgeTopBar(
             title = detailTitle(detail.row),
             onBack = onBack,
-            trailing = if (detail.shareText.isNotBlank()) {
+            trailing = if (onRename != null || detail.shareText.isNotBlank()) {
                 {
-                    ChunkyIconButton(
-                        icon = Icons.Rounded.Share,
-                        contentDescription = "Share recap",
-                        onClick = { shareRide(context, detail.shareText, null, detail.row.id) },
-                    )
+                    Row {
+                        if (onRename != null) {
+                            ChunkyIconButton(
+                                icon = Icons.Rounded.Edit,
+                                contentDescription = "Rename ride",
+                                onClick = { renaming = true },
+                            )
+                        }
+                        if (detail.shareText.isNotBlank()) {
+                            ChunkyIconButton(
+                                icon = Icons.Rounded.Share,
+                                contentDescription = "Share recap",
+                                onClick = { shareRide(context, detail.shareText, null, detail.row.id) },
+                            )
+                        }
+                    }
                 }
             } else {
                 null
             },
         )
+        if (renaming && onRename != null) {
+            AlertDialog(
+                onDismissRequest = { renaming = false },
+                containerColor = Surface,
+                title = { Text("Name this ride", color = TextPrimary) },
+                text = {
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { draft = it.take(30) },
+                        placeholder = { Text(formatWhen(detail.row.startTs)) },
+                        singleLine = true,
+                        shape = ShapeMd,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedBorderColor = Lime,
+                            unfocusedBorderColor = GridStroke,
+                            cursorColor = Lime,
+                            focusedPlaceholderColor = TextDisabled,
+                            unfocusedPlaceholderColor = TextDisabled,
+                        ),
+                    )
+                },
+                confirmButton = {
+                    ChunkyButton(
+                        text = "Save",
+                        onClick = {
+                            onRename(draft)
+                            renaming = false
+                        },
+                        style = ChunkyStyle.Lime,
+                        compact = true,
+                    )
+                },
+                dismissButton = {
+                    ChunkyButton(
+                        text = "Cancel",
+                        onClick = { renaming = false },
+                        style = ChunkyStyle.Outline,
+                        compact = true,
+                    )
+                },
+            )
+        }
         if (detail.canSplit && onSplit != null) {
             ChunkyButton(text = "Split back", onClick = onSplit, style = ChunkyStyle.Neutral)
         }
