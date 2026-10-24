@@ -37,8 +37,13 @@ import dev.gdk.bumblebee.ui.theme.Warning
 fun ReadinessRadial(
     score: ReadinessScore,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     val arc = bandColor(score.band)
+    if (compact) {
+        ReadinessRing(score, arc, modifier)
+        return
+    }
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             text = score.label.uppercase(),
@@ -79,6 +84,25 @@ fun ReadinessRadial(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ReadinessRing(score: ReadinessScore, arc: Color, modifier: Modifier) {
+    Box(modifier.size(56.dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(56.dp)) {
+            val stroke = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
+            drawArc(SurfaceRaised, 145f, 250f, false, style = stroke)
+            if (score.band != ReadinessBand.COMPUTING) {
+                val sweep = 250f * (score.percent.coerceIn(0, 100) / 100f)
+                drawArc(arc, 145f, sweep, false, style = stroke)
+            }
+        }
+        Text(
+            text = if (score.band == ReadinessBand.COMPUTING) "…" else "${score.percent}",
+            style = MaterialTheme.typography.labelLarge,
+            color = TextPrimary,
+        )
     }
 }
 

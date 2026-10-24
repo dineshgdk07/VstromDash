@@ -2,18 +2,20 @@ package dev.gdk.bumblebee.ui.cockpit.components
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -23,80 +25,102 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.gdk.bumblebee.R
 import dev.gdk.bumblebee.ble.ConnectionState
-import dev.gdk.bumblebee.ui.components.ChunkyIconButton
-import dev.gdk.bumblebee.ui.components.ChunkyStyle
+import dev.gdk.bumblebee.ui.cockpit.ReadinessScore
 import dev.gdk.bumblebee.ui.theme.BlockYellow
 import dev.gdk.bumblebee.ui.theme.Lime
+import dev.gdk.bumblebee.ui.theme.OnBlock
 import dev.gdk.bumblebee.ui.theme.ShapeLg
+import dev.gdk.bumblebee.ui.theme.ShapePill
 import dev.gdk.bumblebee.ui.theme.Surface
 import dev.gdk.bumblebee.ui.theme.TextPrimary
-import dev.gdk.bumblebee.ui.theme.TextSecondary
-import dev.gdk.bumblebee.ui.theme.Warning
 
+/** Yellow band holds name, connection and bike art side by side; the verdict sits in a short strip under it. */
 @Composable
 fun BikeHeroCard(
     model: String,
     connection: ConnectionState,
+    verdict: String,
+    score: ReadinessScore,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val (status, statusColor) = when (connection) {
-        is ConnectionState.Ready -> "Connected" to Lime
-        is ConnectionState.Connecting, ConnectionState.Discovering -> "Connecting" to TextSecondary
-        is ConnectionState.Failed, is ConnectionState.Disconnected -> "Not connected" to Warning
-        else -> "Not connected" to TextSecondary
-    }
-    Box(
-        modifier = modifier
+    Column(
+        modifier
             .fillMaxWidth()
-            .height(220.dp)
             .clip(ShapeLg)
-            .background(Surface),
+            .background(Surface)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onOpen,
+            ),
     ) {
-        Box(
+        Row(
             Modifier
-                .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .fillMaxHeight(0.4f)
+                .height(136.dp)
                 .background(BlockYellow),
-        )
-        Image(
-            painter = painterResource(R.drawable.vstrom_hero),
-            contentDescription = model,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 8.dp, end = 8.dp)
-                .width(200.dp)
-                .height(148.dp),
-        )
-        Column(
-            Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 20.dp, end = 72.dp, bottom = 20.dp),
         ) {
-            Text(
-                text = model,
-                style = MaterialTheme.typography.titleMedium,
-                color = TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = status,
-                style = MaterialTheme.typography.bodyMedium,
-                color = statusColor,
-                modifier = Modifier.padding(top = 4.dp),
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = model,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = OnBlock,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                ConnectionChip(connection)
+            }
+            Image(
+                painter = painterResource(R.drawable.vstrom_hero),
+                contentDescription = model,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .weight(1.25f)
+                    .fillMaxHeight(),
             )
         }
-        ChunkyIconButton(
-            icon = Icons.Rounded.ChevronRight,
-            onClick = onOpen,
-            style = ChunkyStyle.Lime,
-            contentDescription = "Open garage",
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 16.dp),
-        )
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = verdict,
+                style = MaterialTheme.typography.headlineSmall,
+                color = TextPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 12.dp),
+            )
+            ReadinessRadial(score = score, compact = true)
+        }
     }
+}
+
+/** On the yellow band: a dark filled pill when connected, a dark outline otherwise. */
+@Composable
+private fun ConnectionChip(connection: ConnectionState, modifier: Modifier = Modifier) {
+    val ready = connection is ConnectionState.Ready
+    val label = when (connection) {
+        ConnectionState.Ready -> "Connected"
+        ConnectionState.Connecting, ConnectionState.Discovering -> "Connecting"
+        else -> "Not connected"
+    }
+    Text(
+        text = label.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        color = if (ready) Lime else OnBlock,
+        maxLines = 1,
+        modifier = modifier
+            .then(if (ready) Modifier.background(OnBlock, ShapePill) else Modifier.border(1.dp, OnBlock, ShapePill))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    )
 }
