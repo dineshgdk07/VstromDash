@@ -213,14 +213,20 @@ class ShareCardTest {
         assertEquals("Nandi run", card.headline)
     }
 
+    @Test fun `start clock is the local start time`() =
+        assertEquals("18:00", ShareCard.of(ride(), zone = zone).startClock)
+
+    @Test fun `a place with no letters gets no code`() =
+        assertNull(ShareCard.of(ride(), extras = ShareExtras(startPlace = "—", endPlace = "Nandi Hills"), zone = zone).fromCode)
+
     @Test fun `place codes and ride number are filled for ride pass`() {
         val card = ShareCard.of(
             ride(),
             extras = ShareExtras(startPlace = "Bengaluru", endPlace = "Nandi Hills", rideNumber = 147),
             zone = zone,
         )
-        assertEquals("BEN", card.fromCode)
-        assertEquals("NAN", card.toCode)
+        assertEquals("BNG", card.fromCode)
+        assertEquals("NDH", card.toCode)
         assertEquals("No. 0147", card.rideNumberText)
     }
 

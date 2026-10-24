@@ -9,7 +9,7 @@ Riders share ride images to several places: Instagram stories and feed, WhatsApp
 
 The goal is to make the image something a rider is proud to post. That means several distinct looks to choose from, richer content drawn from data only this app has (bike telemetry, ride history), and a share flow that remembers your preferences.
 
-Mockups from the brainstorm (four looks, share flow): `.superpowers/brainstorm/1045693-1792839628/content/styles.html` and `share-flow.html`. They are rough direction, not pixel specs.
+Mockups from the brainstorm (four looks): `docs/superpowers/specs/mockups/share-card-v2-styles.html`. The cards are 270×480, so one mockup unit is 4 px on a 1080 story; the looks size everything in these units. The share-flow mockup was not kept. They are direction, not pixel specs.
 
 ## Goals
 
@@ -82,7 +82,7 @@ Entry points: the existing **Share card** button on a finished ride (`RideVisual
 
 Today the ride name is passed into the card as `bikeName` (`ShareComposer.kt`), so it lands in the header's bike slot. Fix this. The ride name is the headline only. The bike slot shows a bike name only if one exists. There's no bike-name setting today, so omit the slot until there is.
 
-**Place names.** Use `android.location.Geocoder` to look up the locality of the first and last points of the privacy-trimmed route, not the raw start and end. Cache the result on the ride (new nullable columns, e.g. `startPlace` and `endPlace`) so each ride is looked up once. If the lookup fails (offline, no result), show no place names. Ride Pass then shows the headline in place of the from/to codes. The three-letter codes are the first three letters of each locality, uppercased.
+**Place names.** Use `android.location.Geocoder` to look up the locality of the first and last points of the privacy-trimmed route, not the raw start and end. Cache the result on the ride (new nullable columns, e.g. `startPlace` and `endPlace`) so each ride is looked up once. If the lookup fails (offline, no result), show no place names. Ride Pass then shows the headline in place of the from/to codes. The three-letter codes are airport style: the first letter, then consonants ("Bengaluru" → BNG); a multi-word name ends on its last word's initial ("Nandi Hills" → NDH); short names fill with their remaining letters ("Goa" → GOA).
 
 **Ride number** (Ride Pass): the ride's position among finished, non-demo, non-merged-child rides, oldest = 1. It is shown as `No. 0147`.
 

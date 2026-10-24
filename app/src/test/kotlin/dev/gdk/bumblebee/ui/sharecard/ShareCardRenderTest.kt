@@ -1,12 +1,15 @@
 package dev.gdk.bumblebee.ui.sharecard
 
 import android.graphics.Color
+import android.graphics.RectF
 import androidx.test.core.app.ApplicationProvider
 import dev.gdk.bumblebee.ride.ShareBackground
 import dev.gdk.bumblebee.ride.ShareExtras
 import dev.gdk.bumblebee.ride.ShareLook
+import dev.gdk.bumblebee.ride.SharePlot
 import dev.gdk.bumblebee.ride.ShareShape
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -44,5 +47,14 @@ class ShareCardRenderTest {
                 }
             }
         }
+    }
+
+    @Test fun `a tall bare route stays inside its stage`() {
+        val plot = listOf(SharePlot(0.45f, 0f, 0f), SharePlot(0.55f, 1f, 0f))
+        val stage = RectF(48f, 200f, 1032f, 900f)
+        val pts = floatArrayOf(450f, 0f, 550f, 1000f)
+        ShareCardMapTransform.ofPlot(plot, stage, portrait = true).matrix.mapPoints(pts)
+        assertTrue("top ${pts[1]}", pts[1] >= stage.top)
+        assertTrue("bottom ${pts[3]}", pts[3] <= stage.bottom)
     }
 }

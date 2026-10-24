@@ -5,235 +5,296 @@ import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.PointF
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
 import android.text.TextPaint
-import dev.gdk.bumblebee.ride.GpsFix
 import dev.gdk.bumblebee.ride.ShareBackground
 import dev.gdk.bumblebee.ride.ShareMetricKind
 import dev.gdk.bumblebee.ride.ShareShape
-import dev.gdk.bumblebee.ui.sharecard.RouteStyle
-import dev.gdk.bumblebee.ui.sharecard.ShareCardLayout
-import dev.gdk.bumblebee.ui.sharecard.ShareCardMapTransform
 import dev.gdk.bumblebee.ui.sharecard.ShareCardRoute
-import dev.gdk.bumblebee.ui.sharecard.ShareText
+import dev.gdk.bumblebee.ui.sharecard.ShareTextures
+import kotlin.random.Random
 
+/**
+ * The ride as a boarding pass: a ticket in the accent colour with from → to codes, the route,
+ * a dashed tear line with notches and a stub of stats over a barcode. Mockup D.
+ */
 object RidePassLook : CardLook {
     private const val INK = 0xFF141414.toInt()
     private const val PAGE = 0xFF1B1B1F.toInt()
 
+    override fun stage(ctx: LookContext): RectF {
+        val u = ctx.u
+        val t = ticket(ctx)
+        val top = t.top + titleBottom(ctx) + 10f * u
+        val bottom = tear(ctx) - (if (ctx.card.weatherLine.isNullOrBlank()) 14f else 26f) * u
+        return RectF(t.left + 22f * u, top, t.right - 22f * u, bottom)
+    }
+
     override fun drawOwnBackground(canvas: Canvas, ctx: LookContext) {
         canvas.drawColor(PAGE)
+        ShareTextures.grain(canvas, RectF(0f, 0f, ctx.layout.width, ctx.layout.height), 0.3f)
     }
 
     override fun drawScrim(canvas: Canvas, ctx: LookContext) {
-        canvas.drawColor(Color.argb(70, 0, 0, 0))
+        canvas.drawColor(Color.argb(80, 0, 0, 0))
     }
 
     override fun draw(canvas: Canvas, ctx: LookContext) {
-        val ticket = ticket(ctx.layout)
-        val tear = ticket.top + ticket.height() * 0.62f
-        drawTicket(canvas, ctx, ticket)
-        drawHeader(canvas, ctx, ticket)
-        drawTitle(canvas, ctx, ticket)
-        drawRoute(canvas, ctx, ticket, tear)
-        punch(canvas, ctx, ticket, tear)
-        drawStub(canvas, ctx, ticket, tear)
-        drawStamp(canvas, ctx, ticket)
+        drawTicket(canvas, ctx)
+        drawHeader(canvas, ctx)
+        drawTitle(canvas, ctx)
+        drawRoute(canvas, ctx)
+        drawStamp(canvas, ctx)
+        drawWeather(canvas, ctx)
+        drawTear(canvas, ctx)
+        drawStub(canvas, ctx)
     }
 
-    override fun drawSticker(canvas: Canvas, ctx: LookContext) {
-        val ticket = ticket(ctx.layout)
-        val tear = ticket.top + ticket.height() * 0.62f
-        drawRoute(canvas, ctx, ticket, tear)
-        drawStub(canvas, ctx, ticket, tear)
+    /** The ticket is the sticker. */
+    override fun drawSticker(canvas: Canvas, ctx: LookContext) = draw(canvas, ctx)
+
+    // ---- layout ----
+
+    private fun ticket(ctx: LookContext): RectF {
+        val m = 14f * ctx.u
+        return RectF(m, m, ctx.layout.width - m, ctx.layout.height - m)
     }
 
-    private fun drawTicket(canvas: Canvas, ctx: LookContext, ticket: RectF) {
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = ctx.accent
-            if (ctx.background == ShareBackground.MAP || ctx.background == ShareBackground.PHOTO) {
-                setShadowLayer(28f, 0f, 14f, Color.argb(170, 0, 0, 0))
-            }
+    private fun compact(ctx: LookContext) = ctx.layout.shape == ShareShape.SQUARE
+
+    /** Stub height below the tear line, in units. */
+    private fun stubHeight(ctx: LookContext) = when (ctx.layout.shape) {
+        ShareShape.STORY -> 150f
+        ShareShape.FEED -> 122f
+        ShareShape.SQUARE -> 78f
+    }
+
+    private fun tear(ctx: LookContext): Float = ticket(ctx).bottom - stubHeight(ctx) * ctx.u
+
+    private fun codeSize(ctx: LookContext) = (if (compact(ctx)) 24f else 30f) * ctx.u
+
+    /** Offsets from the ticket top, in px. */
+    private fun headerBase(ctx: LookContext) = (if (compact(ctx)) 20f else 26f) * ctx.u
+    private fun codeBase(ctx: LookContext) = headerBase(ctx) + (if (compact(ctx)) 46f else 60f) * ctx.u
+    private fun titleBottom(ctx: LookContext) = codeBase(ctx) + (if (ctx.card.fromCode != null) 16f else 6f) * ctx.u
+
+    // ---- ticket ----
+
+    private fun drawTicket(canvas: Canvas, ctx: LookContext) {
+        val u = ctx.u
+        val t = ticket(ctx)
+        val body = fill(ctx.accent).apply {
+            if (ctx.background != ShareBackground.OWN) setShadowLayer(9f * u, 0f, 3.5f * u, Color.argb(170, 0, 0, 0))
         }
-        canvas.drawRoundRect(ticket, 36f, 36f, paint)
+        canvas.drawRoundRect(t, 14f * u, 14f * u, body)
+        canvas.save()
+        canvas.clipPath(Path().apply { addRoundRect(t, 14f * u, 14f * u, Path.Direction.CW) })
+        ShareTextures.grain(canvas, t, 0.22f)
+        canvas.restore()
     }
 
-    private fun drawHeader(canvas: Canvas, ctx: LookContext, ticket: RectF) {
-        val scale = ctx.layout.width / 1080f
-        val label = text(28f * scale, INK, ctx.fonts.body)
-        canvas.drawText("Ride pass", ticket.left + 36f, ticket.top + 64f * scale, label)
-        val number = ctx.card.rideNumberText
-        if (!number.isNullOrBlank()) {
-            val num = text(28f * scale, INK, ctx.fonts.mono)
-            canvas.drawText(number, ticket.right - 36f - num.measureText(number), ticket.top + 64f * scale, num)
+    private fun drawHeader(canvas: Canvas, ctx: LookContext) {
+        val u = ctx.u
+        val t = ticket(ctx)
+        val y = t.top + headerBase(ctx)
+        val label = ctx.label(INK, size = 9f)
+        canvas.drawText("RIDE PASS", t.left + 16f * u, y, label)
+        ctx.card.rideNumberText?.takeIf { it.isNotBlank() }?.let {
+            canvas.fitted(it.upper(), t.right - 16f * u, y, label, t.width() * 0.4f, 6f * u, Paint.Align.RIGHT)
         }
     }
 
-    private fun drawTitle(canvas: Canvas, ctx: LookContext, ticket: RectF) {
+    private fun drawTitle(canvas: Canvas, ctx: LookContext) {
+        val u = ctx.u
+        val t = ticket(ctx)
+        val left = t.left + 16f * u
+        val right = t.right - 16f * u
+        val base = t.top + codeBase(ctx)
         val from = ctx.card.fromCode
         val to = ctx.card.toCode
-        val scale = ctx.layout.width / 1080f
-        if (from != null && to != null) {
-            val code = text(if (ctx.layout.shape == ShareShape.STORY) 92f else 72f * scale, INK, ctx.fonts.display)
-            val place = text(24f * scale, INK, ctx.fonts.body)
-            val y = if (ctx.layout.shape == ShareShape.STORY) 280f else ticket.top + ticket.height() * 0.16f
-            val left = ticket.left + 36f
-            val mid = ticket.centerX() + 12f
-            canvas.drawText(ShareText.fit(code, from, ticket.width() * 0.40f, 40f), left, y, code)
-            canvas.drawText(ctx.card.fromPlace.orEmpty(), left, y + place.textSize + 8f, place)
-            val toFitted = ShareText.fit(code, to, ticket.width() * 0.40f, 40f)
-            canvas.drawText(toFitted, mid, y, code)
-            canvas.drawText(ctx.card.toPlace.orEmpty(), mid, y + place.textSize + 8f, place)
+        val label = ctx.label(INK, size = 9f)
+        val code = textPaint(codeSize(ctx), INK, ctx.fonts.display)
+        if (from == null || to == null) {
+            canvas.drawText(ctx.card.shortDate().upper(), left, base - codeSize(ctx) - 6f * u, label)
+            canvas.fitted(ctx.card.headline.upper(), left, base, code, t.width() - 32f * u, 16f * u)
             return
         }
-        val min = if (ctx.layout.shape == ShareShape.STORY) 48f else 40f
-        val paint = text(if (ctx.layout.shape == ShareShape.STORY) 72f else 56f * scale, INK, ctx.fonts.display)
-        val headline = ShareText.fit(paint, ctx.card.headline, ticket.width() - 80f, min)
-        val y = if (ctx.layout.shape == ShareShape.STORY) 280f else ticket.top + ticket.height() * 0.16f
-        canvas.drawText(headline, ticket.left + 36f, y, paint)
+        val labelBase = base - codeSize(ctx) - 6f * u
+        canvas.drawText("FROM", left, labelBase, label)
+        canvas.fitted("TO", right, labelBase, label, 40f * u, 6f * u, Paint.Align.RIGHT)
+        val fromW = canvas.fitted(from, left, base, code, t.width() * 0.36f, 16f * u)
+        val toW = canvas.fitted(to, right, base, textPaint(codeSize(ctx), INK, ctx.fonts.display), t.width() * 0.36f, 16f * u, Paint.Align.RIGHT)
+        val place = textPaint(11f * u, INK, ctx.fonts.body)
+        val placeBase = base + 13f * u
+        canvas.fitted(ctx.card.fromPlace.orEmpty(), left, placeBase, place, t.width() * 0.44f, 7f * u)
+        canvas.fitted(ctx.card.toPlace.orEmpty(), right, placeBase, textPaint(11f * u, INK, ctx.fonts.body), t.width() * 0.44f, 7f * u, Paint.Align.RIGHT)
+        connector(canvas, ctx, left + fromW + 10f * u, right - toW - 10f * u, base - codeSize(ctx) * 0.36f)
     }
 
-    private fun drawRoute(canvas: Canvas, ctx: LookContext, ticket: RectF, tear: Float) {
-        if (ctx.card.plot.size < 2 && ctx.card.route.size < 2) return
-        val stage = RectF(ticket.left + 48f, ticket.top + ticket.height() * 0.28f, ticket.right - 48f, tear - 36f)
-        if (stage.height() < 24f) return
-        val points = ShareCardRoute.project(ctx.card, cover(ctx), stage)
-        canvas.save()
-        canvas.clipRect(stage)
-        ShareCardRoute.drawRoute(canvas, points, INK, RouteStyle.INK)
-        if (points.isNotEmpty()) {
-            val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE
-                strokeWidth = 3f
-                color = INK
-            }
-            canvas.drawCircle(points.first().x, points.first().y, 8f, stroke)
-            canvas.drawCircle(points.last().x, points.last().y, 8f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = INK })
+    /** "──🏍──": a rule with a small motorcycle in the middle. */
+    private fun connector(canvas: Canvas, ctx: LookContext, from: Float, to: Float, y: Float) {
+        val u = ctx.u
+        if (to - from < 40f * u) return
+        val cx = (from + to) / 2f
+        val half = 11f * u
+        val line = stroke(1.2f * u, INK).apply { strokeCap = Paint.Cap.BUTT }
+        canvas.drawLine(from, y, cx - half - 4f * u, y, line)
+        canvas.drawLine(cx + half + 4f * u, y, to, y, line)
+        val s = u * 0.95f
+        val wheel = stroke(1.6f * s, INK)
+        canvas.drawCircle(cx - 7f * s, y + 3f * s, 3.4f * s, wheel)
+        canvas.drawCircle(cx + 7.5f * s, y + 3f * s, 3.4f * s, wheel)
+        val body = Path().apply {
+            moveTo(cx - 7f * s, y + 3f * s)
+            lineTo(cx - 3f * s, y - 2.5f * s)
+            lineTo(cx + 3f * s, y - 2.5f * s)
+            lineTo(cx + 7.5f * s, y + 3f * s)
+            moveTo(cx - 5f * s, y - 2.5f * s)
+            lineTo(cx + 1f * s, y - 4.5f * s)
+            moveTo(cx + 3f * s, y - 2.5f * s)
+            lineTo(cx + 5f * s, y - 6.5f * s)
+            lineTo(cx + 7.5f * s, y - 6.5f * s)
         }
-        ShareCardRoute.drawStops(canvas, stopPoints(ctx, points), INK)
+        canvas.drawPath(body, stroke(1.6f * s, INK))
+        canvas.drawRoundRect(RectF(cx - 3.5f * s, y - 5f * s, cx + 3.5f * s, y - 1f * s), 1.5f * s, 1.5f * s, fill(INK))
+    }
+
+    private fun drawRoute(canvas: Canvas, ctx: LookContext) {
+        if (!ctx.card.hasRoute()) return
+        val u = ctx.u
+        val stage = stage(ctx)
+        if (stage.height() < 24f * u) return
+        // Keep the route clear of the stamp's corner.
+        if (ctx.card.highlight != null) stage.right -= stampRadius(ctx) * 2f + 8f * u
+        val points = ctx.routePoints(stage)
+        if (points.size < 2) return
+        canvas.drawPath(ShareCardRoute.path(points), stroke(4f * u, INK))
+        ShareCardRoute.drawStops(canvas, ctx.stopPoints(points), INK, ctx.accent, 4f * u)
+        val first = points.first()
+        val last = points.last()
+        canvas.drawCircle(first.x, first.y, 5f * u, fill(INK))
+        canvas.drawCircle(last.x, last.y, 5f * u, fill(Color.WHITE))
+        canvas.drawCircle(last.x, last.y, 5f * u, stroke(2f * u, INK))
+    }
+
+    /** A round rubber stamp in the route's top-right corner. */
+    private fun drawStamp(canvas: Canvas, ctx: LookContext) {
+        val badge = ctx.card.highlight ?: return
+        val u = ctx.u
+        val stage = stage(ctx)
+        val r = stampRadius(ctx)
+        val cx = stage.right - r
+        val cy = stage.top + r + 2f * u
+        val ink = withAlpha(INK, 215)
+        canvas.save()
+        canvas.rotate(-14f, cx, cy)
+        canvas.drawCircle(cx, cy, r, fill(withAlpha(ctx.accent, 235)))
+        canvas.drawCircle(cx, cy, r, stroke(1.6f * u, ink))
+        canvas.drawCircle(cx, cy, r - 3.5f * u, stroke(0.6f * u, ink))
+        val words = badge.title.upper().split(' ')
+        val lines = if (words.size <= 3) words else listOf(words.dropLast(words.size / 2).joinToString(" "), words.takeLast(words.size / 2).joinToString(" "))
+        val text = ctx.label(ink, size = if (compact(ctx)) 6.5f else 8f).apply { letterSpacing = 0.12f }
+        val lineH = text.textSize * 1.2f
+        var y = cy - lineH * (lines.size - 1) / 2f + text.textSize * 0.35f
+        lines.forEach {
+            canvas.fitted(it, cx, y, text, r * 1.6f, 5f * u, Paint.Align.CENTER)
+            y += lineH
+        }
         canvas.restore()
     }
 
-    private fun punch(canvas: Canvas, ctx: LookContext, ticket: RectF, tear: Float) {
+    private fun stampRadius(ctx: LookContext) = (if (compact(ctx)) 22f else 30f) * ctx.u
+
+    private fun drawWeather(canvas: Canvas, ctx: LookContext) {
+        val weather = ctx.card.weatherLine?.takeIf { it.isNotBlank() } ?: return
+        val u = ctx.u
+        val t = ticket(ctx)
+        canvas.fitted(weather.upper(), t.left + 16f * u, tear(ctx) - 11f * u, ctx.label(INK, size = 8f), t.width() - 32f * u, 6f * u)
+    }
+
+    private fun drawTear(canvas: Canvas, ctx: LookContext) {
+        val u = ctx.u
+        val t = ticket(ctx)
+        val y = tear(ctx)
         val dash = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = INK
-            strokeWidth = 3f
-            pathEffect = DashPathEffect(floatArrayOf(14f, 12f), 0f)
+            color = withAlpha(INK, 110)
+            strokeWidth = 1f * u
+            pathEffect = DashPathEffect(floatArrayOf(5f * u, 3.5f * u), 0f)
         }
-        canvas.drawLine(ticket.left + 28f, tear, ticket.right - 28f, tear, dash)
-        val radius = 16f
+        canvas.drawLine(t.left + 14f * u, y, t.right - 14f * u, y, dash)
+        val radius = 11f * u
         val clear = ctx.background != ShareBackground.OWN
-        val hole = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = if (clear) Color.TRANSPARENT else PAGE
+        val hole = fill(if (clear) Color.TRANSPARENT else PAGE).apply {
             if (clear) xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
         }
-        canvas.drawCircle(ticket.left, tear, radius, hole)
-        canvas.drawCircle(ticket.right, tear, radius, hole)
+        canvas.drawCircle(t.left, y, radius, hole)
+        canvas.drawCircle(t.right, y, radius, hole)
     }
 
-    private fun drawStub(canvas: Canvas, ctx: LookContext, ticket: RectF, tear: Float) {
-        val distance = ctx.card.available.firstOrNull { it.kind == ShareMetricKind.DISTANCE }
-        val moving = ctx.card.available.firstOrNull { it.kind == ShareMetricKind.MOVING }
-        val third = ctx.card.stats.firstOrNull { it.kind != ShareMetricKind.DISTANCE && it.kind != ShareMetricKind.MOVING }
-        val cells = listOfNotNull(
-            distance?.let { it.value to "Distance" },
-            moving?.let { it.value to "Moving" },
-            ctx.card.dateText.takeIf { it.isNotBlank() }?.let { it to "Date" },
-            third?.let { it.value to it.title },
+    private fun drawStub(canvas: Canvas, ctx: LookContext) {
+        val u = ctx.u
+        val t = ticket(ctx)
+        val card = ctx.card
+        val distance = card.available.firstOrNull { it.kind == ShareMetricKind.DISTANCE }
+        val moving = card.available.firstOrNull { it.kind == ShareMetricKind.MOVING }
+        val extra = card.stats.firstOrNull { it.kind != ShareMetricKind.DISTANCE && it.kind != ShareMetricKind.MOVING }
+        val big = listOfNotNull(
+            distance?.let { "Distance" to it.detail },
+            moving?.let { "Moving" to it.value },
         )
-        val top = tear + 36f
-        val slot = ticket.width() / cells.size.coerceAtLeast(1)
-        cells.forEachIndexed { i, (value, caption) ->
-            val valuePaint = text(30f * ctx.layout.width / 1080f, INK, ctx.fonts.body)
-            val cap = text(16f * ctx.layout.width / 1080f, INK, ctx.fonts.body)
-            val x = ticket.left + 28f + slot * i
-            canvas.drawText(ShareText.fit(valuePaint, value, slot - 24f, 14f), x, top + valuePaint.textSize, valuePaint)
-            canvas.drawText(ShareText.fit(cap, caption, slot - 24f, 12f), x, top + valuePaint.textSize + cap.textSize + 6f, cap)
-        }
-        val weather = ctx.card.weatherLine
-        if (!weather.isNullOrBlank()) {
-            val line = text(20f * ctx.layout.width / 1080f, INK, ctx.fonts.body)
-            canvas.drawText(
-                ShareText.fit(line, weather, ticket.width() - 72f, 14f),
-                ticket.left + 36f,
-                ticket.bottom - 88f,
-                line,
-            )
-        }
-        barcode(canvas, ticket)
-    }
-
-    private fun barcode(canvas: Canvas, ticket: RectF) {
-        val paint = Paint().apply { color = INK }
-        var x = ticket.left + 36f
-        val top = ticket.bottom - 64f
-        val pattern = intArrayOf(2, 1, 3, 1, 1, 4, 2, 1, 2, 3, 1, 1, 2, 4, 1, 2, 1, 3)
-        var i = 0
-        while (x < ticket.right - 36f) {
-            val w = pattern[i % pattern.size] * 3f
-            canvas.drawRect(x, top, x + w, ticket.bottom - 28f, paint)
-            x += w + 4f
-            i++
-        }
-    }
-
-    private fun drawStamp(canvas: Canvas, ctx: LookContext, ticket: RectF) {
-        val badge = ctx.card.highlight ?: return
-        val cx = ticket.right - 110f
-        val cy = ticket.top + 150f
-        canvas.save()
-        canvas.rotate(-16f, cx, cy)
-        val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 4f
-            color = INK
-        }
-        canvas.drawCircle(cx, cy, 54f, ring)
-        val label = text(16f, INK, ctx.fonts.body)
-        val fitted = ShareText.fit(label, badge.title, 90f, 12f)
-        canvas.drawText(fitted, cx - label.measureText(fitted) / 2f, cy + label.textSize * 0.3f, label)
-        canvas.restore()
-    }
-
-    private fun ticket(layout: ShareCardLayout): RectF {
-        val inset = layout.width * 0.04f
-        return RectF(inset, layout.height * 0.045f, layout.width - inset, layout.height * 0.955f)
-    }
-
-    private fun text(size: Float, color: Int, face: android.graphics.Typeface) =
-        TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = size
-            this.color = color
-            typeface = face
-        }
-
-    private fun stopPoints(ctx: LookContext, route: List<PointF>): List<PointF> {
-        if (ctx.card.stops.isEmpty() || route.isEmpty() || ctx.card.route.isEmpty()) return emptyList()
-        return ctx.card.stops.map { stop -> route[nearest(ctx.card.route, stop)] }
-    }
-
-    private fun nearest(route: List<GpsFix>, stop: GpsFix): Int {
-        var best = 0
-        var bestD = Double.MAX_VALUE
-        route.forEachIndexed { i, fix ->
-            val dLat = fix.lat - stop.lat
-            val dLng = fix.lng - stop.lng
-            val d = dLat * dLat + dLng * dLng
-            if (d < bestD) {
-                bestD = d
-                best = i
+        val small = listOfNotNull(
+            card.shortDate().takeIf { it.isNotBlank() }?.let { "Date" to it },
+            extra?.let { it.title to it.detail },
+        )
+        val left = t.left + 16f * u
+        val right = t.right - 16f * u
+        val top = tear(ctx)
+        val label = ctx.label(INK, size = 8.5f)
+        fun cell(i: Int, count: Int, caption: String, value: String, labelY: Float, valueY: Float, paint: TextPaint) {
+            val align = if (count > 1 && i == count - 1) Paint.Align.RIGHT else Paint.Align.LEFT
+            val x = when {
+                align == Paint.Align.RIGHT -> right
+                count > 2 -> left + (right - left) * i / count
+                else -> left
             }
+            val room = (right - left) / count - 6f * u
+            canvas.fitted(caption.upper(), x, labelY, label, room, 6f * u, align)
+            canvas.fitted(value, x, valueY, paint, room, 9f * u, align)
         }
-        return best
+        val barcodeTop: Float
+        if (compact(ctx)) {
+            val all = big + small
+            all.forEachIndexed { i, (c, v) ->
+                cell(i, all.size, c, v.upper(), top + 20f * u, top + 38f * u, textPaint(15f * u, INK, ctx.fonts.display))
+            }
+            barcodeTop = top + 48f * u
+        } else {
+            val s = stubHeight(ctx) / 150f
+            big.forEachIndexed { i, (c, v) ->
+                cell(i, big.size, c, v, top + 26f * u * s, top + 50f * u * s, textPaint(22f * u * s, INK, ctx.fonts.display))
+            }
+            small.forEachIndexed { i, (c, v) ->
+                cell(i, small.size, c, v.upper(), top + 72f * u * s, top + 90f * u * s, textPaint(15f * u * s, INK, ctx.fonts.body))
+            }
+            barcodeTop = top + 104f * u * s
+        }
+        barcode(canvas, RectF(left, barcodeTop, right, t.bottom - 16f * u), card.rideNumberText.orEmpty() + card.dateText)
     }
 
-    private fun cover(ctx: LookContext) =
-        if (ctx.background == ShareBackground.MAP && ctx.card.route.size >= 2) {
-            ShareCardMapTransform.posterCover(ctx.card.route, ctx.layout.height > ctx.layout.width)
-        } else {
-            null
+    /** Decorative bars, the same for the same ride. */
+    private fun barcode(canvas: Canvas, rect: RectF, seed: String) {
+        if (rect.height() < 4f) return
+        val rnd = Random(seed.hashCode())
+        val unit = rect.width() / 180f
+        val paint = fill(INK)
+        var x = rect.left
+        while (x < rect.right) {
+            val bar = (1 + rnd.nextInt(3)) * unit
+            val gap = (1 + rnd.nextInt(2)) * unit
+            canvas.drawRect(x, rect.top, minOf(x + bar, rect.right), rect.bottom, paint)
+            x += bar + gap
         }
+    }
 }

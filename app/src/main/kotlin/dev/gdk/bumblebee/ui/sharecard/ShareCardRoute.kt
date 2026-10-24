@@ -15,28 +15,22 @@ import dev.gdk.bumblebee.ride.TileCover
 import dev.gdk.bumblebee.ride.WebMercator
 import kotlin.math.roundToInt
 
-enum class RouteStyle { GLOW, INK, THIN }
-
 object ShareCardRoute {
-    /** Shared map and route stage. The painter fits map tiles into this rect. */
-    fun stage(layout: ShareCardLayout): RectF =
-        RectF(48f, layout.height * 0.08f, layout.width - 48f, layout.height * 0.56f)
-
-    fun drawRoute(canvas: Canvas, points: List<PointF>, accent: Int, style: RouteStyle) {
-        if (points.size < 2) return
+    /**
+     * The route as one smooth path. GPS samples join with quadratic curves through their midpoints,
+     * so the line reads as a road rather than a polyline.
+     */
+    fun path(points: List<PointF>): Path {
         val path = Path()
+        if (points.size < 2) return path
         path.moveTo(points[0].x, points[0].y)
-        for (i in 1 until points.size) path.lineTo(points[i].x, points[i].y)
-        when (style) {
-            RouteStyle.GLOW -> {
-                val glow = stroke(22f, Color.argb(80, Color.red(accent), Color.green(accent), Color.blue(accent)))
-                glow.maskFilter = BlurMaskFilter(14f, BlurMaskFilter.Blur.NORMAL)
-                canvas.drawPath(path, glow)
-                canvas.drawPath(path, stroke(7f, accent))
-            }
-            RouteStyle.INK -> canvas.drawPath(path, stroke(12f, accent))
-            RouteStyle.THIN -> canvas.drawPath(path, stroke(3.5f, accent))
+        for (i in 1 until points.lastIndex) {
+            val p = points[i]
+            val n = points[i + 1]
+            path.quadTo(p.x, p.y, (p.x + n.x) / 2f, (p.y + n.y) / 2f)
         }
+        path.lineTo(points.last().x, points.last().y)
+        return path
     }
 
     fun project(card: ShareCardModel, cover: TileCover?, stage: RectF): List<PointF> {
@@ -61,16 +55,16 @@ object ShareCardRoute {
         }
     }
 
-    fun drawStops(canvas: Canvas, points: List<PointF>, accent: Int) {
-        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent }
-        val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    fun drawStops(canvas: Canvas, points: List<PointF>, fill: Int, ring: Int, radius: Float) {
+        val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fill }
+        val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 3f
-            color = Color.WHITE
+            strokeWidth = radius * 0.34f
+            color = ring
         }
         points.forEach { point ->
-            canvas.drawCircle(point.x, point.y, 9f, fill)
-            canvas.drawCircle(point.x, point.y, 9f, ring)
+            canvas.drawCircle(point.x, point.y, radius, dot)
+            canvas.drawCircle(point.x, point.y, radius, edge)
         }
     }
 
