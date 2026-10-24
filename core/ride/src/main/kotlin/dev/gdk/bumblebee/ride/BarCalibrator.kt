@@ -38,8 +38,18 @@ class BarCalibrator {
         return if (all.isEmpty()) null else all.average()
     }
 
+    /**
+     * Remaining km from the current bar count. Uses the learned km for each
+     * remaining bar when we have it, otherwise the fleet average. Silent null
+     * when nothing has been learned yet.
+     */
     fun estimatedRangeKm(currentBars: Int): Double? {
-        val avg = averageKmPerBar() ?: return null
-        return currentBars * avg
+        if (currentBars <= 0) return null
+        val fallback = averageKmPerBar() ?: return null
+        var sum = 0.0
+        for (b in currentBars downTo 1) {
+            sum += kmPerBar(b) ?: fallback
+        }
+        return sum
     }
 }

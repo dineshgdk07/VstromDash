@@ -80,6 +80,27 @@ class RideRecorder {
         }
     }
 
+    /**
+     * Phone-GPS speed sample. Buckets moving/idle time the same way telemetry
+     * does, without touching odometer or fuel (those only come from the bike).
+     */
+    fun onSpeedTick(ts: Long, speedKmh: Int) {
+        check(isActive) { "recorder not active" }
+        if (speedKmh > maxSpeedKmh) maxSpeedKmh = speedKmh
+        val prevTs = lastTelemetryTs
+        lastTelemetryTs = ts
+        if (prevTs != null) {
+            val dt = (((ts - prevTs) / 1000).toInt()).coerceIn(0, MAX_DT_SEC)
+            if (speedKmh >= MOVING_THRESHOLD_KMH) {
+                movingSec += dt
+                movingSpeedSecSum += speedKmh.toDouble() * dt
+            } else {
+                idleSec += dt
+            }
+            histogram.add(speedKmh, dt)
+        }
+    }
+
     fun onGps(fix: GpsFix) {
         check(isActive) { "recorder not active" }
         if (fix.accuracyM != null && fix.accuracyM > MAX_GPS_ACCURACY_M) return
@@ -94,9 +115,18 @@ class RideRecorder {
         lastFix = fix
     }
 
+    fun snapshot(now: Long = lastTelemetryTs ?: startTs): RideAggregates {
+        check(isActive) { "recorder not active" }
+        return aggregates(now)
+    }
+
     fun stop(endTs: Long): RideAggregates {
         check(isActive) { "recorder not active" }
         isActive = false
+        return aggregates(endTs)
+    }
+
+    private fun aggregates(endTs: Long): RideAggregates {
         return RideAggregates(
             startTs = startTs,
             endTs = endTs,

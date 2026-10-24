@@ -1,6 +1,7 @@
 package dev.gdk.bumblebee.ble
 
 import dev.gdk.bumblebee.protocol.HeartbeatFrame
+import dev.gdk.bumblebee.protocol.rootFormat
 import kotlinx.coroutines.delay
 import java.time.LocalTime
 
@@ -33,7 +34,7 @@ class HeartbeatLoop(
         }
         val now = clock()
         val hour12 = ((now.hour + 11) % 12) + 1
-        val time = "%02d%02d%02d".format(hour12, now.minute, now.second)
+        val time = rootFormat("%02d%02d%02d", hour12, now.minute, now.second)
         val (weatherCode, tempByte) = weatherProvider()
         val sigBars = signalBarsProvider().coerceIn(0, 3).toString()
 

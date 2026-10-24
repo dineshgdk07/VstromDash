@@ -12,6 +12,7 @@ import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import dev.gdk.bumblebee.ble.BleReconnect
 import dev.gdk.bumblebee.ble.ConnectionState
 import dev.gdk.bumblebee.ble.SuzukiGatt
 import kotlinx.coroutines.CompletableDeferred
@@ -76,6 +77,10 @@ class BleClient(private val context: Context) {
         // Reset the handshake-failure budget only when the *target* changes, so
         // an internal reconnect (same MAC) keeps counting toward the cap instead
         // of looping forever.
+        if (!BleReconnect.needed(_state.value, lastMac, mac)) {
+            Log.i(tag, "connect() skipped, already on $mac state=${_state.value}")
+            return
+        }
         if (mac != lastMac) handshakeFailCount = 0
         lastMac = mac
         Log.i(tag, "connect() mac=$mac")

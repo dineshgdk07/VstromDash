@@ -12,21 +12,27 @@ import dev.gdk.bumblebee.protocol.decodeFrame
 class TelemetrySink(private val repo: RideCaptureRepository) {
 
     suspend fun onReady(ts: Long) {
-        if (repo.activeRideId == null) repo.startRide(ts)
+        runCatching {
+            repo.recoverUnfinishedRides(now = ts)
+            if (repo.activeRideId == null) repo.startRide(ts)
+        }
     }
 
     suspend fun onNotify(bytes: ByteArray, ts: Long) {
-        if (repo.activeRideId == null) return
         if (bytes.size != FRAME_LEN) return
         val frame = try {
             decodeFrame(bytes)
         } catch (_: Exception) {
             return
         }
-        if (frame is TelemetryFrame) repo.onTelemetry(frame, ts)
+        if (frame is TelemetryFrame) {
+            runCatching { repo.ingestTelemetry(frame, ts) }
+        }
     }
 
     suspend fun onDisconnected(ts: Long) {
-        if (repo.activeRideId != null) repo.finishRide(ts)
+        runCatching {
+            if (repo.activeRideId != null) repo.finishRide(ts)
+        }
     }
 }

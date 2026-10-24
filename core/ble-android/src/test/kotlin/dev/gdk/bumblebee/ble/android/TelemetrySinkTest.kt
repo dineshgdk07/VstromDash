@@ -44,10 +44,10 @@ class TelemetrySinkTest {
     }
 
     @Test
-    fun `notify before ready is ignored`() = runTest {
+    fun `notify before ready still opens a ride`() = runTest {
         sink.onNotify(frame(), ts = 1_000L)
-        assertNull(repo.activeRideId)
-        assertEquals(0, db.rideDao().allNewestFirst().size)
+        assertEquals(1_000L, db.rideDao().byId(repo.activeRideId!!)!!.startTs)
+        assertEquals(1, db.telemetryDao().countForRide(repo.activeRideId!!))
     }
 
     @Test

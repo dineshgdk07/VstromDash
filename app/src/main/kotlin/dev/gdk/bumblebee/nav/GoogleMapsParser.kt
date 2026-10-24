@@ -10,6 +10,7 @@ object GoogleMapsParser {
     fun parse(sbn: StatusBarNotification): ParsedNavData? {
         if (sbn.packageName != PKG_GOOGLE_MAPS) return null
         val n = sbn.notification ?: return null
+        if (!looksLikeNavigation(n)) return null
         val extras = n.extras ?: return null
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
         val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()
@@ -34,8 +35,14 @@ object GoogleMapsParser {
         )
     }
 
+    internal fun looksLikeNavigation(n: Notification): Boolean {
+        if (n.category == Notification.CATEGORY_NAVIGATION) return true
+        val max = n.extras.getInt("android.progressMax", -1)
+        return max > 0
+    }
+
     private fun extractInlineDistance(text: String): Pair<String, String>? {
-        val re = Regex("""(?i)(?:in\s+)?(\d+(?:[.,]\d+)?)\s*(km|kilometers?|m|meters?|mi|miles?|ft|feet?)\b""")
+        val re = Regex("""(?i)(?:in\s+)?(\d+(?:[.,]\d+)?)\s*(kilometers?|km|miles?|mi|meters?|m|feet?|ft)\b""")
         val match = re.find(text) ?: return null
         return normalizeDistance(match.value)
     }
@@ -45,11 +52,6 @@ object GoogleMapsParser {
         val cur = extras.getInt("android.progress", 0)
         if (max <= 0) return "0000" to "M"
         val remainingMeters = (max - cur).coerceAtLeast(0)
-        return if (remainingMeters >= 1000) {
-            val km = remainingMeters / 1000.0
-            "%4.1f".format(km.coerceAtMost(99.9)).replace(' ', '0') to "K"
-        } else {
-            "%04d".format(remainingMeters.coerceAtMost(9999)) to "M"
-        }
+        return formatClusterDistance(remainingMeters.toDouble())
     }
 }

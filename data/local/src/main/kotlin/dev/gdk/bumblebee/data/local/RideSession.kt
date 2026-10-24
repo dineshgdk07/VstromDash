@@ -28,9 +28,10 @@ class RideSession(private val repo: RideCaptureRepository) {
         ticks: List<CaptureTick>,
         endTs: Long? = null,
         onTick: (CaptureTick) -> Unit = {},
+        isDemo: Boolean = false,
     ): RideEntity {
         require(ticks.isNotEmpty()) { "no ticks" }
-        repo.startRide(ticks.first().ts)
+        repo.startRide(ticks.first().ts, isDemo = isDemo)
         for (tick in ticks) {
             when (tick) {
                 is CaptureTick.Telemetry -> repo.onTelemetry(tick.frame, tick.ts)

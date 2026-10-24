@@ -36,6 +36,7 @@ landscape **Rider HUD is reinstated as a first-class v1 screen** (D-017, confirm
 
 ## Index
 
+- [Forge Block visual system v2 (tokens, components, screen direction)](./DESIGN_SYSTEM.md)
 - [Data availability (the hard constraint)](./data-availability.md)
 - [Information architecture](./information-architecture.md)
 - Screens

@@ -22,11 +22,25 @@ class ReadinessCalculatorTest {
     }
 
     @Test
-    fun `disconnected never Good to Go`() {
-        val s = ReadinessCalculator.score(fuelBars = 6, bleReady = false)
+    fun `waiting for a paired bike does not tank the score`() {
+        val s = ReadinessCalculator.score(fuelBars = 6, bleReady = false, bikePaired = true)
+        assertEquals(ReadinessBand.READY, s.band)
+        assertEquals(100, s.percent)
+        assertEquals(PillarStatus.UNKNOWN, s.pillars.first { it.name == "Link" }.status)
+    }
+
+    @Test
+    fun `unpaired bike is onboarding not a failure`() {
+        val s = ReadinessCalculator.score(fuelBars = null, bleReady = false, bikePaired = false)
+        assertEquals(PillarStatus.UNKNOWN, s.pillars.first { it.name == "Link" }.status)
+        assertEquals("pair your bike", s.pillars.first { it.name == "Link" }.detail)
+    }
+
+    @Test
+    fun `failed handshake is not ready`() {
+        val s = ReadinessCalculator.score(fuelBars = 6, bleReady = false, bikePaired = true, linkFailed = true)
+        assertEquals(PillarStatus.NOT_READY, s.pillars.first { it.name == "Link" }.status)
         assertTrue(s.band != ReadinessBand.READY)
-        assertEquals("Check", s.label)
-        assertEquals(50, s.percent)
     }
 
     @Test
@@ -43,5 +57,12 @@ class ReadinessCalculatorTest {
         assertEquals(0, s.percent)
         assertEquals(ReadinessBand.COMPUTING, s.band)
         assertEquals("…", s.label)
+    }
+
+    @Test
+    fun `service overdue is a not-ready pillar`() {
+        val s = ReadinessCalculator.score(fuelBars = 6, bleReady = true, serviceDueKm = -10)
+        assertEquals(ReadinessBand.CAUTION, s.band)
+        assertEquals(PillarStatus.NOT_READY, s.pillars.first { it.name == "Service" }.status)
     }
 }

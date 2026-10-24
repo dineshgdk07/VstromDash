@@ -2,6 +2,9 @@ package dev.gdk.bumblebee.ride
 
 enum class FuelEventType { BAR_DROP, REFUEL }
 
+/** AUTO = cluster bar change. RIDER = logged or claimed at the pump. */
+enum class FuelEventSource { AUTO, RIDER }
+
 data class FuelEvent(
     val ts: Long,
     val odometerKm: Int,
@@ -23,6 +26,14 @@ class FuelEventDetector(private val stabilityFrames: Int = 3) {
     private var stableBars: Int? = null
     private var candidateBars: Int? = null
     private var candidateCount = 0
+
+    fun lastStableBars(): Int? = stableBars
+
+    fun restoreLastStable(bars: Int?) {
+        stableBars = bars
+        candidateBars = null
+        candidateCount = 0
+    }
 
     fun reset() {
         candidateBars = null

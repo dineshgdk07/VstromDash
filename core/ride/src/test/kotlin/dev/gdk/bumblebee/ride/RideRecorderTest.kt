@@ -43,6 +43,20 @@ class RideRecorderTest {
     }
 
     @Test
+    fun `snapshot does not stop the recorder`() {
+        val r = RideRecorder()
+        r.start(0L)
+        r.onTelemetry(sample(0L, 40, odo = 1000))
+        r.onTelemetry(sample(5_000L, 50, odo = 1001))
+        val snap = r.snapshot(5_000L)
+        assertTrue(r.isActive)
+        assertEquals(1000, snap.odoStartKm)
+        assertEquals(1001, snap.odoEndKm)
+        val stopped = r.stop(6_000L)
+        assertEquals(snap.odoEndKm, stopped.odoEndKm)
+    }
+
+    @Test
     fun `caps dt at 10 seconds across telemetry gaps`() {
         val r = RideRecorder()
         r.start(0L)
@@ -64,6 +78,19 @@ class RideRecorderTest {
         r.onGps(GpsFix(ts = 4_000L, lat = 0.002, lng = 0.0, accuracyM = 5f))
         val agg = r.stop(5_000L)
         assertEquals(222.4, agg.gpsDistanceM, 1.0) // two ~111.2m segments
+    }
+
+    @Test
+    fun `speed ticks bucket moving time without odo`() {
+        val r = RideRecorder()
+        r.start(0L)
+        r.onSpeedTick(ts = 0L, speedKmh = 0)
+        r.onSpeedTick(ts = 1_000L, speedKmh = 40)
+        r.onSpeedTick(ts = 2_000L, speedKmh = 40)
+        val snap = r.snapshot(2_000L)
+        assertEquals(2, snap.movingSec)
+        assertEquals(40, snap.maxSpeedKmh)
+        assertEquals(null, snap.odoStartKm)
     }
 
     @Test(expected = IllegalStateException::class)

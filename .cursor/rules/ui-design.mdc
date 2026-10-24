@@ -1,0 +1,37 @@
+---
+description: Forge Block visual design system for Jetpack Compose UI. Apply when creating or restyling any screen, component, dialog or theme file.
+globs: app/src/main/kotlin/dev/gdk/bumblebee/ui/**/*.kt,app/src/main/res/font/**
+alwaysApply: false
+---
+
+# Forge Block UI rules
+
+Spec: @docs/design/DESIGN_SYSTEM.md (read the relevant sections before editing UI).
+Reference images: `design/reference/matiks/` (home, menu-sheet, more-menu, insights, dialog, empty-state).
+Data rules: `docs/design/data-availability.md`. Never show a value the bike or phone doesn't provide; label estimates "est.".
+
+## Always
+- Use tokens from `ui/theme/` (Color.kt, Type.kt, Shape.kt) via names; never `Color(0x…)`, literal radii or `fontSize =` in screen files. Missing token → add it to `ui/theme/` first.
+- Build screens from `ui/components/` (ChunkyButton, ChunkyIconButton, BlockTile, SectionCard, IconTile, PillChip, DropdownLabel, StatPill, StatTriple, SectionLabel, ProgressPill, ChunkyDialog, EmptyState, ForgeTopBar, ForgeBottomNav). Missing component → create it there with a `@Preview` showing all states, then use it.
+- Tappable = chunky (solid offset slab drawn with `drawBehind`, no `Modifier.shadow`) or a block/icon tile. Static content = flat.
+- Text on pastel blocks is `OnBlock` (black). Lime only for selected / progress / go.
+- Anton: UPPERCASE, ≥26sp, at most one display-size shout per screen. Everything else Nunito. Changing numbers use `tnum`.
+- Block colours are semantic: Yellow = bike, Lavender = stats, Mint = guides/setup, Coral = ride/navigation. Max 4 blocks per screen.
+- Replace stock `AlertDialog` with `ChunkyDialog`; empty lists get `EmptyState`.
+- `HudColors.kt` names (`ForgeBlack`, `ForgeCard`, `SuzukiYellow`, `LabelMute`, …) are for `ui/hud/**` and `ui/sharecard/**` only. New portrait code never uses them. When restyling a screen, move it fully onto `Color.kt` tokens using the mapping table in spec §8.
+- Portrait screens use `BumblebeeTheme`; the landscape HUD uses `HudTheme`. Don't swap them.
+- Phase 2 (components) never edits screen files.
+
+## Never
+- Gradients, glows, blur shadows, Material Card elevation, outlined cards on portrait screens.
+- White text on pastel blocks; Anton for body text.
+- Copying Matiks artwork, mascots, icons or copy. Borrow the visual language only.
+- Showing RPM, gear, engine/oil temp, battery voltage, throttle or fault codes.
+
+## HUD and share-card exception
+`ui/hud/**` and `ui/sharecard/**` keep the Forge cluster look (`design/hud-landscape/tokens.json`, HUD-only colours in `ui/theme/HudColors.kt`, Rajdhani numerals). No pastel blocks, illustrations or press animations there. Don't restyle these files unless the task explicitly says so.
+
+## Workflow
+- One screen per task, in the order of spec §5, following the `restyle-screen` skill (`.cursor/skills/restyle-screen/SKILL.md`).
+- After changes, run `./gradlew :app:assembleDebug` and fix errors before finishing.
+- Finish by walking through the spec §9 checklist and reporting anything that doesn't pass.

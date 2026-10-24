@@ -67,6 +67,20 @@ class FuelEventDetectorTest {
     }
 
     @Test
+    fun `restored last stable still detects a refuel after reset`() {
+        val d = FuelEventDetector()
+        d.restoreLastStable(2)
+        d.reset()
+        assertNull(d.onSample(sample(0L, 6)))
+        assertNull(d.onSample(sample(5_000L, 6)))
+        val e = d.onSample(sample(10_000L, 6, odo = 800))
+        assertEquals(FuelEventType.REFUEL, e!!.type)
+        assertEquals(2, e.barsBefore)
+        assertEquals(6, e.barsAfter)
+        assertEquals(6, d.lastStableBars())
+    }
+
+    @Test
     fun `very first stable value emits no event`() {
         val d = FuelEventDetector()
         assertNull(d.onSample(sample(0L, 5)))
