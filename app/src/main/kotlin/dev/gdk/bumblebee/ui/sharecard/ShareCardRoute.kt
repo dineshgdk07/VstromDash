@@ -20,7 +20,7 @@ enum class RouteStyle { GLOW, INK, THIN }
 object ShareCardRoute {
     /** Shared map and route stage. The painter fits map tiles into this rect. */
     fun stage(layout: ShareCardLayout): RectF =
-        RectF(48f, layout.height * 0.08f, layout.width - 48f, layout.height * 0.70f)
+        RectF(48f, layout.height * 0.08f, layout.width - 48f, layout.height * 0.56f)
 
     fun drawRoute(canvas: Canvas, points: List<PointF>, accent: Int, style: RouteStyle) {
         if (points.size < 2) return

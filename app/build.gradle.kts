@@ -54,6 +54,9 @@ android {
     }
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            it.systemProperty("share.preview", System.getProperty("share.preview") ?: "false")
+        }
     }
 }
 
