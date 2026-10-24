@@ -1,0 +1,10 @@
+# OS / IDE
+.DS_Store
+.idea/
+*.iml
+
+# Gradle / Android (for when we scaffold)
+.gradle/
+build/
+local.properties
+/.superpowers/
