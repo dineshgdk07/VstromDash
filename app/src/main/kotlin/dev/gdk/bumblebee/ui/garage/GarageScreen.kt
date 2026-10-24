@@ -1,6 +1,18 @@
 package dev.gdk.bumblebee.ui.garage
 
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material.icons.rounded.Badge
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import dev.gdk.bumblebee.ride.Ownership
+import dev.gdk.bumblebee.ui.components.ChunkyDialog
+import dev.gdk.bumblebee.ui.components.ForgeSheet
+import dev.gdk.bumblebee.ui.theme.BlockLavender
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+import kotlin.math.roundToInt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +67,7 @@ import dev.gdk.bumblebee.ui.theme.BumblebeeTheme
 import dev.gdk.bumblebee.ui.theme.Canvas
 import dev.gdk.bumblebee.ui.theme.Lime
 import dev.gdk.bumblebee.ui.theme.OnBlock
+import dev.gdk.bumblebee.ui.theme.ShapeLg
 import dev.gdk.bumblebee.ui.theme.ShapePill
 import dev.gdk.bumblebee.ui.theme.ShapeSm
 import dev.gdk.bumblebee.ui.theme.Stroke
@@ -69,9 +82,15 @@ fun GarageScreen(
     onOpenDocuments: () -> Unit = {},
     onOpenService: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onOpenCosts: () -> Unit = {},
+    onOpenPassport: () -> Unit = {},
 ) {
     val state by model.ui.collectAsStateWithLifecycle()
     RefreshOnResume(model::refresh)
+    var healthOpen by remember { mutableStateOf(false) }
+    var checkOpen by remember { mutableStateOf(false) }
+    var lubeAsk by remember { mutableStateOf(false) }
+    var efficiencyOpen by remember { mutableStateOf(false) }
     GarageBody(
         state = state,
         onOpenFuel = onOpenFuel,
@@ -79,8 +98,68 @@ fun GarageScreen(
         onOpenDocuments = onOpenDocuments,
         onOpenService = onOpenService,
         onOpenSettings = onOpenSettings,
+        onOpenCosts = onOpenCosts,
+        onOpenPassport = onOpenPassport,
+        onOpenHealth = { healthOpen = true },
+        onOpenCheck = { checkOpen = true },
+        onChain = { lubeAsk = true },
+        onEfficiency = { efficiencyOpen = true },
     )
+    val extras = state.extras
+    if (healthOpen && extras != null) HealthSheet(extras.health, onDismiss = { healthOpen = false })
+    if (checkOpen) {
+        PreRideCheckSheet(
+            onDismiss = { checkOpen = false },
+            onDone = {
+                checkOpen = false
+                model.refresh()
+            },
+        )
+    }
+    if (lubeAsk && extras?.chain != null) {
+        ChunkyDialog(
+            title = "Lube the chain?",
+            body = extras.chain.message + ". Mark it lubed at ${extras.odoKm?.let { "%,d km".format(it) } ?: "the current odo"}?",
+            dismissLabel = "Later",
+            confirmLabel = "Lubed it",
+            onDismiss = { lubeAsk = false },
+            onConfirm = {
+                lubeAsk = false
+                model.lubeChain()
+            },
+        )
+    }
+    val alert = extras?.efficiency
+    if (efficiencyOpen && alert != null) {
+        ForgeSheet(
+            title = "Fuel efficiency",
+            onDismiss = { efficiencyOpen = false },
+            primaryLabel = "Open fuel log",
+            onPrimary = {
+                efficiencyOpen = false
+                onOpenFuel()
+            },
+        ) {
+            Text(
+                "Your last tank gave ${"%.1f".format(alert.latestKmPerL)} km/l. You usually get ${"%.1f".format(alert.usualKmPerL)}.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = TextPrimary,
+            )
+            Text(
+                "Likely reasons",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary,
+                modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
+            )
+            alert.causes.forEach { cause ->
+                Text("•  $cause", style = MaterialTheme.typography.bodyMedium, color = TextPrimary, modifier = Modifier.padding(bottom = 6.dp))
+            }
+        }
+    }
 }
+
+/** One page of the "Needs attention" pager. */
+private data class Attention(val title: String, val urgent: Boolean, val onClick: () -> Unit)
 
 @Composable
 private fun GarageBody(
@@ -90,8 +169,31 @@ private fun GarageBody(
     onOpenDocuments: () -> Unit,
     onOpenService: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenCosts: () -> Unit = {},
+    onOpenPassport: () -> Unit = {},
+    onOpenHealth: () -> Unit = {},
+    onOpenCheck: () -> Unit = {},
+    onChain: () -> Unit = {},
+    onEfficiency: () -> Unit = {},
 ) {
     val docs = documentTrailing(state.documents)
+    val extras = state.extras
+    val chainPlanKey = extras?.chainPlanId?.let { "p$it" }
+    val chain = extras?.chain?.takeIf { it.due }
+    val attention = buildList {
+        state.upcoming.forEach { item ->
+            if (chain != null && item.key == chainPlanKey) return@forEach
+            add(
+                Attention(item.label, item.band == CareBand.OVERDUE) {
+                    if (item.key.startsWith("d")) onOpenDocuments() else onOpenService()
+                },
+            )
+        }
+        chain?.let { add(Attention(it.message, urgent = false, onClick = onChain)) }
+        extras?.efficiency?.let {
+            add(Attention("Last tank ${(it.drop * 100).roundToInt()}% below your usual km/l. Find out why", urgent = false, onClick = onEfficiency))
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -100,47 +202,7 @@ private fun GarageBody(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("How is the motorcycle", style = MaterialTheme.typography.titleLarge, color = TextPrimary)
-        SectionCard {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(72.dp)
-                        .clip(ShapeSm)
-                        .background(OnBlock),
-                ) {
-                    Image(
-                        painter = painterResource(R.drawable.vstrom_hero),
-                        contentDescription = "V-Strom 250 SX",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("V-Strom 250 SX", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
-                    ConnectionChip(state.connection)
-                }
-            }
-            StatTriple(
-                modifier = Modifier.padding(top = 16.dp),
-                columns = listOf(
-                    StatTripleColumn(
-                        (state.odometerKm ?: state.storedOdometerKm)?.let { "%,d".format(it) } ?: "—",
-                        if (state.odometerKm == null && state.storedOdometerKm != null) "Last odo" else "Odo",
-                        StatTone.Plain,
-                    ),
-                    StatTripleColumn(state.tripAKm?.let { "%.1f".format(it) } ?: "—", "Trip A", StatTone.Plain),
-                    StatTripleColumn(state.tripBKm?.let { "%.1f".format(it) } ?: "—", "Trip B", StatTone.Plain),
-                ),
-            )
-            state.fuelBars?.let { bars ->
-                Text(
-                    text = "Fuel · $bars bars",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextPrimary,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
-            }
-        }
+        BikeHero(state, onOpenHealth = onOpenHealth, onOpenCheck = onOpenCheck)
         if (state.bikeMac == null) {
             BlockTile(
                 title = "Pair the bike",
@@ -149,18 +211,19 @@ private fun GarageBody(
                 modifier = Modifier.fillMaxWidth().height(96.dp),
             )
         }
-        if (state.upcoming.isNotEmpty()) {
+        if (attention.isNotEmpty()) {
             SectionLabel(text = "Needs attention")
-            InsightPager(pageCount = state.upcoming.size) { page ->
-                val item = state.upcoming[page]
+            InsightPager(pageCount = attention.size) { page ->
+                val item = attention[page]
                 BlockTile(
-                    title = item.label,
-                    color = if (item.band == CareBand.OVERDUE) BlockColor.Coral else BlockColor.Yellow,
-                    onClick = { if (item.key.startsWith("d")) onOpenDocuments() else onOpenService() },
+                    title = item.title,
+                    color = if (item.urgent) BlockColor.Coral else BlockColor.Yellow,
+                    onClick = item.onClick,
                     modifier = Modifier.fillMaxWidth().height(120.dp),
                 )
             }
         }
+        extras?.ownership?.let { CostCard(it, onOpenCosts) }
         SectionCard(header = { SectionLabel(text = "Bike") }) {
             Column(Modifier.padding(top = 8.dp)) {
                 ListRow(
@@ -200,6 +263,20 @@ private fun GarageBody(
                     },
                 )
                 ListRow(
+                    title = "Bike passport",
+                    subtitle = extras?.odo?.since?.let { "Since ${it.format(DateTimeFormatter.ofPattern("MMM yyyy", Locale.ENGLISH))}" },
+                    onClick = onOpenPassport,
+                    leading = { ListRowIcon(Icons.Rounded.Badge) },
+                    trailing = {
+                        Text(
+                            text = extras?.odo?.loggedKm?.takeIf { it > 0 }?.let { "%,.0f km logged".format(it) } ?: "—",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary,
+                            maxLines = 1,
+                        )
+                    },
+                )
+                ListRow(
                     title = "Settings",
                     onClick = onOpenSettings,
                     leading = { ListRowIcon(Icons.Rounded.Settings) },
@@ -217,22 +294,57 @@ private fun GarageBody(
     }
 }
 
+/** ₹ per km, this year's spend and the year ahead, with the fuel and service split. */
 @Composable
-private fun ConnectionChip(connection: ConnectionState) {
-    val ready = connection is ConnectionState.Ready
-    val label = when (connection) {
-        ConnectionState.Ready -> "Connected"
-        ConnectionState.Connecting, ConnectionState.Discovering -> "Connecting"
-        else -> "Not connected"
+private fun CostCard(o: Ownership, onClick: () -> Unit) {
+    SectionCard(
+        modifier = Modifier.clip(ShapeLg).clickable(onClick = onClick),
+        header = { SectionLabel(text = "Cost of ownership") },
+    ) {
+        Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.Bottom) {
+            Text(
+                o.rupeesPerKm?.let { "₹%.2f".format(it) } ?: "₹%,.0f".format(o.thisYear),
+                style = MaterialTheme.typography.headlineMedium,
+                color = TextPrimary,
+            )
+            Text(
+                if (o.rupeesPerKm != null) " per km" else " this year",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary,
+                modifier = Modifier.padding(bottom = 4.dp).weight(1f),
+            )
+            ListRowChevron()
+        }
+        Text(
+            listOfNotNull(
+                "₹%,.0f this year".format(o.thisYear).takeIf { o.rupeesPerKm != null },
+                o.projectedYear?.let { "≈ ${compactRupees(it)} a year" },
+            ).joinToString(" · ").ifBlank { "Add prices to fills and services to see more" },
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextSecondary,
+        )
+        SplitBar(o.fuelFraction.toFloat(), Modifier.padding(top = 12.dp))
+        Row(Modifier.padding(top = 6.dp)) {
+            Text("Fuel ${(o.fuelFraction * 100).roundToInt()}%", style = MaterialTheme.typography.labelSmall, color = Lime, modifier = Modifier.weight(1f))
+            Text("Service ${100 - (o.fuelFraction * 100).roundToInt()}%", style = MaterialTheme.typography.labelSmall, color = BlockLavender)
+        }
     }
-    Text(
-        text = label.uppercase(),
-        style = MaterialTheme.typography.labelSmall,
-        color = if (ready) Lime else TextSecondary,
-        modifier = Modifier
-            .border(1.dp, if (ready) Lime else Stroke, ShapePill)
-            .padding(horizontal = 10.dp, vertical = 4.dp),
-    )
+}
+
+@Composable
+internal fun SplitBar(fuel: Float, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth().height(10.dp).clip(ShapePill)) {
+        val f = fuel.coerceIn(0f, 1f)
+        if (f > 0f) Box(Modifier.weight(f).fillMaxHeight().background(Lime))
+        if (f < 1f) Box(Modifier.weight(1f - f).fillMaxHeight().background(BlockLavender))
+    }
+}
+
+/** ₹27k, ₹1.2L. */
+internal fun compactRupees(value: Double): String = when {
+    value >= 100_000 -> "₹%.1fL".format(value / 100_000)
+    value >= 1_000 -> "₹%.0fk".format(value / 1_000)
+    else -> "₹%.0f".format(value)
 }
 
 private fun documentTrailing(docs: List<DocCard>): Pair<StatusChipTone, String> {

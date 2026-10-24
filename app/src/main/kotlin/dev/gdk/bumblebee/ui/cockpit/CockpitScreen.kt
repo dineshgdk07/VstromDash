@@ -21,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bluetooth
 import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.LocalGasStation
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Route
@@ -56,6 +57,8 @@ import dev.gdk.bumblebee.ui.components.ChunkyButton
 import dev.gdk.bumblebee.ui.components.ChunkyStyle
 import dev.gdk.bumblebee.ui.components.StatusChipTone
 import dev.gdk.bumblebee.ui.components.ForgeSheet
+import dev.gdk.bumblebee.ui.garage.GaragePrefs
+import dev.gdk.bumblebee.ui.garage.PreRideCheckSheet
 import dev.gdk.bumblebee.ui.components.ListRow
 import dev.gdk.bumblebee.ui.components.ListRowChevron
 import dev.gdk.bumblebee.ui.components.ListRowDot
@@ -116,6 +119,8 @@ private fun CockpitContent(
 ) {
     val context = LocalContext.current
     var readinessOpen by remember { mutableStateOf(false) }
+    var checkOpen by remember { mutableStateOf(false) }
+    val checkedToday = remember(readinessOpen, checkOpen) { java.time.LocalDate.now() in GaragePrefs(context).checkDays }
     val pages = contextPages(state)
     val (cta, onCta) = when (state.ridePhase) {
         CockpitRidePhase.Start -> "Start ride" to onStartRide
@@ -183,6 +188,9 @@ private fun CockpitContent(
         }
     }
 
+    if (checkOpen) {
+        PreRideCheckSheet(onDismiss = { checkOpen = false }, onDone = { checkOpen = false })
+    }
     if (readinessOpen) {
         ForgeSheet(
             title = "Readiness",
@@ -192,6 +200,11 @@ private fun CockpitContent(
         ) {
             ReadinessSheetBody(
                 score = state.readiness,
+                checkedToday = checkedToday,
+                onCheck = {
+                    readinessOpen = false
+                    checkOpen = true
+                },
                 onFix = { pillar ->
                     readinessOpen = false
                     when (pillar) {
@@ -331,7 +344,12 @@ private fun TripTile(label: String, value: String?, unit: String, modifier: Modi
 
 /** Each check with what it found, coloured by how it stands, and a tap to fix the ones the app can. */
 @Composable
-private fun ReadinessSheetBody(score: ReadinessScore, onFix: (String) -> Unit) {
+private fun ReadinessSheetBody(
+    score: ReadinessScore,
+    onFix: (String) -> Unit,
+    checkedToday: Boolean = false,
+    onCheck: () -> Unit = {},
+) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (score.band != ReadinessBand.COMPUTING) {
             Row(verticalAlignment = Alignment.Bottom) {
@@ -378,6 +396,31 @@ private fun ReadinessSheetBody(score: ReadinessScore, onFix: (String) -> Unit) {
                     modifier = Modifier
                         .background(if (pillar.status == PillarStatus.UNKNOWN) StrokeColor else tone, ShapePill)
                         .padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
+        }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(ShapeMd)
+                .background(SurfaceRaised)
+                .clickable(onClick = onCheck)
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val tone = if (checkedToday) Lime else TextSecondary
+            Box(
+                Modifier.size(40.dp).background(tone.copy(alpha = 0.16f), ShapeMd),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Rounded.Checklist, contentDescription = null, tint = tone, modifier = Modifier.size(22.dp))
+            }
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text("Pre-ride check", style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+                Text(
+                    if (checkedToday) "Done today" else "Tyres, chain, lights, brakes · tap to check",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
                 )
             }
         }

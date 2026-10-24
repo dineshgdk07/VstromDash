@@ -29,6 +29,8 @@ data class GarageUiState(
     /** Newest stored odometer, shown when no live sample has arrived yet. */
     val storedOdometerKm: Int? = null,
     val nextService: NextService? = null,
+    val rangeKm: Double? = null,
+    val extras: GarageExtras? = null,
 )
 
 /** The plan closest to due, for the hub's Service row. */
@@ -38,6 +40,7 @@ class GarageViewModel(application: Application) : AndroidViewModel(application) 
     private val app = application as DashApp
     private val _ui = MutableStateFlow(fromPrefs())
     val ui: StateFlow<GarageUiState> = _ui.asStateFlow()
+    private var extrasAt = 0L
 
     init {
         viewModelScope.launch {
@@ -58,29 +61,51 @@ class GarageViewModel(application: Application) : AndroidViewModel(application) 
                         fuelBars = sample.fuelBars,
                     )
                 }
-                if (changed) refresh()
+                if (changed) refresh(full = false)
             }
         }
         refresh()
     }
 
-    fun refresh() {
+    /** [full] false skips the history pass if it ran in the last minute, so riding doesn't redo it every km. */
+    fun refresh(full: Boolean = true) {
         val fuel = _ui.value.fuelBars
         val odo = _ui.value.odometerKm
         viewModelScope.launch {
             val stored = if (odo == null) withContext(Dispatchers.IO) { app.capture.latestKnownOdometerKm() } else null
             val snap = reloadGarage(app, fuel, odo ?: stored)
+            val now = System.currentTimeMillis()
+            val extras = if (full || now - extrasAt > 60_000 || _ui.value.extras == null) {
+                extrasAt = now
+                loadGarageExtras(app, odo ?: stored)
+            } else {
+                _ui.value.extras
+            }
             _ui.update {
                 it.copy(
                     storedOdometerKm = stored,
                     nextService = nextService(snap.plans, odo ?: stored),
                     bikeMac = app.prefs.bikeMac,
                     tankKmPerL = snap.tankKmPerL,
+                    rangeKm = snap.rangeKm,
+                    extras = extras,
                     documents = snap.docs,
                     plans = snap.plans,
                     upcoming = snap.upcoming,
                 )
             }
+        }
+    }
+
+    /** Logs a chain lube at the current odometer, which resets the chain plan. */
+    fun lubeChain() {
+        val extras = _ui.value.extras ?: return
+        val odo = extras.odoKm ?: return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                app.capture.logService(odo, "Chain lube", null, null, System.currentTimeMillis(), planId = extras.chainPlanId)
+            }
+            refresh()
         }
     }
 

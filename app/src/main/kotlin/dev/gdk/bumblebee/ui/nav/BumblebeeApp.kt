@@ -45,7 +45,9 @@ import dev.gdk.bumblebee.ui.explorer.YearHeatScreen
 import dev.gdk.bumblebee.ui.explorer.RecapScreen
 import dev.gdk.bumblebee.ui.fuel.FuelLogScreen
 import dev.gdk.bumblebee.ui.garage.documents.DocumentsScreen
+import dev.gdk.bumblebee.ui.garage.CostsScreen
 import dev.gdk.bumblebee.ui.garage.GarageScreen
+import dev.gdk.bumblebee.ui.garage.PassportScreen
 import dev.gdk.bumblebee.ui.garage.GarageSettingsScreen
 import dev.gdk.bumblebee.ui.garage.ServiceScreen
 import dev.gdk.bumblebee.ui.hud.RiderHudScreen
@@ -124,7 +126,7 @@ fun BumblebeeApp() {
             val backStack by navController.currentBackStackEntryAsState()
             val currentRoute = backStack?.destination?.route
             val coreRoute = when (currentRoute) {
-                "fuel", "transfer", "garage/documents", "garage/service", "garage/settings" -> Pillar.GARAGE.route
+                "fuel", "transfer", "garage/documents", "garage/service", "garage/settings", "garage/costs", "garage/passport" -> Pillar.GARAGE.route
                 else -> currentRoute
             }
             if (currentRoute?.startsWith("explorer/recap") != true) {
@@ -202,6 +204,8 @@ fun BumblebeeApp() {
                             onOpenDocuments = { navController.navigate("garage/documents") },
                             onOpenService = { navController.navigate("garage/service") },
                             onOpenSettings = { navController.navigate("garage/settings") },
+                            onOpenCosts = { navController.navigate("garage/costs") },
+                            onOpenPassport = { navController.navigate("garage/passport") },
                         )
                     }
                 }
@@ -217,6 +221,12 @@ fun BumblebeeApp() {
             }
             composable("garage/service") {
                 ServiceScreen(onBack = { navController.popBackStack() })
+            }
+            composable("garage/costs") {
+                CostsScreen(onBack = { navController.popBackStack() })
+            }
+            composable("garage/passport") {
+                PassportScreen(onBack = { navController.popBackStack() }, onOpenRide = { openRideFromExplorer(it) })
             }
             composable("garage/settings") {
                 GarageSettingsScreen(onBack = { navController.popBackStack() })

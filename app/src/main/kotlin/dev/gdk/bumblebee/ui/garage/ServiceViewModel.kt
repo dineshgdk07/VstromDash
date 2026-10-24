@@ -27,6 +27,7 @@ data class ServiceUiState(
     val runningPartial: Boolean = false,
     val remindKm: Int = 200,
     val remindDays: Int = 14,
+    val extras: GarageExtras? = null,
     val editingPlan: Boolean = false,
     val editingLog: Boolean = false,
     val planId: Long? = null,
@@ -77,6 +78,7 @@ class ServiceViewModel(application: Application) : AndroidViewModel(application)
             val odo = app.latestTelemetry.value?.odometerKm
                 ?: withContext(Dispatchers.IO) { app.capture.latestKnownOdometerKm() }
             val snap = reloadService(app, odo)
+            val extras = loadGarageExtras(app, odo)
             _ui.update {
                 it.copy(
                     odometerKm = odo,
@@ -87,6 +89,7 @@ class ServiceViewModel(application: Application) : AndroidViewModel(application)
                     runningPartial = snap.runningPartial,
                     remindKm = snap.remindKm,
                     remindDays = snap.remindDays,
+                    extras = extras,
                     servicePlanId = it.servicePlanId ?: snap.plans.firstOrNull { plan -> plan.kind == "OIL" }?.id,
                 )
             }

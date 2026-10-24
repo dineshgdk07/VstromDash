@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,6 +30,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -39,6 +42,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.gdk.bumblebee.garage.GarageFiles
 import dev.gdk.bumblebee.ride.CareBand
+import dev.gdk.bumblebee.ride.CareDate
+import dev.gdk.bumblebee.ride.GarageInsights
+import dev.gdk.bumblebee.ride.PartWear
 import dev.gdk.bumblebee.ui.components.ChunkyButton
 import dev.gdk.bumblebee.ui.components.ChunkyDialog
 import dev.gdk.bumblebee.ui.components.ChunkyDialogConfirmStyle
@@ -58,6 +64,11 @@ import dev.gdk.bumblebee.ui.components.StatusChipTone
 import dev.gdk.bumblebee.ui.garage.documents.decodeThumb
 import dev.gdk.bumblebee.ui.theme.BumblebeeTheme
 import dev.gdk.bumblebee.ui.theme.Canvas
+import dev.gdk.bumblebee.ui.theme.Danger
+import dev.gdk.bumblebee.ui.theme.TextDisabled
+import dev.gdk.bumblebee.ui.theme.Lime
+import dev.gdk.bumblebee.ui.theme.Stroke
+import dev.gdk.bumblebee.ui.theme.TextPrimary
 import dev.gdk.bumblebee.ui.theme.ShapeSm
 import dev.gdk.bumblebee.ui.theme.TextSecondary
 import kotlinx.coroutines.Dispatchers
@@ -65,9 +76,11 @@ import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 
-private enum class ServiceTab { Plans, History }
+private enum class ServiceTab { Plans, Parts, History }
 
 @Composable
 fun ServiceScreen(
@@ -114,6 +127,7 @@ fun ServiceScreen(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PillChip(text = "Plans", selected = tab == ServiceTab.Plans, onClick = { tab = ServiceTab.Plans })
+                    PillChip(text = "Parts", selected = tab == ServiceTab.Parts, onClick = { tab = ServiceTab.Parts })
                     PillChip(text = "History", selected = tab == ServiceTab.History, onClick = { tab = ServiceTab.History })
                 }
                 if (tab == ServiceTab.Plans) {
@@ -126,9 +140,17 @@ fun ServiceScreen(
                             modifier = Modifier.padding(top = 24.dp),
                         )
                     } else {
+                        val dates = state.extras?.careDates.orEmpty()
+                        NextNinetyDays(dates, today)
                         state.plans.forEach { plan ->
                             PlanBlock(
                                 plan = plan,
+                                forecast = dates.firstOrNull { it.title == plan.title }
+                                    ?.takeIf { !it.overdue }
+                                    ?.let { d ->
+                                        GarageInsights.forecastLabel(d.date, d.fromPace, today)
+                                            .replaceFirstChar { it.uppercase() } + if (d.fromPace) " at your pace" else ""
+                                    },
                                 due = planDueFor(plan, state.odometerKm, today, state.remindKm, state.remindDays),
                                 onMarkDone = { model.markDone(plan) },
                                 onEdit = { model.beginEditPlan(plan) },
@@ -137,6 +159,8 @@ fun ServiceScreen(
                         }
                         ChunkyButton(text = "Add plan", onClick = model::beginAddPlan, style = ChunkyStyle.Outline)
                     }
+                } else if (tab == ServiceTab.Parts) {
+                    PartsLife(state.extras?.parts.orEmpty(), onLog = model::beginLog)
                 } else if (state.serviceLogs.isEmpty()) {
                     EmptyState(
                         headline = "No service yet",
@@ -376,6 +400,7 @@ fun ServiceScreen(
 @Composable
 private fun PlanBlock(
     plan: PlanCard,
+    forecast: String?,
     due: PlanDue,
     onMarkDone: () -> Unit,
     onEdit: () -> Unit,
@@ -402,6 +427,9 @@ private fun PlanBlock(
                     modifier = Modifier.padding(start = 8.dp),
                 )
             }
+            forecast?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) {
                     ChunkyButton(text = "Mark done", onClick = onMarkDone, compact = true, style = ChunkyStyle.Lime)
@@ -411,6 +439,115 @@ private fun PlanBlock(
                 }
             }
             ChunkyButton(text = "Delete", onClick = onDelete, compact = true, style = ChunkyStyle.Danger)
+        }
+    }
+}
+
+/** Care falling due in the next 90 days, on one strip. */
+@Composable
+private fun NextNinetyDays(dates: List<CareDate>, today: LocalDate) {
+    val soon = dates.filter { !it.date.isAfter(today.plusDays(90)) }
+    SectionCard(header = { SectionLabel(text = "Next 90 days") }) {
+        if (soon.isEmpty()) {
+            Text(
+                "Nothing due. The bike is all set for three months.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            return@SectionCard
+        }
+        val line = TextDisabled
+        androidx.compose.foundation.Canvas(
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp)
+                .height(28.dp),
+        ) {
+            val y = size.height / 2
+            drawLine(Stroke, Offset(0f, y), Offset(size.width, y), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
+            for (month in 0..3) {
+                val x = size.width * month * 30 / 90f
+                drawLine(line, Offset(x, y - 6.dp.toPx()), Offset(x, y + 6.dp.toPx()), strokeWidth = 1.dp.toPx())
+            }
+            soon.forEach { d ->
+                val days = ChronoUnit.DAYS.between(today, d.date).coerceIn(0L, 90L)
+                drawCircle(if (d.overdue) Danger else Lime, 7.dp.toPx(), Offset(size.width * days / 90f, y))
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            listOf("Today", "30 d", "60 d", "90 d").forEach {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+            }
+        }
+        Column(Modifier.padding(top = 8.dp)) {
+            soon.forEachIndexed { i, d ->
+                ListRow(
+                    title = d.title,
+                    subtitle = if (d.overdue) "Overdue" else GarageInsights.forecastLabel(d.date, d.fromPace, today).replaceFirstChar { it.uppercase() },
+                    showDivider = i < soon.lastIndex,
+                    trailing = {
+                        Text(
+                            d.date.format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)).uppercase(Locale.ENGLISH),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (d.overdue) Danger else TextPrimary,
+                        )
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** How worn each part is against its usual life. */
+@Composable
+private fun PartsLife(parts: List<PartWear>, onLog: () -> Unit) {
+    if (parts.isEmpty()) {
+        EmptyState(
+            headline = "No readings yet",
+            subtitle = "Parts wear shows once the bike has sent an odometer reading.",
+            primaryLabel = "Log a replacement",
+            onPrimary = onLog,
+            modifier = Modifier.padding(top = 24.dp),
+        )
+        return
+    }
+    Text(
+        "Typical life for a V-Strom 250 ridden on Indian roads. Log a replacement in History to reset a part.",
+        style = MaterialTheme.typography.bodySmall,
+        color = TextSecondary,
+    )
+    SectionCard {
+        Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            parts.forEach { p ->
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(p.title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                        Text(
+                            when {
+                                p.left <= 0 -> "Past its life"
+                                p.days -> "${p.left / 30} months left"
+                                else -> "${"%,d".format(p.left)} km left"
+                            },
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (p.fraction >= 1f) Danger else TextPrimary,
+                        )
+                    }
+                    DueMeter(
+                        usedLabel = "%,d".format(p.used),
+                        totalLabel = if (p.days) "${"%,d".format(p.life)} days" else "${"%,d".format(p.life)} km",
+                        fraction = p.fraction.coerceIn(0f, 1f),
+                        tone = when {
+                            p.fraction >= 1f -> StatusChipTone.Overdue
+                            p.fraction >= 0.85f -> StatusChipTone.DueSoon
+                            else -> StatusChipTone.Ok
+                        },
+                    )
+                    if (!p.logged) {
+                        Text("No replacement logged · counted from your first reading", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    }
+                }
+            }
         }
     }
 }
@@ -517,6 +654,7 @@ private fun ServicePlanPreview() {
         ) {
             PlanBlock(
                 plan = PlanCard(1, "Engine oil", "OIL", 3000, 180, null, 10_000, "2026-05-04", CareBand.OK, ""),
+                forecast = "Around 13 Nov at your pace",
                 due = planDue(
                     currentOdoKm = 12_580,
                     lastDoneOdoKm = 10_000,
