@@ -22,6 +22,7 @@ fun card(
     background: ShareBackground = ShareBackground.OWN,
     track: List<GpsFix> = emptyList(),
     extras: ShareExtras = ShareExtras(),
+    climbM: Double? = null,
 ): ShareCardModel = ShareCard.of(
     RideInsightInput(
         startTs = 18L * 3_600_000,
@@ -35,6 +36,7 @@ fun card(
     track = track,
     switches = ShareSwitches(look = look, shape = shape, background = background),
     extras = extras,
+    climbM = climbM,
     zone = ZoneOffset.UTC,
 )
 
