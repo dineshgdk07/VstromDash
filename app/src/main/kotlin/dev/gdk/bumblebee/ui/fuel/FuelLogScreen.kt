@@ -133,19 +133,19 @@ private fun FuelLogBody(
                 StatTripleColumn(
                     value = state.tankKmPerL?.let { "%.1f".format(it) } ?: "—",
                     caption = "est. km/L",
-                    tone = StatTone.Neutral,
+                    tone = StatTone.Plain,
                 ),
                 StatTripleColumn(
                     value = lastFillValue(lastFill),
                     caption = "last fill",
-                    tone = StatTone.Neutral,
+                    tone = StatTone.Plain,
                 ),
                 StatTripleColumn(
                     value = state.rupeesPerKm?.let {
                         "%.2f".format(it) + if (state.costPartial) "*" else ""
                     } ?: "—",
                     caption = "₹/km",
-                    tone = StatTone.Neutral,
+                    tone = StatTone.Plain,
                 ),
             ),
         )

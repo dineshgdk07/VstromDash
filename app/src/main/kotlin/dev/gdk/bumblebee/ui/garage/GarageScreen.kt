@@ -123,17 +123,23 @@ private fun GarageBody(
             StatTriple(
                 modifier = Modifier.padding(top = 16.dp),
                 columns = listOf(
-                    StatTripleColumn(state.odometerKm?.let { "%,d".format(it) } ?: "—", "Odo", StatTone.Plain),
+                    StatTripleColumn(
+                        (state.odometerKm ?: state.storedOdometerKm)?.let { "%,d".format(it) } ?: "—",
+                        if (state.odometerKm == null && state.storedOdometerKm != null) "Last odo" else "Odo",
+                        StatTone.Plain,
+                    ),
                     StatTripleColumn(state.tripAKm?.let { "%.1f".format(it) } ?: "—", "Trip A", StatTone.Plain),
                     StatTripleColumn(state.tripBKm?.let { "%.1f".format(it) } ?: "—", "Trip B", StatTone.Plain),
                 ),
             )
-            Text(
-                text = state.fuelBars?.let { "$it bars" } ?: "—",
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextPrimary,
-                modifier = Modifier.padding(top = 12.dp),
-            )
+            state.fuelBars?.let { bars ->
+                Text(
+                    text = "Fuel · $bars bars",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextPrimary,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+            }
         }
         if (state.bikeMac == null) {
             BlockTile(
@@ -179,11 +185,12 @@ private fun GarageBody(
                 )
                 ListRow(
                     title = "Service",
+                    subtitle = state.nextService?.title,
                     onClick = onOpenService,
                     leading = { ListRowIcon(Icons.Rounded.Build) },
                     trailing = {
                         Text(
-                            text = serviceTrailing(state.plans),
+                            text = state.nextService?.caption ?: "—",
                             style = MaterialTheme.typography.bodyMedium,
                             color = TextPrimary,
                             maxLines = 1,
@@ -235,13 +242,6 @@ private fun documentTrailing(docs: List<DocCard>): Pair<StatusChipTone, String> 
     val tone = if (hot.any { it.band == CareBand.OVERDUE }) StatusChipTone.Overdue else StatusChipTone.DueSoon
     val label = if (hot.size == 1) "1 expiring" else "${hot.size} expiring"
     return tone to label
-}
-
-private fun serviceTrailing(plans: List<PlanCard>): String {
-    val urgent = plans
-        .filter { it.band == CareBand.OVERDUE || it.band == CareBand.DUE_SOON }
-        .sortedBy { if (it.band == CareBand.OVERDUE) 0 else 1 }
-    return (urgent.firstOrNull() ?: plans.firstOrNull())?.label ?: "—"
 }
 
 @Preview

@@ -148,16 +148,16 @@ private fun ExplorerBody(
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             StatTriple(
                 columns = listOf(
-                    StatTripleColumn(kmValue(state.monthKm), "Km", StatTone.Neutral),
+                    StatTripleColumn(kmValue(state.monthKm), "Km", StatTone.Plain),
                     StatTripleColumn(
                         if (state.monthRideCount == 0) "—" else state.monthRideCount.toString(),
                         "Rides",
-                        StatTone.Neutral,
+                        StatTone.Plain,
                     ),
                     StatTripleColumn(
                         if (state.monthRideCount == 0) "—" else formatClock(state.monthMovingSec),
                         "Moving",
-                        StatTone.Neutral,
+                        StatTone.Plain,
                     ),
                 ),
             )

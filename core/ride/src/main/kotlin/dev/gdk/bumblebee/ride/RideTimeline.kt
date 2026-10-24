@@ -125,11 +125,11 @@ class RideTimeline private constructor(
         return left.lerpToward(right, frac)
     }
 
+    /** GPS first (smooth 1 Hz), bike within 6 s as the fallback: the speed rule in data-availability.md. */
     private fun speedAt(ts: Long, gpsMps: Double?): Pair<Int?, SpeedSource> {
-        val bike = nearestTelemetry(ts)
-        if (bike != null) return bike.speedKmh to SpeedSource.BLE
         if (gpsMps != null) return (gpsMps * 3.6).roundToInt() to SpeedSource.GPS
-        return null to SpeedSource.NONE
+        val bike = nearestTelemetry(ts) ?: return null to SpeedSource.NONE
+        return bike.speedKmh to SpeedSource.BLE
     }
 
     private fun nearestTelemetry(ts: Long): TelemetrySample? {
