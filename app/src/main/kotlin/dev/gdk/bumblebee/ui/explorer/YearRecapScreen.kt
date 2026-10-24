@@ -39,6 +39,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.foundation.layout.Spacer
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -119,100 +122,121 @@ private fun YearRecapBody(state: YearRecapUi, onBack: () -> Unit) {
 @Composable
 private fun ColumnScope.RecapPager(state: YearRecapUi) {
     val pagerState = rememberPagerState { state.pages.size }
-    Text(
-        "${pagerState.currentPage + 1} / ${state.pages.size}",
-        style = MaterialTheme.typography.labelSmall,
-        color = TextSecondary,
-        modifier = Modifier.padding(start = 8.dp, bottom = 8.dp),
-    )
     VerticalPager(
         state = pagerState,
-        modifier = Modifier.weight(1f),
+        modifier = Modifier.weight(1f).padding(top = 12.dp),
+        pageSpacing = 12.dp,
     ) { index ->
         val page = state.pages[index]
         if (page is RecapPage.Share) {
             SharePage(state.year, state.card)
         } else {
-            FactPage(page, pageColors[index % pageColors.size])
+            FactPage(
+                fact = factFor(page),
+                year = state.year,
+                position = "${index + 1} / ${state.pages.size}",
+                more = index < state.pages.lastIndex,
+                color = pageColors[index % pageColors.size],
+            )
         }
     }
 }
 
+/** One recap fact: an Anton title, one big number, and a few short lines under it. */
+private data class RecapFact(
+    val title: String,
+    val number: String,
+    val unit: String? = null,
+    val lines: List<String> = emptyList(),
+    val track: List<GpsFix> = emptyList(),
+)
+
+private fun factFor(page: RecapPage): RecapFact = when (page) {
+    is RecapPage.Km -> RecapFact("Kilometres", kmText(page.km), "km", listOf(page.comparison))
+    is RecapPage.Rides -> RecapFact(
+        "Rides",
+        page.count.toString(),
+        lines = listOfNotNull(page.movingSec.takeIf { it > 0 }?.let { "${formatClock(it)} moving" }),
+    )
+    is RecapPage.Longest -> RecapFact(
+        "Longest ride",
+        formatKm(page.km),
+        lines = listOfNotNull(page.label, page.movingSec.takeIf { it > 0 }?.let { "${formatClock(it)} moving" }),
+        track = page.track,
+    )
+    is RecapPage.TopSpeed -> RecapFact("Top speed", page.kmh.toString(), "km/h")
+    is RecapPage.BusiestMonth -> RecapFact("Busiest month", kmText(page.km), "km", listOf(page.label))
+    is RecapPage.Repeat -> RecapFact(
+        "Repeat route",
+        page.runs.toString(),
+        "runs",
+        listOfNotNull(
+            page.medianKm?.let { "Median ${"%.1f".format(it)} km" },
+            page.litresEst?.let { "est. ${"%.1f".format(it)} L" },
+        ),
+    )
+    is RecapPage.Fuel -> {
+        val spend = page.rupees?.let { "₹${"%.0f".format(it)}" + if (page.spendPartial) " logged, partial" else " logged" }
+        if (page.litres != null) {
+            RecapFact(
+                "Fuel",
+                "%.0f".format(page.litres),
+                if (page.litresPartial) "L est., partial" else "L est.",
+                listOfNotNull(spend),
+            )
+        } else {
+            RecapFact(
+                "Fuel spend",
+                "₹${"%.0f".format(page.rupees ?: 0.0)}",
+                lines = listOf(if (page.spendPartial) "Rupees logged, partial" else "Rupees logged"),
+            )
+        }
+    }
+    RecapPage.Share -> RecapFact("", "")
+}
+
 @Composable
-private fun FactPage(page: RecapPage, color: Color) {
+private fun FactPage(fact: RecapFact, year: Int, position: String, more: Boolean, color: Color) {
     Column(
         Modifier
             .fillMaxSize()
             .background(color, ShapeLg)
             .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
     ) {
-        when (page) {
-            is RecapPage.Km -> {
-                FactNumber(kmText(page.km))
-                FactLabel("Kilometres")
-                FactBody(page.comparison)
+        Text("$year", style = MaterialTheme.typography.labelLarge, color = OnBlock.copy(alpha = 0.7f))
+        Text(fact.title.uppercase(), style = MaterialTheme.typography.headlineMedium, color = OnBlock)
+        Spacer(Modifier.weight(1f))
+        Text(fact.number, style = giantNumber(fact.number), color = OnBlock, maxLines = 1)
+        fact.unit?.let { Text(it, style = MaterialTheme.typography.titleLarge, color = OnBlock) }
+        fact.lines.forEachIndexed { i, line ->
+            Text(
+                line,
+                style = MaterialTheme.typography.bodyLarge,
+                color = OnBlock,
+                modifier = Modifier.padding(top = if (i == 0) 16.dp else 4.dp),
+            )
+        }
+        if (fact.track.size >= 2) TrackSketch(fact.track)
+        Spacer(Modifier.weight(1f))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (more) {
+                Text("Swipe up", style = MaterialTheme.typography.labelLarge, color = OnBlock.copy(alpha = 0.7f))
             }
-            is RecapPage.Rides -> {
-                FactNumber(page.count.toString())
-                FactLabel("Rides")
-                if (page.movingSec > 0) FactBody("${formatClock(page.movingSec)} moving")
-            }
-            is RecapPage.Longest -> {
-                FactNumber(formatKm(page.km))
-                FactLabel(page.label)
-                if (page.movingSec > 0) FactBody("${formatClock(page.movingSec)} moving")
-                if (page.track.size >= 2) TrackSketch(page.track)
-            }
-            is RecapPage.TopSpeed -> {
-                FactNumber(page.kmh.toString())
-                FactLabel("Top speed")
-                FactBody("km/h")
-            }
-            is RecapPage.BusiestMonth -> {
-                FactNumber(kmText(page.km))
-                FactLabel(page.label)
-                FactBody("Busiest month, km")
-            }
-            is RecapPage.Repeat -> {
-                FactNumber(page.runs.toString())
-                FactLabel("Repeat route")
-                page.medianKm?.let { FactBody("Median ${"%.1f".format(it)} km") }
-                page.litresEst?.let { FactBody("est. ${"%.1f".format(it)} L") }
-            }
-            is RecapPage.Fuel -> FuelFact(page)
-            RecapPage.Share -> Unit
+            Spacer(Modifier.weight(1f))
+            Text(position, style = MaterialTheme.typography.labelLarge, color = OnBlock.copy(alpha = 0.7f))
         }
     }
 }
 
-@Composable
-private fun FuelFact(page: RecapPage.Fuel) {
-    page.litres?.let { litres ->
-        FactNumber("%.0f".format(litres))
-        FactLabel(if (page.litresPartial) "Litres, est., partial" else "Litres, est.")
-        FactBody("From fills")
+/** Biggest size that keeps the number on one line across a phone-width card. */
+private fun giantNumber(text: String): TextStyle {
+    val size = when {
+        text.length <= 3 -> 136
+        text.length <= 5 -> 112
+        text.length <= 7 -> 84
+        else -> 64
     }
-    page.rupees?.let { rupees ->
-        val style = if (page.litres == null) NumberLarge else MaterialTheme.typography.titleMedium
-        Text("₹${"%.0f".format(rupees)}", style = style, color = OnBlock)
-        FactBody(if (page.spendPartial) "Rupees logged, partial" else "Rupees logged")
-    }
-}
-
-@Composable
-private fun FactNumber(text: String) {
-    Text(text, style = NumberLarge, color = OnBlock)
-}
-
-@Composable
-private fun FactLabel(text: String) {
-    Text(text, style = MaterialTheme.typography.titleMedium, color = OnBlock)
-}
-
-@Composable
-private fun FactBody(text: String) {
-    Text(text, style = MaterialTheme.typography.bodyLarge, color = OnBlock)
+    return NumberLarge.copy(fontSize = size.sp, lineHeight = (size * 1.05f).sp)
 }
 
 @Composable
