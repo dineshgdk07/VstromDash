@@ -22,7 +22,7 @@ fun SectionCard(
         modifier = modifier
             .fillMaxWidth()
             .background(Surface, ShapeLg)
-            .padding(20.dp),
+            .padding(16.dp),
     ) {
         if (header != null) {
             header()

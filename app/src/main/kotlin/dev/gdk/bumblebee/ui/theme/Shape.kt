@@ -11,8 +11,11 @@ val ShapeLg = RoundedCornerShape(20.dp)
 val ShapeXl = RoundedCornerShape(28.dp)
 val ShapePill = RoundedCornerShape(percent = 50)
 
+/** Bottom sheet: [ShapeXl] on the top corners, square along the bottom edge. */
+val ShapeSheet = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+
 /** Portrait screen gutter (§2.4). The shell applies it once. */
-val ScreenGutter = 20.dp
+val ScreenGutter = 16.dp
 
 /** Corner radii the HUD shipped with. [HudTheme] keeps them. */
 val HudShapes = Shapes(
