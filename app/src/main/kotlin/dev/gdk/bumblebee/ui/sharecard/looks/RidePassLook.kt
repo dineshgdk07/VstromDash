@@ -239,7 +239,8 @@ object RidePassLook : CardLook {
         val card = ctx.card
         val distance = card.available.firstOrNull { it.kind == ShareMetricKind.DISTANCE }
         val moving = card.available.firstOrNull { it.kind == ShareMetricKind.MOVING }
-        val extra = card.stats.firstOrNull { it.kind != ShareMetricKind.DISTANCE && it.kind != ShareMetricKind.MOVING }
+        // Distance and moving time are fixed; the rider picks the one other stat.
+        val extra = card.stats.firstOrNull()
         val big = listOfNotNull(
             distance?.let { "Distance" to it.detail },
             moving?.let { "Moving" to it.value },
@@ -280,7 +281,34 @@ object RidePassLook : CardLook {
             }
             barcodeTop = top + 104f * u * s
         }
-        barcode(canvas, RectF(left, barcodeTop, right, t.bottom - 16f * u), card.rideNumberText.orEmpty() + card.dateText)
+        val strip = RectF(left, barcodeTop, right, t.bottom - 16f * u)
+        odometer(canvas, ctx, strip)?.let { strip.right = it - 8f * u }
+        barcode(canvas, strip, card.rideNumberText.orEmpty() + card.dateText)
+    }
+
+    /** Boxed odometer digits at the right end of the barcode strip, like a ticket serial. Returns its left edge. */
+    private fun odometer(canvas: Canvas, ctx: LookContext, strip: RectF): Float? {
+        val digits = ctx.card.odoKm?.toString()?.padStart(5, '0')?.takeLast(6) ?: return null
+        if (strip.height() < 4f) return null
+        val u = ctx.u
+        val h = minOf(strip.height(), 22f * u)
+        val w = h * 0.7f
+        val gap = 1.5f * u
+        val boxesLeft = strip.right - (digits.length * w + (digits.length - 1) * gap)
+        val cy = strip.centerY()
+        val glyph = textPaint(h * 0.62f, ctx.accent, ctx.fonts.mono)
+        digits.forEachIndexed { i, ch ->
+            val l = boxesLeft + i * (w + gap)
+            val cell = RectF(l, cy - h / 2f, l + w, cy + h / 2f)
+            canvas.drawRoundRect(cell, 1.5f * u, 1.5f * u, fill(INK))
+            val d = ch.toString()
+            canvas.drawText(d, cell.centerX() - glyph.measureText(d) / 2f, cell.centerY() + glyph.textSize * 0.36f, glyph)
+        }
+        val label = ctx.label(INK, size = if (compact(ctx)) 7f else 8.5f)
+        val labelWidth = label.measureText("ODO") - label.letterSpacing * label.textSize
+        val labelLeft = boxesLeft - 6f * u - labelWidth
+        canvas.drawText("ODO", labelLeft, cy + label.textSize * 0.35f, label)
+        return labelLeft
     }
 
     /** Decorative bars, the same for the same ride. */

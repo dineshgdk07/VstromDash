@@ -95,8 +95,9 @@ internal fun ShareCardModel.hasRoute(): Boolean = plot.size >= 2 || route.size >
 
 /** Route points on [stage]. On a Map background they follow the map fit, so the line sits on the roads. */
 internal fun LookContext.routePoints(stage: RectF): List<PointF> {
+    // Any cover gives the same projection; the fit depends only on the route's shape.
     val cover = if (background == ShareBackground.MAP && card.route.size >= 2) {
-        ShareCardMapTransform.posterCover(card.route, layout.height > layout.width)
+        ShareCardMapTransform.cardCover(card.route, stage, layout.width, layout.height, layout.height > layout.width)
     } else {
         null
     }

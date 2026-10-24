@@ -77,8 +77,8 @@ import dev.gdk.bumblebee.ride.ShareAccent
 import dev.gdk.bumblebee.ride.ShareBackground
 import dev.gdk.bumblebee.ride.ShareCardModel
 import dev.gdk.bumblebee.ride.ShareLook
+import dev.gdk.bumblebee.ride.ShareLookRules
 import dev.gdk.bumblebee.ride.ShareMetricKind
-import dev.gdk.bumblebee.ride.ShareMetrics
 import dev.gdk.bumblebee.ride.ShareShape
 import dev.gdk.bumblebee.ride.TileId
 import dev.gdk.bumblebee.ui.components.ChunkyButton
@@ -87,7 +87,6 @@ import dev.gdk.bumblebee.ui.components.ChunkyStyle
 import dev.gdk.bumblebee.ui.components.PillChip
 import dev.gdk.bumblebee.ui.components.SectionLabel
 import dev.gdk.bumblebee.ui.sharecard.ShareCardGallery
-import dev.gdk.bumblebee.ui.sharecard.ShareCardMapTransform
 import dev.gdk.bumblebee.ui.sharecard.ShareCardPainter
 import dev.gdk.bumblebee.ui.theme.Canvas
 import dev.gdk.bumblebee.ui.theme.Lime
@@ -130,22 +129,22 @@ fun ShareScreen(subject: ShareSubject, onDismiss: () -> Unit) {
     if (card?.highlight != null) sawHighlight = true
     if (card?.weatherLine != null) sawWeather = true
 
-    val tiles by produceState(TileLoad(), card?.needsTiles, card?.route, card?.shape) {
-        val model = card
-        if (model == null || !model.needsTiles) {
+    // Each look fits the map to its own route stage, so the grid needs every look's tiles.
+    val covers = remember(ui.previews, ui.selected) {
+        val shown = if (ui.selected != null) listOfNotNull(card) else ui.previews.values.toList()
+        shown.filter { it.needsTiles }.mapNotNull { ShareCardPainter.mapCover(context, it) }.distinct()
+    }
+    val tiles by produceState(TileLoad(), covers) {
+        if (covers.isEmpty()) {
             value = TileLoad(ready = true, tiles = emptyMap())
         } else {
             value = TileLoad(ready = false, tiles = emptyMap())
-            val cover = ShareCardMapTransform.posterCover(model.route, model.shape != ShareShape.SQUARE)
-            val loaded = if (cover == null) {
-                emptyMap()
-            } else {
-                withContext(Dispatchers.IO) { OsmTileStore(context).load(cover) }
-            }
+            val store = OsmTileStore(context)
+            val loaded = withContext(Dispatchers.IO) { covers.fold(emptyMap<TileId, Bitmap>()) { all, cover -> all + store.load(cover) } }
             value = TileLoad(ready = true, tiles = loaded)
         }
     }
-    val mapNotice = card != null && card.needsTiles && tiles.ready && !tilesComplete(card, tiles.tiles)
+    val mapNotice = card != null && card.needsTiles && tiles.ready && !tilesComplete(context, card, tiles.tiles)
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -223,16 +222,15 @@ fun ShareScreen(subject: ShareSubject, onDismiss: () -> Unit) {
                         vm.update { it.copy(background = ShareBackground.OWN) }
                     },
                     onAccent = { accent -> vm.update { it.copy(accent = accent) } },
+                    onBig = { kind ->
+                        statHint = false
+                        vm.update { it.copy(bigNumber = kind) }
+                    },
                     onStat = { kind ->
                         val shown = card.stats.map { it.kind }
-                        val current = ui.switches.stats ?: shown
-                        if (kind !in current && current.size >= ShareMetrics.MAX_STATS) {
-                            statHint = true
-                        } else {
-                            statHint = false
-                            val next = if (kind in current) current.filter { it != kind } else current + kind
-                            vm.update { it.copy(stats = next) }
-                        }
+                        val next = ShareLookRules.toggle(card.look, ui.switches.stats ?: shown, shown, kind)
+                        statHint = next == null
+                        if (next != null) vm.update { it.copy(stats = next) }
                     },
                     onPlaces = { vm.update { it.copy(showPlaces = !it.showPlaces) } },
                     onHighlight = { vm.update { it.copy(showHighlight = !it.showHighlight) } },
@@ -423,6 +421,7 @@ private fun CustomiseStep(
     onPickPhoto: () -> Unit,
     onClearPhoto: () -> Unit,
     onAccent: (ShareAccent) -> Unit,
+    onBig: (ShareMetricKind) -> Unit,
     onStat: (ShareMetricKind) -> Unit,
     onPlaces: () -> Unit,
     onHighlight: () -> Unit,
@@ -545,18 +544,30 @@ private fun CustomiseStep(
                     )
                 }
             }
-            SectionLabel(text = "Stats")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val selected = ui.switches.stats ?: card.stats.map { it.kind }
-                card.available.forEach { metric ->
-                    val index = selected.indexOf(metric.kind)
-                    val on = index >= 0
-                    val caption = if (on) "${index + 1}  ${metric.title}" else metric.title
-                    PillChip(caption, on, onClick = { onStat(metric.kind) })
+            if (ShareLookRules.hasBigNumber(card.look) && card.available.isNotEmpty()) {
+                SectionLabel(text = "Big number")
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    card.available.forEach { metric ->
+                        PillChip(metric.title, card.hero?.kind == metric.kind, onClick = { onBig(metric.kind) })
+                    }
+                }
+            }
+            // Only what this look shows in its stat slots: its dial, big number or fixed cells are left out.
+            val slots = ShareLookRules.statSlots(card.look)
+            val choices = ShareLookRules.choices(card.look, card.available, card.hero?.kind)
+            if (choices.isNotEmpty()) {
+                SectionLabel(text = if (slots == 1) "Extra stat" else "Stats · up to $slots")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val shown = card.stats.map { it.kind }
+                    choices.forEach { metric ->
+                        val index = shown.indexOf(metric.kind)
+                        val caption = if (index >= 0 && slots > 1) "${index + 1}  ${metric.title}" else metric.title
+                        PillChip(caption, index >= 0, onClick = { onStat(metric.kind) })
+                    }
                 }
             }
             if (statHint) {
-                Text("Up to 3", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+                Text("Up to $slots. Tap one to remove it first.", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
             }
             if (showPlaces || showHighlight || showWeather) {
                 SectionLabel(text = "Details")
@@ -631,8 +642,8 @@ private fun render(
     sticker,
 )
 
-private fun tilesComplete(model: ShareCardModel, tiles: Map<TileId, Bitmap>): Boolean {
-    val cover = ShareCardMapTransform.posterCover(model.route, model.shape != ShareShape.SQUARE) ?: return false
+private fun tilesComplete(context: Context, model: ShareCardModel, tiles: Map<TileId, Bitmap>): Boolean {
+    val cover = ShareCardPainter.mapCover(context, model) ?: return false
     return cover.tiles().all { tiles.containsKey(it) }
 }
 

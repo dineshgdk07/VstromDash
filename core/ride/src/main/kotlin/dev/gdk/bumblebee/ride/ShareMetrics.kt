@@ -69,6 +69,10 @@ object ShareMetrics {
         return out.take(MAX_STATS)
     }
 
+    /** Distance, moving time and the default third stat lead; the rest follow in their usual order. */
+    fun defaultOrder(available: List<ShareMetric>): List<ShareMetricKind> =
+        (defaultStats(available) + available).map { it.kind }.distinct()
+
     fun defaultHero(available: List<ShareMetric>): ShareMetric? =
         available.firstOrNull { it.kind == ShareMetricKind.DISTANCE } ?: available.firstOrNull()
 

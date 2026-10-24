@@ -12,9 +12,12 @@ class ShareCardTest {
 
     private val zone = ZoneOffset.UTC
 
+    /** Default stats without a big number, so nothing is held back for it. */
+    private val noBig = ShareSwitches(bigNumber = null)
+
     @Test
     fun `distance and moving time appear when the ride has them`() {
-        val card = ShareCard.of(ride(km = 86.4, movingSec = 102 * 60, max = 72, avg = 50.0), zone = zone)
+        val card = ShareCard.of(ride(km = 86.4, movingSec = 102 * 60, max = 72, avg = 50.0), switches = noBig, zone = zone)
         assertEquals("86.4", card.stats[0].value)
         assertEquals("KM", card.stats[0].unitLabel)
         assertEquals("1h 42m", card.stats[1].value)
@@ -23,21 +26,45 @@ class ShareCardTest {
 
     @Test
     fun `third stat prefers a fast max, then climb, then tank, then average`() {
-        val fast = ShareCard.of(ride(max = 112, avg = 54.0), climbM = 80.0, tankKmPerL = 34.5, zone = zone)
+        val fast = ShareCard.of(ride(max = 112, avg = 54.0), switches = noBig, climbM = 80.0, tankKmPerL = 34.5, zone = zone)
         assertEquals(ShareMetricKind.MAX_SPEED, fast.stats[2].kind)
         assertEquals("112", fast.stats[2].value)
 
-        val climb = ShareCard.of(ride(max = 80, avg = 54.0), climbM = 50.0, tankKmPerL = 34.5, zone = zone)
+        val climb = ShareCard.of(ride(max = 80, avg = 54.0), switches = noBig, climbM = 50.0, tankKmPerL = 34.5, zone = zone)
         assertEquals(ShareMetricKind.ELEVATION, climb.stats[2].kind)
         assertEquals("50", climb.stats[2].value)
 
-        val tank = ShareCard.of(ride(max = 80, avg = 54.0), climbM = 10.0, tankKmPerL = 34.5, zone = zone)
+        val tank = ShareCard.of(ride(max = 80, avg = 54.0), switches = noBig, climbM = 10.0, tankKmPerL = 34.5, zone = zone)
         assertEquals(ShareMetricKind.FUEL_ECONOMY, tank.stats[2].kind)
         assertEquals("34.5", tank.stats[2].value)
 
-        val avg = ShareCard.of(ride(max = 80, avg = 54.2), zone = zone)
+        val avg = ShareCard.of(ride(max = 80, avg = 54.2), switches = noBig, zone = zone)
         assertEquals(ShareMetricKind.AVG_SPEED, avg.stats[2].kind)
         assertEquals("54", avg.stats[2].value)
+    }
+
+    @Test
+    fun `stats never repeat the big number`() {
+        val card = ShareCard.of(ride(km = 86.4, movingSec = 102 * 60, max = 112, avg = 50.0), climbM = 80.0, zone = zone)
+        assertEquals(ShareMetricKind.DISTANCE, card.hero?.kind)
+        assertEquals(
+            listOf(ShareMetricKind.MOVING, ShareMetricKind.MAX_SPEED, ShareMetricKind.AVG_SPEED),
+            card.stats.map { it.kind },
+        )
+    }
+
+    @Test
+    fun `each look shows the stats it has room for`() {
+        val prefs = listOf(ShareMetricKind.MAX_SPEED, ShareMetricKind.DISTANCE, ShareMetricKind.ELEVATION, ShareMetricKind.MOVING)
+        fun kinds(look: ShareLook) = ShareCard.of(
+            ride(km = 86.4, movingSec = 102 * 60, max = 112, avg = 50.0),
+            switches = ShareSwitches(look = look, stats = prefs),
+            climbM = 80.0,
+            zone = zone,
+        ).stats.map { it.kind }
+        assertEquals(listOf(ShareMetricKind.MAX_SPEED, ShareMetricKind.ELEVATION, ShareMetricKind.MOVING), kinds(ShareLook.POSTER))
+        assertEquals(listOf(ShareMetricKind.DISTANCE, ShareMetricKind.ELEVATION, ShareMetricKind.MOVING), kinds(ShareLook.COCKPIT))
+        assertEquals(listOf(ShareMetricKind.MAX_SPEED), kinds(ShareLook.RIDE_PASS))
     }
 
     @Test
@@ -79,6 +106,7 @@ class ShareCardTest {
             ride(km = 58.0, movingSec = 53 * 60, max = 148, avg = 66.0),
             climbM = 262.0,
             switches = ShareSwitches(
+                bigNumber = null,
                 stats = listOf(
                     ShareMetricKind.MAX_SPEED,
                     ShareMetricKind.ELEVATION,
@@ -266,7 +294,7 @@ class ShareCardTest {
         val a = DayRide(ride(km = 40.0, movingSec = 3600, max = 90), eastbound(40_000.0), 50.0)
         val b = DayRide(ride(km = 30.0, movingSec = 2400, max = 104), eastbound(30_000.0, startLng = 1.0), 30.0)
         val card = ShareCard.ofDay(LocalDate.of(2026, 10, 24), listOf(a, b), zone = zone)
-        assertEquals("70.0", card.stats.first { it.kind == ShareMetricKind.DISTANCE }.value)
+        assertEquals("70.0", card.available.first { it.kind == ShareMetricKind.DISTANCE }.value)
         assertEquals(1, card.stops.size)
         assertEquals("2 rides · 70.0 km", card.sentence)
         assertEquals("SAT, 24 OCT", card.headline)

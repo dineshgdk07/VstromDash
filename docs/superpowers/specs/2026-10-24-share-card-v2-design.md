@@ -107,6 +107,19 @@ The first-ever ride gets no badge. Each look shows the badge in its own way, for
 
 **Cockpit on GPS-only rides:** hide the odometer and any fuel stats. Keep the dial (GPS max speed) and the speed trace.
 
+## What each look shows
+
+The rider's stat choice is one ordered list shared by all looks. Each look shows the first stats on that list it has room for, skipping what it already shows in its own place, and the customise screen only offers those (`ShareLookRules`).
+
+| Look | Big number | Built in, not offered as a stat | Stat slots | Odometer |
+|---|---|---|---|---|
+| Night Glow | rider picks | the big number | 3 | — |
+| Poster | rider picks | the big number | 3 | — |
+| Cockpit | — | max speed (the dial) | 3 | boxed digits, top right |
+| Ride Pass | — | distance, moving time | 1 | boxed digits beside the barcode |
+
+The odometer is hidden on GPS-only rides.
+
 ## Share prompt at ride end
 
 When a ride finishes (bike disconnect timeout, End ride, or GPS ride stop) and it earned a highlight, post a normal notification like "New top speed: 112 km/h. Share it?". Tapping it opens the share screen for that ride. It does not fire for demo rides or rides without a highlight, and there is a setting to turn it off (on by default). It needs the notification permission, which the app already uses for the bike link notification.

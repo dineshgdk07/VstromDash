@@ -2,13 +2,11 @@ package dev.gdk.bumblebee.ui.sharecard
 
 import android.graphics.Matrix
 import android.graphics.RectF
-import dev.gdk.bumblebee.ride.GeoBounds
 import dev.gdk.bumblebee.ride.GpsFix
 import dev.gdk.bumblebee.ride.SharePlot
 import dev.gdk.bumblebee.ride.TileCover
 import dev.gdk.bumblebee.ride.WebMercator
-import kotlin.math.cos
-import kotlin.math.max
+import kotlin.math.floor
 
 /**
  * Visual-only map/route placement. GPS and TrackPlot stay untouched.
@@ -21,35 +19,63 @@ data class ShareCardMapTransform(
     val rotateDeg: Float,
 ) {
     companion object {
+        /** About one tile per screen tile on a story card, so the map stays sharp. */
+        private const val MAX_TILES = 40
+        private const val MAX_ZOOM = 16
+        private const val MIN_ZOOM = 6
+
         fun rotateDegrees(routeW: Float, routeH: Float, startOnMinSide: Boolean, portrait: Boolean): Float {
             if (portrait && routeW > routeH * 1.12f) return if (startOnMinSide) 90f else -90f
             if (!portrait && routeH > routeW * 1.35f) return if (startOnMinSide) -90f else 90f
             return 0f
         }
 
-        fun posterCover(route: List<GpsFix>, portrait: Boolean): TileCover? {
-            val geo = posterBounds(route, portrait) ?: return null
-            return WebMercator.cover(geo, maxTiles = 16)
-        }
-
-        fun posterBounds(route: List<GpsFix>, portrait: Boolean): GeoBounds? {
-            val base = WebMercator.bounds(route, padFrac = 0.22) ?: return null
-            val midLat = (base.minLat + base.maxLat) / 2.0
-            val dLat = (base.maxLat - base.minLat).coerceAtLeast(1e-5)
-            val dLng = (base.maxLng - base.minLng).coerceAtLeast(1e-5)
-            val lngAsLat = dLng * cos(Math.toRadians(midLat)).coerceAtLeast(0.2)
-            if (portrait && lngAsLat > dLat * 1.12) {
-                val target = max(dLat, lngAsLat * 0.90)
-                val extra = (target - dLat) / 2.0
-                return base.copy(minLat = base.minLat - extra, maxLat = base.maxLat + extra)
+        /**
+         * Tiles that fill the whole card once the route is fitted to [stage]. The fit only depends
+         * on the route's shape, so the route lands in the same place whatever zoom the tiles are.
+         * The card's corners are mapped back onto the world, and the tiles under that area are
+         * taken at the highest zoom that stays within [maxTiles].
+         */
+        fun cardCover(
+            route: List<GpsFix>,
+            stage: RectF,
+            width: Float,
+            height: Float,
+            portrait: Boolean,
+            maxTiles: Int = MAX_TILES,
+        ): TileCover? {
+            if (route.size < 2) return null
+            val z = MAX_ZOOM
+            // Relative to the first fix, so floats keep their precision at street zoom.
+            val ox = WebMercator.lngToX(route[0].lng, z)
+            val oy = WebMercator.latToY(route[0].lat, z)
+            val pts = route.map { fix ->
+                ((WebMercator.lngToX(fix.lng, z) - ox) * 256.0).toFloat() to ((WebMercator.latToY(fix.lat, z) - oy) * 256.0).toFloat()
             }
-            if (!portrait && dLat > lngAsLat * 1.35) {
-                val scale = cos(Math.toRadians(midLat)).coerceAtLeast(0.2)
-                val targetLng = max(dLng, (dLat * 0.90) / scale)
-                val extra = (targetLng - dLng) / 2.0
-                return base.copy(minLng = base.minLng - extra, maxLng = base.maxLng + extra)
+            val inverse = Matrix()
+            if (!fit(pts, 0f, 0f, stage, portrait).matrix.invert(inverse)) return null
+            val area = RectF()
+            inverse.mapRect(area, RectF(0f, 0f, width, height))
+            // A little extra so rounding in the fit never leaves an edge uncovered.
+            area.inset(-area.width() * 0.03f, -area.height() * 0.03f)
+            val minX = ox + area.left / 256.0
+            val maxX = ox + area.right / 256.0
+            val minY = oy + area.top / 256.0
+            val maxY = oy + area.bottom / 256.0
+            var zoom = z
+            while (true) {
+                val shrink = (1 shl (z - zoom)).toDouble()
+                val last = (1 shl zoom) - 1
+                val cover = TileCover(
+                    zoom,
+                    floor(minX / shrink).toInt().coerceIn(0, last),
+                    floor(minY / shrink).toInt().coerceIn(0, last),
+                    floor(maxX / shrink).toInt().coerceIn(0, last),
+                    floor(maxY / shrink).toInt().coerceIn(0, last),
+                )
+                if (cover.count <= maxTiles || zoom <= MIN_ZOOM) return cover
+                zoom--
             }
-            return base
         }
 
         fun ofRoute(route: List<GpsFix>, cover: TileCover, stage: RectF, portrait: Boolean): ShareCardMapTransform {
@@ -61,12 +87,12 @@ data class ShareCardMapTransform(
                 val y = (WebMercator.latToY(fix.lat, zoom) - cover.y0).toFloat() * 256f
                 x to y
             }
-            return fit(pts, mosaicW, mosaicH, stage, portrait, coverStage = true)
+            return fit(pts, mosaicW, mosaicH, stage, portrait)
         }
 
         fun ofPlot(plot: List<SharePlot>, stage: RectF, portrait: Boolean): ShareCardMapTransform {
             val pts = plot.map { it.x * 1000f to it.y * 1000f }
-            return fit(pts, 1000f, 1000f, stage, portrait, coverStage = false)
+            return fit(pts, 1000f, 1000f, stage, portrait)
         }
 
         private fun fit(
@@ -75,7 +101,6 @@ data class ShareCardMapTransform(
             mosaicH: Float,
             stage: RectF,
             portrait: Boolean,
-            coverStage: Boolean,
         ): ShareCardMapTransform {
             var minX = pts.minOf { it.first }
             var maxX = pts.maxOf { it.first }
@@ -104,23 +129,7 @@ data class ShareCardMapTransform(
             val placed = RectF()
             matrix.mapRect(placed, route)
             matrix.postTranslate(inner.centerX() - placed.centerX(), inner.centerY() - placed.centerY())
-            // Map tiles must reach the card edges. A bare route must stay inside its stage.
-            if (coverStage) coverWidth(matrix, mosaicW, mosaicH, stage)
             return ShareCardMapTransform(mosaicW, mosaicH, matrix, rotate)
-        }
-
-        private fun coverWidth(matrix: Matrix, mosaicW: Float, mosaicH: Float, stage: RectF) {
-            val mosaic = RectF()
-            matrix.mapRect(mosaic, RectF(0f, 0f, mosaicW, mosaicH))
-            if (mosaic.width() < stage.width()) {
-                val bump = (stage.width() / mosaic.width()) * 1.02f
-                matrix.postScale(bump, bump, mosaic.centerX(), mosaic.centerY())
-                matrix.mapRect(mosaic, RectF(0f, 0f, mosaicW, mosaicH))
-            }
-            var dx = 0f
-            if (mosaic.left > 0f) dx = -mosaic.left
-            if (mosaic.right + dx < stage.width()) dx = stage.width() - mosaic.right
-            if (dx != 0f) matrix.postTranslate(dx, 0f)
         }
     }
 }

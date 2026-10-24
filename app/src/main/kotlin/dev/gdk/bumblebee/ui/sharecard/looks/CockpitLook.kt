@@ -187,17 +187,9 @@ object CockpitLook : CardLook {
         canvas.drawCircle(points.last().x, points.last().y, 4f * u, fill(dialColor(ctx)))
     }
 
-    /** Distance first, then the chosen stats. Max speed lives on the dial; fuel only with bike data. */
-    private fun rowStats(ctx: LookContext): List<ShareMetric> {
-        val card = ctx.card
-        val distance = card.available.firstOrNull { it.kind == ShareMetricKind.DISTANCE }
-        val dial = dialMetric(card)
-        return (listOfNotNull(distance) + card.stats)
-            .distinctBy { it.kind }
-            .filter { it.kind != dial?.kind }
-            .filter { card.odoKm != null || it.kind != ShareMetricKind.FUEL_ECONOMY }
-            .take(3)
-    }
+    /** The rider's three stats. Max speed lives on the dial; fuel only with bike data. */
+    private fun rowStats(ctx: LookContext): List<ShareMetric> =
+        ctx.card.stats.filter { ctx.card.odoKm != null || it.kind != ShareMetricKind.FUEL_ECONOMY }.take(3)
 
     private fun drawStats(canvas: Canvas, ctx: LookContext) {
         val stats = rowStats(ctx)

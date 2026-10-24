@@ -10,6 +10,7 @@ import android.net.Uri
 import dev.gdk.bumblebee.ride.ShareBackground
 import dev.gdk.bumblebee.ride.ShareCardModel
 import dev.gdk.bumblebee.ride.ShareLook
+import dev.gdk.bumblebee.ride.TileCover
 import dev.gdk.bumblebee.ride.TileId
 import dev.gdk.bumblebee.ui.sharecard.looks.CardLook
 import dev.gdk.bumblebee.ui.sharecard.looks.CockpitLook
@@ -31,11 +32,7 @@ object ShareCardPainter {
     ): Bitmap {
         val layout = ShareCardLayout.forShape(model.shape)
         val portrait = layout.height > layout.width
-        val cover = if (!sticker && model.needsTiles) {
-            ShareCardMapTransform.posterCover(model.route, portrait)
-        } else {
-            null
-        }
+        val cover = if (!sticker && model.needsTiles) mapCover(context, model) else null
         val tilesComplete = cover != null && cover.tiles().all { tiles?.containsKey(it) == true }
         val card = if (model.needsTiles) model.withTiles(tilesComplete) else model
         val bitmap = Bitmap.createBitmap(layout.width.toInt(), layout.height.toInt(), Bitmap.Config.ARGB_8888)
@@ -68,6 +65,15 @@ object ShareCardPainter {
         return bitmap
     }
 
+    /** The map tiles a Map card needs: enough to fill the whole card around the look's route stage. */
+    fun mapCover(context: Context, model: ShareCardModel): TileCover? {
+        if (model.route.size < 2) return null
+        val layout = ShareCardLayout.forShape(model.shape)
+        val ctx = LookContext(context, model, layout, ShareText.fonts(context), model.accent.argb, ShareBackground.MAP)
+        val stage = lookFor(model.look).stage(ctx)
+        return ShareCardMapTransform.cardCover(model.route, stage, layout.width, layout.height, layout.height > layout.width)
+    }
+
     fun lookFor(look: ShareLook): CardLook = when (look) {
         ShareLook.NIGHT_GLOW -> NightGlowLook
         ShareLook.POSTER -> PosterLook
@@ -96,7 +102,7 @@ object ShareCardPainter {
     private fun drawMap(
         canvas: Canvas,
         card: ShareCardModel,
-        cover: dev.gdk.bumblebee.ride.TileCover?,
+        cover: TileCover?,
         tiles: Map<TileId, Bitmap>?,
         layout: ShareCardLayout,
         portrait: Boolean,

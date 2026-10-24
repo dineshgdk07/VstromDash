@@ -183,16 +183,12 @@ object ShareCard {
         }
         val needsTiles = background == ShareBackground.MAP && drawable
         val available = ShareMetrics.of(ride, climbM, tankKmPerL)
-        val stats = if (switches.stats == null) {
-            ShareMetrics.defaultStats(available)
-        } else {
-            ShareMetrics.select(available, switches.stats)
-        }
         val hero = if (switches.bigNumber == ShareMetricKind.DISTANCE && available.none { it.kind == ShareMetricKind.DISTANCE }) {
             ShareMetrics.defaultHero(available)
         } else {
             ShareMetrics.hero(available, switches.bigNumber)
         }
+        val stats = ShareLookRules.stats(switches.look, available, hero?.kind, switches.stats)
         val timeOfDay = RideStory.timeOfDay(ride.startTs, zone)
         val fromPlace = extras.startPlace?.takeIf { switches.showPlaces && it.isNotBlank() }
         val toPlace = extras.endPlace?.takeIf { switches.showPlaces && it.isNotBlank() }
