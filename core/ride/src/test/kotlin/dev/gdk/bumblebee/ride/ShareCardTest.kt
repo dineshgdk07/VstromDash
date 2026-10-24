@@ -155,7 +155,6 @@ class ShareCardTest {
             switches = ShareSwitches(background = ShareBackground.MAP),
             zone = zone,
         )
-        assertEquals(ShareStyle.MAP, drawn.style)
         assertEquals(ShareBackground.MAP, drawn.background)
         assertTrue(drawn.needsTiles)
 
@@ -165,7 +164,6 @@ class ShareCardTest {
             switches = ShareSwitches(background = ShareBackground.MAP),
             zone = zone,
         )
-        assertEquals(ShareStyle.INK, short.style)
         assertEquals(ShareBackground.OWN, short.background)
         assertFalse(short.needsTiles)
     }
@@ -190,7 +188,6 @@ class ShareCardTest {
             zone = zone,
         )
         val painted = map.withTiles(complete = false)
-        assertEquals(ShareStyle.INK, painted.style)
         assertEquals(ShareBackground.OWN, painted.background)
         assertTrue(painted.mapFallback)
         assertEquals(ShareLook.NIGHT_GLOW, painted.look)
@@ -205,9 +202,8 @@ class ShareCardTest {
     }
 
     @Test
-    fun `default style is ink without a stats bar`() {
+    fun `default look is night glow on own`() {
         val card = ShareCard.of(ride(), zone = zone)
-        assertEquals(ShareStyle.INK, card.style)
         assertEquals(ShareBackground.OWN, card.background)
         assertEquals(ShareLook.NIGHT_GLOW, card.look)
     }

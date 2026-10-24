@@ -2,17 +2,15 @@ package dev.gdk.bumblebee.ui.sharecard
 
 import android.graphics.Color
 import androidx.test.core.app.ApplicationProvider
-import dev.gdk.bumblebee.ride.RideInsightInput
 import dev.gdk.bumblebee.ride.ShareBackground
-import dev.gdk.bumblebee.ride.ShareCard
+import dev.gdk.bumblebee.ride.ShareExtras
+import dev.gdk.bumblebee.ride.ShareLook
 import dev.gdk.bumblebee.ride.ShareShape
-import dev.gdk.bumblebee.ride.ShareSwitches
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.GraphicsMode
-import java.time.ZoneOffset
 
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -35,18 +33,16 @@ class ShareCardRenderTest {
             ),
         )
 
-    private fun card(shape: ShareShape = ShareShape.STORY, background: ShareBackground = ShareBackground.OWN) =
-        ShareCard.of(
-            RideInsightInput(
-                startTs = 18L * 3_600_000,
-                endTs = 20L * 3_600_000,
-                km = 12.0,
-                movingSec = 600,
-                idleSec = 0,
-                maxSpeedKmh = 72,
-                avgMovingSpeedKmh = 40.0,
-            ),
-            switches = ShareSwitches(shape = shape, background = background),
-            zone = ZoneOffset.UTC,
-        )
+    @Test fun `every look shape and background survives a long name and an empty track`() {
+        val photo = solid(Color.WHITE)
+        val name = "W".repeat(30)
+        ShareLook.values().forEach { look ->
+            ShareShape.values().forEach { shape ->
+                ShareBackground.values().forEach { background ->
+                    ShareCardPainter.paint(ctx, card(look, shape, background, extras = ShareExtras(rideName = name)), photo, null)
+                    ShareCardPainter.paint(ctx, card(look, shape, background, track = emptyList()), null, null)
+                }
+            }
+        }
+    }
 }
