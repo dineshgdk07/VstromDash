@@ -53,6 +53,8 @@ import dev.gdk.bumblebee.ride.RideTimeline
 import dev.gdk.bumblebee.ride.InsightKind
 import dev.gdk.bumblebee.ride.InsightLine
 import dev.gdk.bumblebee.ride.TrackInsights
+import dev.gdk.bumblebee.ui.share.ShareScreen
+import dev.gdk.bumblebee.ui.share.ShareSubject
 import dev.gdk.bumblebee.ui.openParkedMaps
 import dev.gdk.bumblebee.ui.components.ChunkyButton
 import dev.gdk.bumblebee.ui.components.ChunkyIconButton
@@ -527,6 +529,15 @@ private fun DetailShare(detail: RideDetail, context: android.content.Context) {
         }
     } else if (detail.row.endTs != null) {
         ShareCardButton(detail)
+    }
+}
+
+@Composable
+private fun ShareCardButton(detail: RideDetail) {
+    var open by remember(detail.row.id) { mutableStateOf(false) }
+    ChunkyButton(text = "Share card", onClick = { open = true }, style = ChunkyStyle.Outline)
+    if (open) {
+        ShareScreen(ShareSubject.Ride(detail.row.id), onDismiss = { open = false })
     }
 }
 
