@@ -2,7 +2,7 @@ package dev.gdk.bumblebee.ui.ride
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -18,27 +18,28 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.gdk.bumblebee.BuildConfig
+import dev.gdk.bumblebee.DashApp
+import dev.gdk.bumblebee.ride.GpsFix
+import dev.gdk.bumblebee.ride.RideTimeline
 import dev.gdk.bumblebee.ride.SpeedSource
 import dev.gdk.bumblebee.ui.components.ChunkyButton
 import dev.gdk.bumblebee.ui.components.ChunkyStyle
-import dev.gdk.bumblebee.ui.components.DropdownLabel
 import dev.gdk.bumblebee.ui.components.EmptyState
-import dev.gdk.bumblebee.ui.components.PillChip
 import dev.gdk.bumblebee.ui.components.SectionCard
 import dev.gdk.bumblebee.ui.components.SectionLabel
 import dev.gdk.bumblebee.ui.components.StatTone
 import dev.gdk.bumblebee.ui.components.StatTriple
 import dev.gdk.bumblebee.ui.components.StatTripleColumn
+import dev.gdk.bumblebee.ui.ride.replay.RideReplay
 import dev.gdk.bumblebee.ui.theme.BumblebeeTheme
 import dev.gdk.bumblebee.ui.theme.Canvas
 import dev.gdk.bumblebee.ui.theme.Danger
@@ -49,22 +50,18 @@ import dev.gdk.bumblebee.ui.theme.TextPrimary
 import dev.gdk.bumblebee.ui.theme.TextSecondary
 import dev.gdk.bumblebee.ui.theme.Warning
 
-private enum class RideTab { Overview, Speed, Fuel, Route }
-
-private enum class RidePeriod(val label: String) {
-    Today("Today"),
-    Week("7 days"),
-    Month("Month"),
-    ;
-
-    fun next(): RidePeriod = entries[(ordinal + 1) % entries.size]
-}
-
 @Composable
 fun RideScreen(
     model: RideViewModel = viewModel(),
     onOpenExplorer: () -> Unit = {},
 ) {
+    val app = LocalContext.current.applicationContext as DashApp
+    val pendingRide by app.pendingRideId.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingRide) {
+        val id = pendingRide ?: return@LaunchedEffect
+        app.pendingRideId.value = null
+        model.openRide(id)
+    }
     val state by model.ui.collectAsStateWithLifecycle()
     val detail = state.detail
     if (detail != null) {
@@ -93,11 +90,8 @@ private fun RideArchive(
     onEndPaused: () -> Unit,
     onDemo: () -> Unit,
 ) {
-    val tabs = rideTabs(state)
-    var tab by remember { mutableStateOf(RideTab.Overview) }
-    if (tab !in tabs) tab = RideTab.Overview
-    var period by remember { mutableStateOf(RidePeriod.Today) }
     val noRides = state.recent.isEmpty() && state.phase != RidePhase.LIVE && state.phase != RidePhase.PAUSED
+    val last = state.recent.firstOrNull()
 
     Column(
         modifier = Modifier
@@ -107,63 +101,56 @@ private fun RideArchive(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         RideTitle(state)
-        if (tabs.size > 1) {
-            TabRow(tabs = tabs, selected = tab, onSelect = { tab = it })
-        }
-        when (tab) {
-            RideTab.Overview -> {
-                if (noRides) {
-                    EmptyState(
-                        headline = "No rides yet",
-                        subtitle = "The road's not going to ride itself.",
-                        primaryLabel = "Start ride",
-                        onPrimary = onStart,
-                        linkLabel = if (BuildConfig.DEBUG && !state.linked) "Run a demo" else null,
-                        onLink = if (BuildConfig.DEBUG && !state.linked) onDemo else null,
+        if (noRides) {
+            EmptyState(
+                headline = "No rides yet",
+                subtitle = "The road's not going to ride itself.",
+                primaryLabel = "Start ride",
+                onPrimary = onStart,
+                linkLabel = if (BuildConfig.DEBUG && !state.linked) "Run a demo" else null,
+                onLink = if (BuildConfig.DEBUG && !state.linked) onDemo else null,
+            )
+        } else {
+            DistanceTriple(state)
+            if (state.phase == RidePhase.LIVE) LiveSpeed(state)
+            if (state.phase == RidePhase.PAUSED) PausedNote(state)
+            state.headline?.let { InsightCard(it, featured = true) }
+            if (last != null && state.lastTrack.size >= 2) {
+                SectionCard(
+                    modifier = Modifier.clickable { onOpenRide(last.id) },
+                    header = { SectionLabel(text = "Last ride") },
+                ) {
+                    RideReplay(
+                        timeline = state.lastTimeline,
+                        track = state.lastTrack,
+                        compact = true,
+                        modifier = Modifier.padding(top = 8.dp),
                     )
-                } else {
-                    PeriodScope(period = period, onCycle = { period = period.next() })
-                    DistanceTriple(state, period)
-                    if (state.phase == RidePhase.LIVE) LiveSpeed(state)
-                    if (state.phase == RidePhase.PAUSED) PausedNote(state)
-                    state.headline?.let { InsightCard(it, featured = true) }
-                    if (state.recent.isNotEmpty()) {
-                        SectionLabel(text = "Recent")
-                        state.recent.forEach { row ->
-                            RideListItem(row, onClick = { onOpenRide(row.id) })
+                }
+            }
+            if (state.recent.isNotEmpty()) {
+                SectionCard(header = { SectionLabel(text = "Recent") }) {
+                    Column(Modifier.padding(top = 8.dp)) {
+                        state.recent.forEachIndexed { index, row ->
+                            RideArchiveRow(
+                                row = row,
+                                track = state.recentThumbs[row.id].orEmpty(),
+                                onClick = { onOpenRide(row.id) },
+                                showDivider = index < state.recent.lastIndex,
+                            )
                         }
-                        ChunkyButton(
-                            text = "All rides",
-                            onClick = onOpenExplorer,
-                            style = ChunkyStyle.Outline,
-                        )
                     }
-                    Text(state.status, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-                    RideControls(state, onStart, onStop, onEndPaused, onDemo)
                 }
+                ChunkyButton(
+                    text = "All rides",
+                    onClick = onOpenExplorer,
+                    style = ChunkyStyle.Outline,
+                )
             }
-            RideTab.Speed -> {
-                if (state.phase == RidePhase.LIVE) LiveSpeed(state)
-                if (state.lastSpeeds.size >= 2) SpeedTimeCard(state.lastSpeeds)
-            }
-            RideTab.Fuel -> FuelFacts(state)
-            RideTab.Route -> {
-                if (state.lastTrack.size >= 2) {
-                    TrackPathCard(state.lastTrack, speeds = state.lastSpeeds, title = "Last ride")
-                }
-                ParkedRow(state.parked)
-            }
+            Text(state.status, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+            RideControls(state, onStart, onStop, onEndPaused, onDemo)
         }
     }
-}
-
-private fun rideTabs(state: RideUiState): List<RideTab> = buildList {
-    add(RideTab.Overview)
-    if (state.lastSpeeds.size >= 2 || state.phase == RidePhase.LIVE) add(RideTab.Speed)
-    if (state.tripAKm != null || state.tripBKm != null || state.economyKml != null || state.rangeKm != null) {
-        add(RideTab.Fuel)
-    }
-    if (state.lastTrack.size >= 2 || state.parked != null) add(RideTab.Route)
 }
 
 @Composable
@@ -200,39 +187,10 @@ private fun RideTitle(state: RideUiState) {
 }
 
 @Composable
-private fun TabRow(tabs: List<RideTab>, selected: RideTab, onSelect: (RideTab) -> Unit) {
-    Row(
-        Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        tabs.forEach { item ->
-            PillChip(
-                text = item.name,
-                selected = item == selected,
-                onClick = { onSelect(item) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun PeriodScope(period: RidePeriod, onCycle: () -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        DropdownLabel(text = period.label, onClick = onCycle)
-    }
-}
-
-@Composable
-private fun DistanceTriple(state: RideUiState, period: RidePeriod) {
-    val headline = when (period) {
-        RidePeriod.Today -> formatKm(state.todayKm)
-        RidePeriod.Week -> formatKm(state.weekKm)
-        RidePeriod.Month -> formatKm(state.monthKm)
-    }
+private fun DistanceTriple(state: RideUiState) {
     StatTriple(
-        headlineLabel = "Distance",
-        headlineValue = headline,
+        headlineLabel = "Today",
+        headlineValue = formatKm(state.todayKm),
         columns = listOf(
             StatTripleColumn(formatKm(state.todayKm), "Today", StatTone.Neutral),
             StatTripleColumn(formatKm(state.weekKm), "7 days", StatTone.Neutral),
@@ -296,27 +254,6 @@ private fun PausedNote(state: RideUiState) {
             color = TextSecondary,
             modifier = Modifier.padding(top = 8.dp),
         )
-    }
-}
-
-@Composable
-private fun FuelFacts(state: RideUiState) {
-    SectionCard(header = { SectionLabel(text = "From the cluster") }) {
-        Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            FuelLine("Trip A", state.tripAKm?.let { String.format("%.1f km", it) })
-            FuelLine("Trip B", state.tripBKm?.let { String.format("%.1f km", it) })
-            FuelLine("km/L", state.economyKml?.let { String.format("%.1f", it) })
-            FuelLine("Range", state.rangeKm?.let { "est. ${it.toInt()} km" })
-        }
-    }
-}
-
-@Composable
-private fun FuelLine(label: String, value: String?) {
-    if (value == null) return
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-        Text(value, style = MaterialTheme.typography.titleSmall, color = TextPrimary)
     }
 }
 
@@ -400,6 +337,10 @@ private fun RideEmptyPreview() {
 @Preview
 @Composable
 private fun RideArchivePreview() {
+    val previewTrack = listOf(
+        GpsFix(1_700_000_000_000, 12.97, 77.59),
+        GpsFix(1_700_003_600_000, 12.99, 77.61),
+    )
     BumblebeeTheme {
         Column(Modifier.background(Canvas)) {
             RideArchive(
@@ -421,8 +362,18 @@ private fun RideArchivePreview() {
                             maxSpeedKmh = 98,
                             avgMovingSpeedKmh = 42.0,
                             headline = "Out along the ridge and back",
+                            odoStartKm = 12_340,
+                            odoEndKm = 12_387,
                         ),
                     ),
+                    lastTrack = previewTrack,
+                    lastTimeline = RideTimeline.build(
+                        track = previewTrack,
+                        startTs = previewTrack.first().ts,
+                        endTs = previewTrack.last().ts,
+                        odoStartKm = 12_340,
+                    ),
+                    recentThumbs = mapOf(1L to previewTrack),
                 ),
                 onOpenExplorer = {},
                 onOpenRide = {},
