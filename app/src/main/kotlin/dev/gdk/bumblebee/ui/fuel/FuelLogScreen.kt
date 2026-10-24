@@ -183,7 +183,10 @@ private fun FuelLogBody(state: FuelLogUiState, actions: FuelActions) {
             title = "Fuel log",
             onBack = actions.onBack,
             trailing = {
-                ChunkyButton(text = "Log", onClick = actions.onLog, icon = Icons.Rounded.LocalGasStation, style = ChunkyStyle.Lime, compact = true)
+                // ChunkyButton fills its width; a fixed box keeps the back arrow and title in view.
+                Box(Modifier.width(120.dp)) {
+                    ChunkyButton(text = "Log", onClick = actions.onLog, icon = Icons.Rounded.LocalGasStation, style = ChunkyStyle.Lime, compact = true)
+                }
             },
         )
         if (state.status.isNotBlank()) {

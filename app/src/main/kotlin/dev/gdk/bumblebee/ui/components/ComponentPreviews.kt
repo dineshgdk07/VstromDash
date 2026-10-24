@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -310,7 +311,9 @@ private fun ForgeTopBarPreview() {
             title = "Fuel log",
             onBack = {},
             trailing = {
-                ChunkyButton(text = "Log", onClick = {}, compact = true, style = ChunkyStyle.Lime)
+                Box(Modifier.width(112.dp)) {
+                    ChunkyButton(text = "Log", onClick = {}, compact = true, style = ChunkyStyle.Lime)
+                }
             },
         )
     }
