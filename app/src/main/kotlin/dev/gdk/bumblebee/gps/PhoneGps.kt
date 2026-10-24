@@ -1,6 +1,7 @@
 package dev.gdk.bumblebee.gps
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
@@ -22,8 +23,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.resume
 
 class PhoneGps(private val context: Context) {
 
@@ -36,6 +39,19 @@ class PhoneGps(private val context: Context) {
     /** [GpsPace.Tracking] is one-second GNSS. [GpsPace.Parked] is a coarse, infrequent fix. */
     fun setPace(next: GpsPace) {
         pace.value = next
+    }
+
+    /** The phone's last known position, without switching GPS on. Null without permission or a fix. */
+    @SuppressLint("MissingPermission")
+    suspend fun lastKnown(): GpsFix? {
+        if (!hasPermission()) return null
+        return suspendCancellableCoroutine { cont ->
+            runCatching {
+                LocationServices.getFusedLocationProviderClient(context).lastLocation
+                    .addOnSuccessListener { loc -> if (cont.isActive) cont.resume(loc?.toFix()) }
+                    .addOnFailureListener { if (cont.isActive) cont.resume(null) }
+            }.onFailure { if (cont.isActive) cont.resume(null) }
+        }
     }
 
     fun fixes(): Flow<GpsFix> = callbackFlow {

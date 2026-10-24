@@ -19,9 +19,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Bluetooth
+import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.LocalGasStation
+import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -46,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.gdk.bumblebee.ble.ConnectionState
 import dev.gdk.bumblebee.ride.GpsFix
+import dev.gdk.bumblebee.ride.OnThisDay
 import dev.gdk.bumblebee.ui.cockpit.components.BikeHeroCard
 import dev.gdk.bumblebee.ui.components.ChunkyButton
 import dev.gdk.bumblebee.ui.components.ChunkyStyle
@@ -57,6 +62,7 @@ import dev.gdk.bumblebee.ui.components.ListRowDot
 import dev.gdk.bumblebee.ui.components.SectionCard
 import dev.gdk.bumblebee.ui.components.SectionLabel
 import dev.gdk.bumblebee.ui.openParkedMaps
+import dev.gdk.bumblebee.ui.theme.BlockCoral
 import dev.gdk.bumblebee.ui.theme.BlockLavender
 import dev.gdk.bumblebee.ui.theme.BlockMint
 import dev.gdk.bumblebee.ui.theme.BlockYellow
@@ -132,7 +138,9 @@ private fun CockpitContent(
             onOpen = { readinessOpen = true },
         )
         ChunkyButton(text = cta, onClick = onCta, style = ChunkyStyle.Coral)
+        state.suggestion?.let { SuggestionBanner(it) }
         RightNow(state)
+        TripComputer(state)
         if (state.warnings.isNotEmpty()) {
             SectionCard(header = { SectionLabel(text = "Heads up", count = state.warnings.size) }) {
                 state.warnings.forEachIndexed { index, warning ->
@@ -157,6 +165,7 @@ private fun CockpitContent(
         val lastRide = pages.filterIsInstance<ContextPage.LastRide>().firstOrNull()
         val small = pages.filter { it !is ContextPage.LastRide }
         lastRide?.let { page -> LastRideCard(page.ride) { onOpenLastRide(page.ride.id) } }
+        state.onThisDay?.let { memory -> OnThisDayCard(memory) { onOpenLastRide(memory.rideId) } }
         if (small.isNotEmpty()) {
             Row(
                 Modifier.fillMaxWidth().height(IntrinsicSize.Min),
@@ -166,7 +175,7 @@ private fun CockpitContent(
                     val cell = Modifier.weight(1f).fillMaxHeight()
                     when (page) {
                         is ContextPage.ServiceDue -> ServiceDueCard(page.due, onService, cell)
-                        is ContextPage.Parked -> ParkedCard(page.ago, cell) { openParkedMaps(context, page.fix) }
+                        is ContextPage.Parked -> ParkedCard(page.ago, state.parkedDistance, cell) { openParkedMaps(context, page.fix) }
                         is ContextPage.LastRide -> Unit
                     }
                 }
@@ -181,20 +190,17 @@ private fun CockpitContent(
             primaryLabel = "Close",
             onPrimary = { readinessOpen = false },
         ) {
-            state.readiness.pillars.forEachIndexed { index, pillar ->
-                ListRow(
-                    title = pillar.name,
-                    subtitle = pillar.detail,
-                    showDivider = index < state.readiness.pillars.lastIndex,
-                    trailing = {
-                        Text(
-                            text = pillar.status.name.replace('_', ' '),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary,
-                        )
-                    },
-                )
-            }
+            ReadinessSheetBody(
+                score = state.readiness,
+                onFix = { pillar ->
+                    readinessOpen = false
+                    when (pillar) {
+                        "Fuel" -> onFuel()
+                        "Service" -> onService()
+                        "Link" -> onSettings()
+                    }
+                },
+            )
         }
     }
 }
@@ -215,11 +221,18 @@ private fun RightNow(state: CockpitUiState) {
                 caption = state.rangeKm?.let { "${it.toInt()} km est." },
                 modifier = cell,
             )
+            val milestone = state.milestone
             NowTile(
                 Icons.Rounded.Speed,
                 "Odo",
                 state.odometerKm?.let { String.format(Locale.US, "%,d", it) } ?: "—",
                 modifier = cell,
+                caption = milestone?.let { m ->
+                    m.justCrossed?.let { String.format(Locale.US, "Crossed %,d!", it) }
+                        ?: String.format(Locale.US, "%d km to %,d", m.kmToGo, m.target)
+                },
+                captionColor = if (milestone?.justCrossed != null) Lime else TextSecondary,
+                progress = milestone?.takeIf { it.justCrossed == null }?.fraction,
             )
             NowTile(Icons.Rounded.Route, "Today", todayValue(state.todayKm), modifier = cell)
         }
@@ -233,6 +246,8 @@ private fun NowTile(
     value: String,
     modifier: Modifier = Modifier,
     caption: String? = null,
+    captionColor: Color = TextSecondary,
+    progress: Float? = null,
 ) {
     Column(
         modifier
@@ -252,9 +267,151 @@ private fun NowTile(
         }
         Text(value, style = NumberMedium, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         caption?.let {
-            Text(it, style = MaterialTheme.typography.labelSmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(it, style = MaterialTheme.typography.labelSmall, color = captionColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        progress?.let { fraction ->
+            Box(Modifier.fillMaxWidth().height(4.dp).clip(ShapePill).background(StrokeColor)) {
+                Box(Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0.02f, 1f)).background(Lime, ShapePill))
+            }
         }
     }
+}
+
+/** A nudge to ride when the sky is fair: golden hour, an early start, or a weekend morning. */
+@Composable
+private fun SuggestionBanner(text: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(ShapeMd)
+            .background(BlockYellow.copy(alpha = 0.14f))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(Icons.Rounded.WbSunny, contentDescription = null, tint = BlockYellow)
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+    }
+}
+
+/** The cluster's own trip meters and live economy, while the bike is linked. */
+@Composable
+private fun TripComputer(state: CockpitUiState) {
+    val linked = state.connection is ConnectionState.Ready
+    val avg = if (state.todayMovingSec >= 60 && state.todayKm > 0) state.todayKm / (state.todayMovingSec / 3600.0) else null
+    if (!linked || (state.tripAKm == null && state.tripBKm == null && state.economyKml == null)) return
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Trip computer", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+        Row(
+            Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            val cell = Modifier.weight(1f).fillMaxHeight()
+            TripTile("Trip A", state.tripAKm?.let { String.format(Locale.US, "%.1f", it) }, "km", cell)
+            TripTile("Trip B", state.tripBKm?.let { String.format(Locale.US, "%.1f", it) }, "km", cell)
+            TripTile("Live", state.economyKml?.let { String.format(Locale.US, "%.1f", it) }, "km/L", cell)
+            TripTile("Avg today", avg?.let { String.format(Locale.US, "%.0f", it) }, "km/h", cell)
+        }
+    }
+}
+
+@Composable
+private fun TripTile(label: String, value: String?, unit: String, modifier: Modifier) {
+    Column(
+        modifier
+            .background(SurfaceRaised, ShapeMd)
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = TextSecondary, maxLines = 1)
+        Text(value ?: "—", style = MaterialTheme.typography.titleMedium, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(unit, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+    }
+}
+
+/** Each check with what it found, coloured by how it stands, and a tap to fix the ones the app can. */
+@Composable
+private fun ReadinessSheetBody(score: ReadinessScore, onFix: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (score.band != ReadinessBand.COMPUTING) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text("${score.percent}%", style = NumberMedium, color = statusColor(bandStatus(score.band)))
+                Text(
+                    "  ${score.label}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextPrimary,
+                    modifier = Modifier.padding(bottom = 2.dp),
+                )
+            }
+        }
+        score.pillars.forEach { pillar ->
+            val fixable = pillar.name in setOf("Fuel", "Service", "Link") &&
+                pillar.status != PillarStatus.READY
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(ShapeMd)
+                    .background(SurfaceRaised)
+                    .then(if (fixable) Modifier.clickable { onFix(pillar.name) } else Modifier)
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val tone = statusColor(pillar.status)
+                Box(
+                    Modifier.size(40.dp).background(tone.copy(alpha = 0.16f), ShapeMd),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(pillarIcon(pillar.name), contentDescription = null, tint = tone, modifier = Modifier.size(22.dp))
+                }
+                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                    Text(pillar.name, style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+                    Text(
+                        pillar.detail + if (fixable) " · tap to fix" else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                    )
+                }
+                Text(
+                    statusLabel(pillar.status).uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (pillar.status == PillarStatus.UNKNOWN) TextSecondary else OnBlock,
+                    modifier = Modifier
+                        .background(if (pillar.status == PillarStatus.UNKNOWN) StrokeColor else tone, ShapePill)
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
+        }
+    }
+}
+
+private fun pillarIcon(name: String): ImageVector = when (name) {
+    "Fuel" -> Icons.Rounded.LocalGasStation
+    "Weather" -> Icons.Rounded.WbSunny
+    "Route" -> Icons.Rounded.MyLocation
+    "Link" -> Icons.Rounded.Bluetooth
+    "Service" -> Icons.Rounded.Build
+    else -> Icons.Rounded.Speed
+}
+
+private fun statusColor(status: PillarStatus): Color = when (status) {
+    PillarStatus.READY -> Lime
+    PillarStatus.CAUTION -> Warning
+    PillarStatus.NOT_READY -> Danger
+    PillarStatus.UNKNOWN -> TextSecondary
+}
+
+private fun statusLabel(status: PillarStatus): String = when (status) {
+    PillarStatus.READY -> "Ready"
+    PillarStatus.CAUTION -> "Check"
+    PillarStatus.NOT_READY -> "Not ready"
+    PillarStatus.UNKNOWN -> "Unknown"
+}
+
+private fun bandStatus(band: ReadinessBand): PillarStatus = when (band) {
+    ReadinessBand.READY -> PillarStatus.READY
+    ReadinessBand.CAUTION -> PillarStatus.CAUTION
+    ReadinessBand.NOT_READY -> PillarStatus.NOT_READY
+    ReadinessBand.COMPUTING -> PillarStatus.UNKNOWN
 }
 
 @Composable
@@ -308,15 +465,39 @@ private fun ServiceDueCard(due: CockpitServiceDue, onClick: () -> Unit, modifier
     }
 }
 
+/** A ride from this date in an earlier year, or last month. */
 @Composable
-private fun ParkedCard(ago: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun OnThisDayCard(memory: OnThisDay, onClick: () -> Unit) {
+    ContextCard(title = memory.title, color = BlockCoral, onClick = onClick) {
+        Text(
+            text = memory.detail,
+            style = MaterialTheme.typography.bodyLarge,
+            color = OnBlock,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Text(
+            text = "Open ride ›",
+            style = MaterialTheme.typography.bodyMedium,
+            color = OnBlock,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun ParkedCard(ago: String, distance: String?, modifier: Modifier = Modifier, onClick: () -> Unit) {
     ContextCard(title = "Parked here", color = BlockMint, onClick = onClick, modifier = modifier) {
         Text(
-            text = ago,
+            text = distance ?: ago,
             style = MaterialTheme.typography.titleMedium,
             color = OnBlock,
             modifier = Modifier.padding(top = 12.dp),
         )
+        if (distance != null) {
+            Text(text = "Parked $ago", style = MaterialTheme.typography.bodySmall, color = OnBlock)
+        }
         Text(
             text = "Open in Maps ›",
             style = MaterialTheme.typography.bodyMedium,

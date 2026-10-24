@@ -8,8 +8,15 @@ import dev.gdk.bumblebee.DashApp
 import dev.gdk.bumblebee.ble.ConnectionState
 import dev.gdk.bumblebee.data.local.MaintenancePlanEntity
 import dev.gdk.bumblebee.data.local.toRecord
+import dev.gdk.bumblebee.gps.PhoneGps
+import dev.gdk.bumblebee.ride.CockpitInsights
+import dev.gdk.bumblebee.ride.Geo
 import dev.gdk.bumblebee.ride.GpsFix
+import dev.gdk.bumblebee.ride.OdoMilestone
+import dev.gdk.bumblebee.ride.OnThisDay
+import dev.gdk.bumblebee.ride.PastRide
 import dev.gdk.bumblebee.ride.RideRhythm
+import dev.gdk.bumblebee.ride.SunTimes
 import dev.gdk.bumblebee.ui.components.StatusChipTone
 import dev.gdk.bumblebee.ui.garage.PlanDue
 import dev.gdk.bumblebee.ui.garage.planDue
@@ -23,6 +30,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 enum class CockpitRidePhase { Start, Resume, Live }
 
@@ -66,11 +75,19 @@ data class CockpitUiState(
     val servicePlan: CockpitServiceDue? = null,
     val readiness: ReadinessScore = ReadinessCalculator.score(null, false),
     val warnings: List<CockpitWarning> = emptyList(),
+    val weatherTempC: Double? = null,
+    val milestone: OdoMilestone? = null,
+    /** One line suggesting a ride when the weather is fair. */
+    val suggestion: String? = null,
+    val onThisDay: OnThisDay? = null,
+    /** "1.2 km away" from the parked bike, when the phone knows where it is. */
+    val parkedDistance: String? = null,
 )
 
 class CockpitViewModel(application: Application) : AndroidViewModel(application) {
 
     private val app = application as DashApp
+    private val phoneGps = PhoneGps(application)
     private val refreshGate = Mutex()
     private var loadedTrackRideId: Long? = null
     private var loadedTrack: List<Pair<Float, Float>> = emptyList()
@@ -127,9 +144,10 @@ class CockpitViewModel(application: Application) : AndroidViewModel(application)
                 _ui.update {
                     it.copy(
                         weatherTemp = wx?.let { w -> "${w.tempC.toInt()}°C" },
+                        weatherTempC = wx?.tempC,
                         weatherLabel = wx?.label,
                         weatherCode = wx?.code,
-                    ).derived()
+                    ).derived().withSuggestion(sunPlace(it.parked))
                 }
             }
         }
@@ -180,8 +198,19 @@ class CockpitViewModel(application: Application) : AndroidViewModel(application)
             }
             val odo = _ui.value.odometerKm ?: app.capture.latestKnownOdometerKm()
             val due = app.prefs.remainingServiceKm(odo)
-            val rides = app.capture.finishedRides().map { it.toRecord() }
+            val finished = app.capture.finishedRides()
+            val rides = finished.map { it.toRecord() }
             val eta = RideRhythm.serviceEta(due, RideRhythm.paceKmPerDay(rides))
+            val zone = ZoneId.systemDefault()
+            val past = finished
+                .filter { !it.isDemo && it.mergedIntoId == null && it.gpsDistanceM > 0 }
+                .map { PastRide(it.id, it.startTs, it.gpsDistanceM / 1000.0, rideLabel(it.name, it.startPlace, it.endPlace)) }
+            val onThisDay = CockpitInsights.onThisDay(past, LocalDate.now(zone), zone)
+            val parkedDistance = parked?.let { spot ->
+                val here = app.latestGps.value?.takeIf { System.currentTimeMillis() - it.ts < 10 * 60_000L }
+                    ?: phoneGps.lastKnown()?.takeIf { System.currentTimeMillis() - it.ts < 60 * 60_000L }
+                here?.let { CockpitInsights.distanceLabel(Geo.haversineMeters(it.lat, it.lng, spot.lat, spot.lng)) }
+            }
             TodaySnapshot(
                 todayKm = today.km,
                 todayMovingSec = today.movingSec,
@@ -199,6 +228,8 @@ class CockpitViewModel(application: Application) : AndroidViewModel(application)
                 odometerKm = odo,
                 serviceDueKm = due,
                 serviceEta = eta?.label(),
+                onThisDay = onThisDay,
+                parkedDistance = parkedDistance,
             )
         }
         _ui.update {
@@ -212,8 +243,24 @@ class CockpitViewModel(application: Application) : AndroidViewModel(application)
                 odometerKm = it.odometerKm ?: snapshot.odometerKm,
                 serviceDueKm = snapshot.serviceDueKm,
                 serviceEta = snapshot.serviceEta,
-            ).derived()
+                onThisDay = snapshot.onThisDay,
+                parkedDistance = snapshot.parkedDistance,
+            ).derived().withSuggestion(sunPlace(snapshot.parked))
         }
+    }
+
+    /** Where to take sunrise and sunset from: the phone now, else the parked bike, else the last ride. */
+    private fun sunPlace(parked: GpsFix?): Pair<Double, Double>? =
+        app.latestGps.value?.let { it.lat to it.lng }
+            ?: parked?.let { it.lat to it.lng }
+            ?: loadedTrack.firstOrNull()?.let { it.first.toDouble() to it.second.toDouble() }
+
+    private fun CockpitUiState.withSuggestion(place: Pair<Double, Double>?): CockpitUiState {
+        if (ridePhase != CockpitRidePhase.Start) return copy(suggestion = null)
+        val zone = ZoneId.systemDefault()
+        val now = ZonedDateTime.now(zone)
+        val sun = place?.let { (lat, lng) -> SunTimes.of(now.toLocalDate(), lat, lng, zone) }
+        return copy(suggestion = CockpitInsights.rideSuggestion(weatherCode, weatherTempC, now, sun))
     }
 
     private fun phonePct(): Int? {
@@ -233,7 +280,17 @@ private data class TodaySnapshot(
     val odometerKm: Int?,
     val serviceDueKm: Int?,
     val serviceEta: String?,
+    val onThisDay: OnThisDay?,
+    val parkedDistance: String?,
 )
+
+/** The ride's name, else where it went, else plain "Ride". */
+private fun rideLabel(name: String?, from: String?, to: String?): String = when {
+    !name.isNullOrBlank() -> name
+    !from.isNullOrBlank() && !to.isNullOrBlank() && from != to -> "$from → $to"
+    !to.isNullOrBlank() -> to
+    else -> "Ride"
+}
 
 private fun soonestPlan(
     plans: List<MaintenancePlanEntity>,
@@ -306,5 +363,9 @@ private fun CockpitUiState.derived(bikeMac: String? = this.bikeMac): CockpitUiSt
             add(CockpitWarning(WarningSeverity.WARN, "Service overdue", "Log the last service in Garage.", WarningFix.Service))
         }
     }
-    return copy(readiness = scored, warnings = nextWarnings)
+    return copy(
+        readiness = scored,
+        warnings = nextWarnings,
+        milestone = odometerKm?.takeIf { it > 0 }?.let { CockpitInsights.milestone(it) },
+    )
 }
