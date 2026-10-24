@@ -97,12 +97,22 @@ data class FuelLogUiState(
     val insights: FuelMonthInsights = FuelMonthInsights(),
     val formOpen: Boolean = false,
     val formError: String? = null,
+    val stations: List<StationStats> = emptyList(),
+    val prices: List<PricePoint> = emptyList(),
+    /** Fills in a row logged with litres and price. */
+    val streak: Int = 0,
+    /** The newest fill when it lacks litres or price. */
+    val incomplete: FuelLogEntry? = null,
+    val budget: Double? = null,
+    val budgetView: BudgetView? = null,
 )
 
 class FuelLogViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as DashApp
+    private val fuelPrefs = FuelPrefs(application)
     private val _ui = MutableStateFlow(
         FuelLogUiState(
+            budget = fuelPrefs.monthlyBudget,
             odometerKm = app.latestTelemetry.value?.odometerKm,
             fuelBars = app.latestTelemetry.value?.fuelBars,
             odo = app.latestTelemetry.value?.odometerKm?.toString() ?: "",
@@ -136,6 +146,11 @@ class FuelLogViewModel(application: Application) : AndroidViewModel(application)
     fun setRupees(value: String) { _ui.update { it.copy(rupees = value) } }
     fun setNote(value: String) { _ui.update { it.copy(note = value) } }
     fun setFullTank(value: Boolean) { _ui.update { it.copy(fullTank = value) } }
+
+    fun setBudget(rupees: Double?) {
+        fuelPrefs.monthlyBudget = rupees
+        _ui.update { withMonth(it.copy(budget = fuelPrefs.monthlyBudget)) }
+    }
 
     fun showMonth(month: YearMonth) {
         _ui.update { withMonth(it.copy(month = month, selectedDate = null)) }
@@ -321,6 +336,7 @@ class FuelLogViewModel(application: Application) : AndroidViewModel(application)
         val (pair, extra) = packed
         val (triple, tankPair) = pair
         val entries = lines(triple.first)
+        val zone = ZoneId.systemDefault()
         _ui.update {
             withMonth(it.copy(
                 rangeKm = triple.second.rangeKm,
@@ -338,6 +354,10 @@ class FuelLogViewModel(application: Application) : AndroidViewModel(application)
                 clusterSummary = extra.second,
                 tanks = extra.third,
                 tankTrend = extra.third.filter { !it.outlier }.map { it.kmPerL }.asReversed().takeLast(12),
+                stations = FuelTrends.stations(entries, zone),
+                prices = FuelTrends.prices(entries, zone),
+                streak = FuelTrends.streak(entries),
+                incomplete = FuelTrends.incomplete(entries),
             ))
         }
     }
@@ -345,10 +365,12 @@ class FuelLogViewModel(application: Application) : AndroidViewModel(application)
     /** Recomputes what the month shows from the full log. */
     private fun withMonth(state: FuelLogUiState): FuelLogUiState {
         val zone = ZoneId.systemDefault()
+        val insights = FuelMonth.insights(state.entries, state.month, zone)
         return state.copy(
             shown = FuelMonth.shown(state.entries, state.month, state.selectedDate, zone),
             marks = FuelMonth.marks(state.entries, state.month, zone),
-            insights = FuelMonth.insights(state.entries, state.month, zone),
+            insights = insights,
+            budgetView = FuelTrends.budget(insights.spend, state.budget, state.month, LocalDate.now(zone)),
         )
     }
 

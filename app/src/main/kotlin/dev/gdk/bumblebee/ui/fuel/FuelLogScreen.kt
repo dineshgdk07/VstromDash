@@ -1,5 +1,9 @@
 package dev.gdk.bumblebee.ui.fuel
 
+import android.content.ClipData
+import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -24,9 +28,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.automirrored.rounded.TrendingDown
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.LocalGasStation
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.DropdownMenu
@@ -42,18 +48,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.gdk.bumblebee.ui.components.ChunkyButton
@@ -70,6 +82,8 @@ import dev.gdk.bumblebee.ui.components.SectionLabel
 import dev.gdk.bumblebee.ui.components.StatTone
 import dev.gdk.bumblebee.ui.components.StatTriple
 import dev.gdk.bumblebee.ui.components.StatTripleColumn
+import dev.gdk.bumblebee.ui.sharecard.FuelReceipt
+import dev.gdk.bumblebee.ui.sharecard.FuelReceiptPainter
 import dev.gdk.bumblebee.ui.theme.BlockLavender
 import dev.gdk.bumblebee.ui.theme.BlockYellow
 import dev.gdk.bumblebee.ui.theme.BumblebeeTheme
@@ -87,11 +101,16 @@ import dev.gdk.bumblebee.ui.theme.SurfaceRaised
 import dev.gdk.bumblebee.ui.theme.TextDisabled
 import dev.gdk.bumblebee.ui.theme.TextPrimary
 import dev.gdk.bumblebee.ui.theme.TextSecondary
+import java.io.File
+import java.io.FileOutputStream
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun FuelLogScreen(
@@ -119,6 +138,7 @@ fun FuelLogScreen(
             onEdit = model::beginEdit,
             onDelete = model::deleteEntry,
             onConfirmOutlier = model::confirmOutlier,
+            onBudget = model::setBudget,
         ),
     )
 }
@@ -141,11 +161,15 @@ private class FuelActions(
     val onEdit: (FuelLogEntry) -> Unit = {},
     val onDelete: (Long) -> Unit = {},
     val onConfirmOutlier: (Long) -> Unit = {},
+    val onBudget: (Double?) -> Unit = {},
 )
 
 @Composable
 private fun FuelLogBody(state: FuelLogUiState, actions: FuelActions) {
     var pendingDelete by remember { mutableStateOf<FuelLogEntry?>(null) }
+    var budgetOpen by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val lastFill = state.entries.firstOrNull { it.isFill }
 
     Column(
@@ -189,16 +213,34 @@ private fun FuelLogBody(state: FuelLogUiState, actions: FuelActions) {
             )
         } else {
             MonthSwitcher(month = state.month, onMonthChange = actions.onMonth)
-            MonthInsights(state.insights)
+            MonthInsights(state.insights, state.budgetView, onBudget = { budgetOpen = true })
+            LogNudge(state.streak, state.incomplete, actions.onEdit)
             FuelCalendar(state.month, state.marks, state.selectedDate, actions.onDay)
-            History(state, onEdit = actions.onEdit, onDelete = { pendingDelete = it })
+            History(
+                state,
+                onEdit = actions.onEdit,
+                onDelete = { pendingDelete = it },
+                onReceipt = { entry -> scope.launch { shareReceipt(context, entry) } },
+            )
         }
 
+        if (state.prices.size >= 2) PriceChart(state.prices)
+        if (state.stations.isNotEmpty()) StationsCard(state.stations)
         if (state.tankTrend.size >= 2) KmPerLChart(state.tankTrend)
         if (state.tanks.isNotEmpty()) TankList(state.tanks, actions.onConfirmOutlier)
     }
 
     if (state.formOpen) FillSheet(state, actions)
+    if (budgetOpen) {
+        BudgetSheet(
+            current = state.budget,
+            onSave = {
+                budgetOpen = false
+                actions.onBudget(it)
+            },
+            onDismiss = { budgetOpen = false },
+        )
+    }
 
     pendingDelete?.let { entry ->
         ChunkyDialog(
@@ -274,10 +316,11 @@ private fun Gauge(bars: Int, modifier: Modifier = Modifier, height: androidx.com
 // ---- month ----
 
 @Composable
-private fun MonthInsights(insights: FuelMonthInsights) {
+private fun MonthInsights(insights: FuelMonthInsights, budget: BudgetView?, onBudget: () -> Unit) {
     if (insights.fills == 0 && insights.drops == 0) {
         SectionCard {
             Text("No pump visits this month.", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+            if (budget != null) BudgetBar(budget, onBudget)
         }
         return
     }
@@ -321,7 +364,106 @@ private fun MonthInsights(insights: FuelMonthInsights) {
             if (lines.isNotEmpty()) {
                 Text(lines.joinToString("  ·  "), style = MaterialTheme.typography.bodySmall, color = TextSecondary)
             }
+            if (budget != null) {
+                BudgetBar(budget, onBudget)
+            } else {
+                Text(
+                    "Set a monthly budget",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Lime,
+                    modifier = Modifier.clickable(onClick = onBudget).padding(vertical = 4.dp),
+                )
+            }
         }
+    }
+}
+
+/** Spend against the monthly budget, with where this month's pace lands. Tap to change it. */
+@Composable
+private fun BudgetBar(view: BudgetView, onClick: () -> Unit) {
+    val tone = when {
+        view.over -> Danger
+        view.heading -> BlockYellow
+        else -> Lime
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(ShapeMd)
+            .clickable(onClick = onClick)
+            .padding(top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(Modifier.fillMaxWidth()) {
+            Text("BUDGET", style = MaterialTheme.typography.labelSmall, color = TextSecondary, modifier = Modifier.weight(1f))
+            Text("₹%,.0f of ₹%,.0f".format(view.spent, view.budget), style = MaterialTheme.typography.labelMedium, color = TextPrimary)
+        }
+        Box(Modifier.fillMaxWidth().height(10.dp).clip(ShapePill).background(SurfaceRaised)) {
+            Box(Modifier.fillMaxHeight().fillMaxWidth(view.fraction.coerceAtLeast(0.02f)).background(tone, ShapePill))
+        }
+        val note = when {
+            view.over -> "Over by ₹%,.0f".format(view.spent - view.budget)
+            view.projected != null && view.heading -> "At this pace ₹%,.0f by month end".format(view.projected)
+            view.projected != null -> "On track · about ₹%,.0f by month end".format(view.projected)
+            else -> "₹%,.0f left".format(view.budget - view.spent)
+        }
+        Text(note, style = MaterialTheme.typography.labelSmall, color = if (view.over || view.heading) tone else TextSecondary)
+    }
+}
+
+@Composable
+private fun BudgetSheet(current: Double?, onSave: (Double?) -> Unit, onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf(current?.let { "%.0f".format(it) } ?: "") }
+    ForgeSheet(
+        title = "Monthly fuel budget",
+        onDismiss = onDismiss,
+        primaryLabel = "Save budget",
+        onPrimary = { onSave(text.toDoubleOrNull()) },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                "The month card shows your spend against it and where your pace lands by month end.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+            )
+            FuelField(text, { text = it.filter { c -> c.isDigit() }.take(6) }, "₹ a month", "3000", KeyboardType.Number)
+            if (current != null) {
+                ChunkyButton(text = "Remove budget", onClick = { onSave(null) }, style = ChunkyStyle.Outline, compact = true)
+            }
+        }
+    }
+}
+
+/** Asks for the missing numbers on the last fill, or cheers a run of complete logs. */
+@Composable
+private fun LogNudge(streak: Int, incomplete: FuelLogEntry?, onEdit: (FuelLogEntry) -> Unit) {
+    val (text, action) = when {
+        incomplete != null -> {
+            val missing = listOfNotNull(
+                "litres".takeIf { (incomplete.litres ?: 0.0) <= 0 },
+                "price".takeIf { (incomplete.rupees ?: 0.0) <= 0 },
+            ).joinToString(" and ")
+            "Your last fill has no $missing. Add it to keep km/L and ₹/L honest." to { onEdit(incomplete) }
+        }
+        streak >= 2 -> "$streak fills in a row logged with litres and price." to null
+        else -> return
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(ShapeMd)
+            .background(if (action != null) BlockYellow.copy(alpha = 0.14f) else Lime.copy(alpha = 0.10f))
+            .then(if (action != null) Modifier.clickable(onClick = action) else Modifier)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            if (action != null) Icons.Rounded.Edit else Icons.Rounded.LocalFireDepartment,
+            contentDescription = null,
+            tint = if (action != null) BlockYellow else Lime,
+        )
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = TextPrimary, modifier = Modifier.weight(1f))
     }
 }
 
@@ -429,7 +571,12 @@ private val dayHeader = DateTimeFormatter.ofPattern("EEE, d MMM")
 private val timeOfDay = DateTimeFormatter.ofPattern("h:mm a")
 
 @Composable
-private fun History(state: FuelLogUiState, onEdit: (FuelLogEntry) -> Unit, onDelete: (FuelLogEntry) -> Unit) {
+private fun History(
+    state: FuelLogUiState,
+    onEdit: (FuelLogEntry) -> Unit,
+    onDelete: (FuelLogEntry) -> Unit,
+    onReceipt: (FuelLogEntry) -> Unit,
+) {
     val zone = remember { ZoneId.systemDefault() }
     if (state.shown.isEmpty()) {
         Text(
@@ -450,7 +597,7 @@ private fun History(state: FuelLogUiState, onEdit: (FuelLogEntry) -> Unit, onDel
             entries.forEach { entry ->
                 val time = timeOfDay.format(Instant.ofEpochMilli(entry.ts).atZone(zone))
                 if (entry.isFill) {
-                    FillRow(entry, time, onEdit = { onEdit(entry) }, onDelete = { onDelete(entry) })
+                    FillRow(entry, time, onEdit = { onEdit(entry) }, onDelete = { onDelete(entry) }, onReceipt = { onReceipt(entry) })
                 } else {
                     DropRow(entry, time, onDelete = { onDelete(entry) })
                 }
@@ -462,7 +609,7 @@ private fun History(state: FuelLogUiState, onEdit: (FuelLogEntry) -> Unit, onDel
 /** A pump visit: what went in, what it cost, and what the last tank did. Edit and delete live in the ⋮ menu. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun FillRow(entry: FuelLogEntry, time: String, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun FillRow(entry: FuelLogEntry, time: String, onEdit: () -> Unit, onDelete: () -> Unit, onReceipt: () -> Unit) {
     val gained = entry.barsAfter - entry.barsBefore
     val title = when {
         gained > 0 && entry.barsBefore > 0 -> "Filled ${entry.barsBefore} → ${entry.barsAfter}"
@@ -491,7 +638,7 @@ private fun FillRow(entry: FuelLogEntry, time: String, onEdit: () -> Unit, onDel
                 Text(entry.rupees?.let { "₹%,.0f".format(it) } ?: "—", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
                 entry.litres?.let { Text("%.1f L".format(it), style = MaterialTheme.typography.bodySmall, color = TextSecondary) }
             }
-            RowMenu(onEdit = onEdit, onDelete = onDelete)
+            RowMenu(onEdit = onEdit, onDelete = onDelete, onReceipt = onReceipt)
         }
         Column(Modifier.padding(end = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             FillGauge(entry.barsBefore, entry.barsAfter)
@@ -556,7 +703,7 @@ private fun RowIcon(icon: ImageVector, tint: Color, small: Boolean = false) {
 }
 
 @Composable
-private fun RowMenu(onEdit: (() -> Unit)?, onDelete: () -> Unit) {
+private fun RowMenu(onEdit: (() -> Unit)?, onDelete: () -> Unit, onReceipt: (() -> Unit)? = null) {
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }) {
@@ -570,6 +717,16 @@ private fun RowMenu(onEdit: (() -> Unit)?, onDelete: () -> Unit) {
                     onClick = {
                         open = false
                         onEdit()
+                    },
+                )
+            }
+            if (onReceipt != null) {
+                DropdownMenuItem(
+                    text = { Text("Share receipt", color = TextPrimary) },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Rounded.ReceiptLong, contentDescription = null, tint = TextPrimary) },
+                    onClick = {
+                        open = false
+                        onReceipt()
                     },
                 )
             }
@@ -611,6 +768,103 @@ private fun MetricChip(text: String) {
         modifier = Modifier
             .background(SurfaceRaised, ShapePill)
             .padding(horizontal = 10.dp, vertical = 4.dp),
+    )
+}
+
+// ---- pumps ----
+
+/** Pump price at each priced fill, as a line. */
+@Composable
+private fun PriceChart(points: List<PricePoint>) {
+    val lo = points.minOf { it.rupeesPerLitre }
+    val hi = points.maxOf { it.rupeesPerLitre }
+    val span = (hi - lo).coerceAtLeast(1.0)
+    val change = (points.last().rupeesPerLitre - points.first().rupeesPerLitre) / points.first().rupeesPerLitre * 100
+    SectionCard(header = { SectionLabel(text = "Pump price") }) {
+        Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text("₹%.1f".format(points.last().rupeesPerLitre), style = MaterialTheme.typography.headlineSmall, color = TextPrimary)
+                Text(" /L now", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.padding(bottom = 4.dp))
+                Spacer(Modifier.weight(1f))
+                Text(
+                    trend(kotlin.math.round(change).toInt(), "over ${points.size} fills"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (change > 0.5) Danger else if (change < -0.5) Lime else TextSecondary,
+                )
+            }
+            androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(110.dp).padding(vertical = 6.dp)) {
+                val step = if (points.size > 1) size.width / (points.size - 1) else 0f
+                val xy = points.mapIndexed { i, p ->
+                    Offset(i * step, size.height - ((p.rupeesPerLitre - lo) / span).toFloat() * size.height)
+                }
+                repeat(3) { i ->
+                    val y = size.height * i / 2f
+                    drawLine(Stroke, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+                }
+                val path = androidx.compose.ui.graphics.Path().apply {
+                    xy.forEachIndexed { i, o -> if (i == 0) moveTo(o.x, o.y) else lineTo(o.x, o.y) }
+                }
+                drawPath(path, BlockYellow, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                xy.forEach { drawCircle(BlockYellow, radius = 3.5.dp.toPx(), center = it) }
+            }
+            Row(Modifier.fillMaxWidth()) {
+                Text(points.first().label, style = MaterialTheme.typography.labelSmall, color = TextSecondary, modifier = Modifier.weight(1f))
+                Text("₹%.1f – ₹%.1f".format(lo, hi), style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                Spacer(Modifier.weight(1f))
+                Text(points.last().label, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+            }
+        }
+    }
+}
+
+/** Pumps from fill comments: how often, what they charge, and how far their fuel went. */
+@Composable
+private fun StationsCard(stations: List<StationStats>) {
+    val priced = stations.filter { it.rupeesPerLitre != null }
+    val cheapest = priced.takeIf { it.size >= 2 }?.minByOrNull { it.rupeesPerLitre!! }?.name
+    val economic = stations.filter { it.kmPerL != null }.takeIf { it.size >= 2 }?.maxByOrNull { it.kmPerL!! }?.name
+    SectionCard(header = { SectionLabel(text = "Your pumps", count = stations.size) }) {
+        Column(Modifier.padding(top = 8.dp)) {
+            stations.take(5).forEachIndexed { i, station ->
+                if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(Stroke))
+                Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    RowIcon(Icons.Rounded.LocalGasStation, TextSecondary, small = true)
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(station.name, style = MaterialTheme.typography.bodyMedium, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            buildString {
+                                append(if (station.fills == 1) "1 fill" else "${station.fills} fills")
+                                append(" · last ${station.lastLabel}")
+                                station.kmPerL?.let { append(" · %.1f km/L after".format(it)) }
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (station.name == cheapest) Tag("Cheapest", Lime)
+                            if (station.name == economic) Tag("Best km/L", BlockLavender)
+                        }
+                    }
+                    Text(station.rupeesPerLitre?.let { "₹%.1f/L".format(it) } ?: "—", style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+                }
+            }
+            Text(
+                "Pumps come from the first part of a fill's comment, like \"HP Whitefield, full tank\".",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun Tag(text: String, color: Color) {
+    Text(
+        text.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        color = OnBlock,
+        modifier = Modifier.background(color, ShapePill).padding(horizontal = 8.dp, vertical = 2.dp),
     )
 }
 
@@ -781,6 +1035,42 @@ private fun FuelField(
             unfocusedPlaceholderColor = TextDisabled,
         ),
     )
+}
+
+private val receiptDate = DateTimeFormatter.ofPattern("EEE d MMM yyyy", java.util.Locale.ENGLISH)
+private val receiptTime = DateTimeFormatter.ofPattern("HH:mm")
+
+/** Paints the fill as a receipt and opens the share sheet with it. */
+private suspend fun shareReceipt(context: Context, entry: FuelLogEntry) {
+    val at = Instant.ofEpochMilli(entry.ts).atZone(ZoneId.systemDefault())
+    val receipt = FuelReceipt(
+        id = entry.id,
+        date = receiptDate.format(at).uppercase(java.util.Locale.ENGLISH),
+        time = receiptTime.format(at),
+        station = FuelTrends.station(entry.note),
+        odoKm = entry.odometerKm,
+        litres = entry.litres?.takeIf { it > 0 },
+        rupees = entry.rupees?.takeIf { it > 0 },
+        rupeesPerLitre = entry.rupeesPerLitre,
+        kmSinceLast = entry.kmSincePrevFill,
+        kmPerL = entry.tankKmPerL,
+        barsBefore = entry.barsBefore,
+        barsAfter = entry.barsAfter,
+    )
+    val file = withContext(Dispatchers.Default) {
+        val bmp = FuelReceiptPainter.paint(context, receipt)
+        val dir = File(context.cacheDir, "share").apply { mkdirs() }
+        File(dir, "fuel-${entry.id}-receipt.png").also { out -> FileOutputStream(out).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+    }
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.share", file)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "image/png"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_TEXT, entry.rupees?.let { "Filled up for ₹%,.0f.".format(it) } ?: "Filled up.")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        clipData = ClipData.newRawUri("fuel-receipt.png", uri)
+    }
+    context.startActivity(Intent.createChooser(send, "Share receipt"))
 }
 
 private fun lastFillValue(entry: FuelLogEntry?): String {
