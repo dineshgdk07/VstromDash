@@ -9,6 +9,7 @@ import dev.gdk.bumblebee.ble.ConnectionState
 import dev.gdk.bumblebee.ble.android.BleScanner
 import dev.gdk.bumblebee.ble.android.DiscoveredBike
 import dev.gdk.bumblebee.garage.GarageReminders
+import dev.gdk.bumblebee.ui.share.SharePrefs
 import dev.gdk.bumblebee.nav.MapsNavSource
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,6 +34,7 @@ data class GarageSettingsUiState(
     val remindKm: String = "200",
     val pauseWindowMin: Int = 45,
     val autoConnect: Boolean = true,
+    val sharePrompt: Boolean = true,
     val sosContacts: String = "",
     val crashSensitivity: String = "NORMAL",
     val bloodGroup: String = "",
@@ -151,6 +153,11 @@ class GarageSettingsViewModel(application: Application) : AndroidViewModel(appli
         _ui.update { it.copy(autoConnect = on, status = if (on) "Auto-connect is on." else "Auto-connect is off.") }
     }
 
+    fun setSharePrompt(on: Boolean) {
+        SharePrefs(getApplication()).promptEnabled = on
+        _ui.update { it.copy(sharePrompt = on, status = if (on) "Share prompt is on." else "Share prompt is off.") }
+    }
+
     fun skipAutoConnectToday() {
         app.prefs.skipAutoConnectDate = LocalDate.now().toString()
         _ui.update { it.copy(status = "Auto-connect is off for the rest of today.") }
@@ -226,6 +233,7 @@ class GarageSettingsViewModel(application: Application) : AndroidViewModel(appli
             remindKm = app.prefs.remindKm.toString(),
             pauseWindowMin = app.prefs.pauseWindowMin,
             autoConnect = app.prefs.autoConnect,
+            sharePrompt = SharePrefs(getApplication()).promptEnabled,
             sosContacts = app.prefs.emergencyContacts,
             crashSensitivity = app.prefs.crashSensitivity,
             bloodGroup = app.prefs.bloodGroup,

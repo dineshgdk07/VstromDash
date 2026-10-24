@@ -3,13 +3,11 @@ package dev.gdk.bumblebee.ui.share
 import androidx.test.core.app.ApplicationProvider
 import dev.gdk.bumblebee.DashApp
 import dev.gdk.bumblebee.ride.GpsFix
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
-import kotlinx.coroutines.Dispatchers
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -25,7 +23,7 @@ class ShareViewModelTest {
     @After fun resetMain() = Dispatchers.resetMain()
 
     @Test fun `ride subject builds four previews with the ride name as headline`() = runTest {
-        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        Dispatchers.setMain(Dispatchers.Unconfined)
         val id = seedRide(name = "Nandi run")
         val vm = ShareViewModel(app, ShareSubject.Ride(id))
         await { vm.ui.value.previews.size == 4 }
@@ -34,7 +32,7 @@ class ShareViewModelTest {
     }
 
     @Test fun `rename commits to the ride`() = runTest {
-        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        Dispatchers.setMain(Dispatchers.Unconfined)
         val id = seedRide()
         val vm = ShareViewModel(app, ShareSubject.Ride(id))
         await { !vm.ui.value.busy }
@@ -44,11 +42,9 @@ class ShareViewModelTest {
         assertEquals("Coorg", app.capture.rideById(id)!!.name)
     }
 
-    /** Room and geocoding resume off the test scheduler, so poll until they land. */
-    private fun kotlinx.coroutines.test.TestScope.await(ready: suspend () -> Boolean) {
+    private fun await(ready: suspend () -> Boolean) {
         val deadline = System.currentTimeMillis() + 8_000
         while (System.currentTimeMillis() < deadline) {
-            advanceUntilIdle()
             if (kotlinx.coroutines.runBlocking { ready() }) return
             Thread.sleep(20)
         }

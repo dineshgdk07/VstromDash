@@ -13,6 +13,8 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
@@ -81,6 +83,13 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+        <receiver
+            android:name=".ble.PauseWindowReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="dev.gdk.bumblebee.ble.PAUSE_ELAPSED" />
+            </intent-filter>
+        </receiver>
         <receiver
             android:name=".garage.GarageCheckReceiver"
             android:exported="false">
