@@ -61,12 +61,12 @@ data class ShareCardMapTransform(
                 val y = (WebMercator.latToY(fix.lat, zoom) - cover.y0).toFloat() * 256f
                 x to y
             }
-            return fit(pts, mosaicW, mosaicH, stage, portrait)
+            return fit(pts, mosaicW, mosaicH, stage, portrait, coverStage = true)
         }
 
         fun ofPlot(plot: List<SharePlot>, stage: RectF, portrait: Boolean): ShareCardMapTransform {
             val pts = plot.map { it.x * 1000f to it.y * 1000f }
-            return fit(pts, 1000f, 1000f, stage, portrait)
+            return fit(pts, 1000f, 1000f, stage, portrait, coverStage = false)
         }
 
         private fun fit(
@@ -75,6 +75,7 @@ data class ShareCardMapTransform(
             mosaicH: Float,
             stage: RectF,
             portrait: Boolean,
+            coverStage: Boolean,
         ): ShareCardMapTransform {
             var minX = pts.minOf { it.first }
             var maxX = pts.maxOf { it.first }
@@ -96,19 +97,15 @@ data class ShareCardMapTransform(
             matrix.setRotate(rotate, route.centerX(), route.centerY())
             val rotatedRoute = RectF()
             matrix.mapRect(rotatedRoute, route)
-            val inner = RectF(
-                stage.left + 36f,
-                stage.top + 168f,
-                stage.right - 36f,
-                stage.bottom - 8f,
-            )
-            val fill = if (portrait) 0.88f else 0.80f
-            val scale = minOf(inner.width() * fill / rotatedRoute.width(), inner.height() * fill / rotatedRoute.height())
+            val pad = minOf(stage.width(), stage.height()) * 0.04f
+            val inner = RectF(stage.left + pad, stage.top + pad, stage.right - pad, stage.bottom - pad)
+            val scale = minOf(inner.width() / rotatedRoute.width(), inner.height() / rotatedRoute.height())
             matrix.postScale(scale, scale, rotatedRoute.centerX(), rotatedRoute.centerY())
             val placed = RectF()
             matrix.mapRect(placed, route)
             matrix.postTranslate(inner.centerX() - placed.centerX(), inner.centerY() - placed.centerY())
-            coverWidth(matrix, mosaicW, mosaicH, stage)
+            // Map tiles must reach the card edges. A bare route must stay inside its stage.
+            if (coverStage) coverWidth(matrix, mosaicW, mosaicH, stage)
             return ShareCardMapTransform(mosaicW, mosaicH, matrix, rotate)
         }
 

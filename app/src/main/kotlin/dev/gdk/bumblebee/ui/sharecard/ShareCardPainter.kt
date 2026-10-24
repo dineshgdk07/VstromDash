@@ -47,7 +47,8 @@ object ShareCardPainter {
             layout = layout,
             fonts = ShareText.fonts(context),
             accent = card.accent.argb,
-            background = card.background,
+            // A sticker lands on someone else's image, so it is drawn as on Transparent.
+            background = if (sticker) ShareBackground.TRANSPARENT else card.background,
         )
         if (sticker) {
             look.drawSticker(canvas, ctx)
@@ -104,7 +105,7 @@ object ShareCardPainter {
     ) {
         val mosaic = if (cover != null && tiles != null) ShareCardMap.stitch(cover, tiles) else null
         if (mosaic != null && cover != null && card.route.size >= 2) {
-            val frame = ShareCardMapTransform.ofRoute(card.route, cover, ShareCardRoute.stage(layout), portrait)
+            val frame = ShareCardMapTransform.ofRoute(card.route, cover, look.stage(ctx), portrait)
             canvas.save()
             canvas.concat(frame.matrix)
             canvas.drawBitmap(mosaic, 0f, 0f, ShareCardMap.paint())

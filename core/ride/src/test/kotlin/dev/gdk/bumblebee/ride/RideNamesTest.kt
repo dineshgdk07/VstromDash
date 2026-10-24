@@ -18,8 +18,14 @@ class RideNamesTest {
         assertEquals("Morning ride", RideNames.headline(null, "Bengaluru", null, true, "Morning"))
     }
 
-    @Test fun `code is first three letters uppercased`() {
-        assertEquals("BEN", RideNames.code("Bengaluru"))
+    @Test fun `code is airport style`() {
+        assertEquals("BNG", RideNames.code("Bengaluru"))
+        assertEquals("NDH", RideNames.code("Nandi Hills"))
+        assertEquals("MSR", RideNames.code("Mysuru"))
         assertEquals("STT", RideNames.code("St. Thomas"))
+        assertEquals("GOA", RideNames.code("Goa"))
+        assertEquals("ADY", RideNames.code("Ady"))
+        assertEquals("KU", RideNames.code("Ku"))
+        assertEquals("", RideNames.code("—"))
     }
 }

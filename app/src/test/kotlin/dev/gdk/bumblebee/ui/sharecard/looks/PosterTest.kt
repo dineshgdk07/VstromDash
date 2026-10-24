@@ -77,7 +77,7 @@ class PosterTest {
     }
 
     companion object {
-        /** Story headline, under the hero and above the accent band. */
-        val HEADLINE_BAND = Rect(48, 1160, 980, 1320)
+        /** Story headline, right-aligned above the date line and the big number. */
+        val HEADLINE_BAND = Rect(300, 1020, 1030, 1115)
     }
 }

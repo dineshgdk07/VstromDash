@@ -20,7 +20,30 @@ object RideNames {
         return "$timeOfDay ride"
     }
 
-    /** First three letters (A–Z after dropping non-letters), uppercased. */
-    fun code(locality: String): String =
-        locality.filter { it.isLetter() }.uppercase(Locale.ENGLISH).take(3)
+    /**
+     * Airport-style three-letter code. The first letter, then consonants: "Bengaluru" → BNG.
+     * A multi-word name ends on its last word's initial: "Nandi Hills" → NDH.
+     * Short or vowel-heavy names fill up with their remaining letters: "Goa" → GOA.
+     */
+    fun code(locality: String): String {
+        val words = locality.split(Regex("[^\\p{L}]+"))
+            .map { it.uppercase(Locale.ENGLISH) }
+            .filter { it.isNotEmpty() }
+        if (words.isEmpty()) return ""
+        val first = words.first()
+        val out = StringBuilder().append(first[0])
+        val want = if (words.size > 1) 2 else 3
+        for (ch in first.drop(1)) {
+            if (out.length >= want) break
+            if (ch !in VOWELS && ch != out.last()) out.append(ch)
+        }
+        if (words.size > 1) out.append(words.last()[0])
+        for (ch in words.joinToString("").drop(1)) {
+            if (out.length >= 3) break
+            if (out.indexOf(ch.toString(), 1) < 0) out.append(ch)
+        }
+        return out.toString().take(3)
+    }
+
+    private const val VOWELS = "AEIOUY"
 }

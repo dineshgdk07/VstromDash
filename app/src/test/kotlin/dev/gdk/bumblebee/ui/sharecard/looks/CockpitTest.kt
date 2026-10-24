@@ -67,6 +67,11 @@ class CockpitTest {
         }
     }
 
+    @Test fun `odometer digits sit top right`() {
+        val bmp = ShareCardPainter.paint(ctx, card(look = ShareLook.COCKPIT, extras = ShareExtras(odoEndKm = 48_210)), null, null)
+        assertTrue(bandHasInk(bmp, ODOMETER))
+    }
+
     @Test fun `writes a preview png per shape when asked`() {
         if (System.getProperty("share.preview") != "true") return
         val dir = File("build/share-preview").apply { mkdirs() }
@@ -98,7 +103,7 @@ class CockpitTest {
         /** Story headline under the REC tag. */
         val HEADLINE_BAND = Rect(48, 80, 980, 200)
 
-        /** Story odometer row. Boxes must not appear here on a GPS-only card. */
-        val ODOMETER = Rect(280, 1000, 800, 1090)
+        /** Story odometer, top right. Boxes must not appear here on a GPS-only card. */
+        val ODOMETER = Rect(672, 92, 1024, 176)
     }
 }

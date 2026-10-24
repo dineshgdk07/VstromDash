@@ -82,6 +82,8 @@ data class ShareCardModel(
     val odoKm: Int? = null,
     val stops: List<GpsFix> = emptyList(),
     val mapFallback: Boolean = false,
+    /** Local start time, "06:12". */
+    val startClock: String = "",
 ) {
     /** Missing map tiles stay on the same look, on the look's own background, and say so. */
     fun withTiles(complete: Boolean): ShareCardModel {
@@ -211,8 +213,8 @@ object ShareCard {
             look = switches.look,
             accent = switches.accent,
             headline = RideNames.headline(RideNames.clean(extras.rideName), fromPlace, toPlace, switches.showPlaces, timeOfDay),
-            fromCode = fromPlace?.let(RideNames::code),
-            toCode = toPlace?.let(RideNames::code),
+            fromCode = fromPlace?.let(RideNames::code)?.takeIf { it.isNotEmpty() },
+            toCode = toPlace?.let(RideNames::code)?.takeIf { it.isNotEmpty() },
             fromPlace = fromPlace,
             toPlace = toPlace,
             rideNumberText = extras.rideNumber?.let { String.format(Locale.US, "No. %04d", it) },
@@ -223,6 +225,7 @@ object ShareCard {
             odoKm = extras.odoEndKm.takeUnless { extras.gpsOnly },
             stops = stops,
             mapFallback = false,
+            startClock = startClock(ride.startTs, zone),
         )
     }
 
@@ -285,6 +288,9 @@ object ShareCard {
         DateTimeFormatter.ofPattern("EEE, d MMM yyyy", Locale.ENGLISH)
             .format(Instant.ofEpochMilli(startTs).atZone(zone))
             .uppercase(Locale.ENGLISH)
+
+    private fun startClock(startTs: Long, zone: ZoneId): String =
+        DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH).format(Instant.ofEpochMilli(startTs).atZone(zone))
 
     private fun whenLabel(startTs: Long, zone: ZoneId): String {
         val day = DateTimeFormatter.ofPattern("EEE", Locale.ENGLISH)

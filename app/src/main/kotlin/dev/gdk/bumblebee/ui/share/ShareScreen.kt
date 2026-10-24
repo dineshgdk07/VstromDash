@@ -286,8 +286,9 @@ private fun PickStep(
         value = withContext(Dispatchers.Default) {
             ui.previews.mapValues { (_, model) ->
                 val full = render(context, model, ui.photo, tiles, sticker = false)
-                val w = max(1, full.width / 4)
-                val h = max(1, full.height / 4)
+                // Half size: a grid cell on a phone is about 500 px wide, so a quarter-size thumb looks soft.
+                val w = max(1, full.width / 2)
+                val h = max(1, full.height / 2)
                 val scaled = Bitmap.createScaledBitmap(full, w, h, true)
                 if (scaled != full) full.recycle()
                 scaled
