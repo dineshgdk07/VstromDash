@@ -34,7 +34,14 @@ import dev.gdk.bumblebee.ble.BikeBridgeService
 import dev.gdk.bumblebee.gps.PhoneGps
 import dev.gdk.bumblebee.ui.cockpit.CockpitScreen
 import dev.gdk.bumblebee.ui.explorer.ExplorerScreen
+import dev.gdk.bumblebee.ui.explorer.BadgesScreen
+import dev.gdk.bumblebee.ui.explorer.CompareScreen
+import dev.gdk.bumblebee.ui.explorer.Discover
+import dev.gdk.bumblebee.ui.explorer.DnaScreen
 import dev.gdk.bumblebee.ui.explorer.RecapPeriod
+import dev.gdk.bumblebee.ui.explorer.RecordsScreen
+import dev.gdk.bumblebee.ui.explorer.TerritoryScreen
+import dev.gdk.bumblebee.ui.explorer.YearHeatScreen
 import dev.gdk.bumblebee.ui.explorer.RecapScreen
 import dev.gdk.bumblebee.ui.fuel.FuelLogScreen
 import dev.gdk.bumblebee.ui.garage.documents.DocumentsScreen
@@ -72,6 +79,17 @@ fun BumblebeeApp() {
     GpsBinder()
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val navController = rememberNavController()
+    val dashApp = LocalContext.current.applicationContext as DashApp
+
+    /** Opens a ride from an Explorer screen in the Ride tab's detail. */
+    fun openRideFromExplorer(id: Long) {
+        dashApp.pendingRideId.value = id
+        navController.navigate(Pillar.RIDE.route) {
+            popUpTo(Pillar.COCKPIT.route) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
     if (landscape) {
         HudTheme { RiderHudScreen() }
         return
@@ -175,6 +193,8 @@ fun BumblebeeApp() {
                         Pillar.EXPLORER -> ExplorerScreen(
                             onOpenRecap = { year -> navController.navigate("explorer/recap/$year") },
                             onOpenMonthRecap = { month -> navController.navigate("explorer/recap/${month.year}/${month.monthValue}") },
+                            onOpenDiscover = { navController.navigate(it.route) },
+                            onCompare = { a, b -> navController.navigate("explorer/compare/$a/$b") },
                         )
                         Pillar.GARAGE -> GarageScreen(
                             onOpenFuel = { navController.navigate("fuel") },
@@ -207,6 +227,34 @@ fun BumblebeeApp() {
             ) { entry ->
                 RecapScreen(
                     period = RecapPeriod.Year(entry.arguments?.getInt("year") ?: java.time.Year.now().value),
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable(Discover.RECORDS.route) {
+                RecordsScreen(onBack = { navController.popBackStack() }, onOpenRide = { openRideFromExplorer(it) })
+            }
+            composable(Discover.YEAR.route) {
+                YearHeatScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Discover.TERRITORY.route) {
+                TerritoryScreen(onBack = { navController.popBackStack() }, onOpenRide = { openRideFromExplorer(it) })
+            }
+            composable(Discover.BADGES.route) {
+                BadgesScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Discover.DNA.route) {
+                DnaScreen(onBack = { navController.popBackStack() })
+            }
+            composable(
+                route = "explorer/compare/{a}/{b}",
+                arguments = listOf(
+                    navArgument("a") { type = NavType.LongType },
+                    navArgument("b") { type = NavType.LongType },
+                ),
+            ) { entry ->
+                CompareScreen(
+                    a = entry.arguments?.getLong("a") ?: 0L,
+                    b = entry.arguments?.getLong("b") ?: 0L,
                     onBack = { navController.popBackStack() },
                 )
             }

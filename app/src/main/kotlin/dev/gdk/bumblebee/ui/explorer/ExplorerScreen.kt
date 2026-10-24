@@ -45,8 +45,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.gdk.bumblebee.ride.GpsFix
 import dev.gdk.bumblebee.ride.PlotPoint
 import dev.gdk.bumblebee.ride.RideMergeMath
-import dev.gdk.bumblebee.ui.components.BlockColor
-import dev.gdk.bumblebee.ui.components.BlockTile
 import dev.gdk.bumblebee.ui.components.ChunkyButton
 import dev.gdk.bumblebee.ui.components.ChunkyStyle
 import dev.gdk.bumblebee.ui.components.EmptyState
@@ -65,12 +63,16 @@ import dev.gdk.bumblebee.ui.ride.RideArchiveRow
 import dev.gdk.bumblebee.ui.ride.RideCalendar
 import dev.gdk.bumblebee.ui.ride.RideDetailPane
 import dev.gdk.bumblebee.ui.ride.RideRow
+import dev.gdk.bumblebee.ride.GoalView
 import dev.gdk.bumblebee.ui.ride.formatClock
 import dev.gdk.bumblebee.ui.ride.formatKm
 import dev.gdk.bumblebee.ui.theme.BlockLavender
 import dev.gdk.bumblebee.ui.theme.BumblebeeTheme
 import dev.gdk.bumblebee.ui.theme.Canvas
+import dev.gdk.bumblebee.ui.theme.Lime
 import dev.gdk.bumblebee.ui.theme.OnBlock
+import dev.gdk.bumblebee.ui.theme.ShapeXs
+import dev.gdk.bumblebee.ui.theme.SurfaceRaised
 import dev.gdk.bumblebee.ui.theme.ShapeLg
 import dev.gdk.bumblebee.ui.theme.ShapePill
 import dev.gdk.bumblebee.ui.theme.Stroke as Hairline
@@ -85,6 +87,8 @@ fun ExplorerScreen(
     model: ExplorerViewModel = viewModel(),
     onOpenRecap: (Int) -> Unit = {},
     onOpenMonthRecap: (YearMonth) -> Unit = {},
+    onOpenDiscover: (Discover) -> Unit = {},
+    onCompare: (Long, Long) -> Unit = {},
 ) {
     val state by model.ui.collectAsStateWithLifecycle()
     val detail = state.detail
@@ -109,6 +113,9 @@ fun ExplorerScreen(
         onToggleSelected = model::toggleSelected,
         onOpenRecap = onOpenRecap,
         onOpenMonthRecap = onOpenMonthRecap,
+        onOpenDiscover = onOpenDiscover,
+        onCompare = onCompare,
+        onSetGoal = model::setGoal,
     )
 }
 
@@ -124,7 +131,11 @@ private fun ExplorerBody(
     onToggleSelected: (Long) -> Unit,
     onOpenRecap: (Int) -> Unit = {},
     onOpenMonthRecap: (YearMonth) -> Unit = {},
+    onOpenDiscover: (Discover) -> Unit = {},
+    onCompare: (Long, Long) -> Unit = {},
+    onSetGoal: (Double?) -> Unit = {},
 ) {
+    var goalOpen by remember { mutableStateOf(false) }
     var reviewOpen by remember(state.month, state.selectedDate) { mutableStateOf(false) }
     val day = state.day
     val patterns = patternPages(state)
@@ -176,6 +187,7 @@ private fun ExplorerBody(
             state.vsPrevious?.let { caption ->
                 Text(caption, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
             }
+            GoalLine(state.goal, onClick = { goalOpen = true })
         }
 
         RideCalendar(
@@ -206,6 +218,7 @@ private fun ExplorerBody(
             onMergeSelected = onMergeSelected,
             onOpenRide = onOpenRide,
             onToggleSelected = onToggleSelected,
+            onCompare = onCompare,
         )
 
         if (patterns.isNotEmpty()) {
@@ -223,11 +236,17 @@ private fun ExplorerBody(
             }
         }
 
-        BlockTile(
-            title = "Year recap",
-            color = BlockColor.Lavender,
-            onClick = { onOpenRecap(state.month.year) },
-            modifier = Modifier.fillMaxWidth().height(96.dp),
+        DiscoverStrip(onOpen = onOpenDiscover, onYearRecap = { onOpenRecap(state.month.year) })
+    }
+
+    if (goalOpen) {
+        GoalSheet(
+            current = state.goal?.goalKm,
+            onSave = {
+                goalOpen = false
+                onSetGoal(it)
+            },
+            onDismiss = { goalOpen = false },
         )
     }
 
@@ -287,6 +306,7 @@ private fun RideList(
     onMergeSelected: () -> Unit,
     onOpenRide: (Long) -> Unit,
     onToggleSelected: (Long) -> Unit,
+    onCompare: (Long, Long) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (day != null) {
@@ -322,6 +342,10 @@ private fun RideList(
                 onClick = onMergeSelected,
                 style = ChunkyStyle.Lime,
             )
+            if (state.selectedIds.size == 2) {
+                val (a, b) = state.selectedIds.toList()
+                ChunkyButton(text = "Compare these two", onClick = { onCompare(a, b) }, style = ChunkyStyle.Outline)
+            }
         }
         if (state.rides.isEmpty()) {
             EmptyState(
@@ -357,6 +381,7 @@ private fun RideList(
 
 private enum class PatternKind(val title: String) {
     RECAP("Month recap"),
+    MONTHS("Last 6 months"),
     WEEKDAYS("Weekdays"),
     TIME("Time of day"),
     ROUTES("Repeat routes"),
@@ -366,6 +391,7 @@ private enum class PatternKind(val title: String) {
 /** The month's recap leads; the patterns follow. */
 private fun patternPages(state: ExplorerUiState): List<PatternKind> = buildList {
     if (state.monthRideCount > 0) add(PatternKind.RECAP)
+    if (state.monthTotals.count { it.km > 0 } >= 2) add(PatternKind.MONTHS)
     if (state.weekdayKm.any { it > 0.0 }) add(PatternKind.WEEKDAYS)
     if (state.timeOfDayKm.any { it > 0.0 }) add(PatternKind.TIME)
     if (state.routes.isNotEmpty()) add(PatternKind.ROUTES)
@@ -401,6 +427,108 @@ private fun PatternBody(kind: PatternKind, state: ExplorerUiState) {
         PatternKind.ROUTES -> RouteLines(state)
         PatternKind.LONGEST -> LongestLine(state.longest)
         PatternKind.RECAP -> MonthRecap(state)
+        PatternKind.MONTHS -> MonthBars(state)
+    }
+}
+
+/** Km in each of the last six months, this one highlighted, with where its pace lands. */
+@Composable
+private fun MonthBars(state: ExplorerUiState) {
+    val totals = state.monthTotals
+    val peak = maxOf(totals.maxOfOrNull { it.km } ?: 0.0, state.projectedKm ?: 0.0).coerceAtLeast(1.0)
+    Row(
+        Modifier.fillMaxWidth().height(120.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        totals.forEach { t ->
+            val current = t.month == state.month
+            Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Bottom, horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    if (t.km > 0) String.format("%.0f", t.km) else "",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OnBlock,
+                    maxLines = 1,
+                )
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.BottomCenter) {
+                    val projected = state.projectedKm?.takeIf { current }
+                    if (projected != null) {
+                        Box(
+                            Modifier.fillMaxWidth().fillMaxHeight((projected / peak).toFloat().coerceIn(0.02f, 1f))
+                                .background(OnBlock.copy(alpha = 0.15f), ShapeXs),
+                        )
+                    }
+                    Box(
+                        Modifier.fillMaxWidth().fillMaxHeight((t.km / peak).toFloat().coerceIn(0.02f, 1f))
+                            .background(if (current) OnBlock else OnBlock.copy(alpha = 0.45f), ShapeXs),
+                    )
+                }
+                Text(
+                    t.month.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault()),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OnBlock,
+                )
+            }
+        }
+    }
+    state.projectedKm?.let {
+        Text(
+            "On pace for ${String.format("%.0f", it)} km this month",
+            style = MaterialTheme.typography.bodyMedium,
+            color = OnBlock,
+        )
+    }
+}
+
+/** The monthly goal as a thin bar and what it takes a day; a quiet link when there is none. */
+@Composable
+private fun GoalLine(goal: GoalView?, onClick: () -> Unit) {
+    if (goal == null) {
+        Text(
+            "Set a monthly goal",
+            style = MaterialTheme.typography.labelLarge,
+            color = Lime,
+            modifier = Modifier.clickable(onClick = onClick).padding(vertical = 4.dp),
+        )
+        return
+    }
+    Column(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(top = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Box(Modifier.fillMaxWidth().height(8.dp).clip(ShapePill).background(SurfaceRaised)) {
+            Box(Modifier.fillMaxHeight().fillMaxWidth(goal.fraction.coerceAtLeast(0.02f)).background(Lime, ShapePill))
+        }
+        Text(
+            when {
+                goal.done -> String.format("Goal of %.0f km reached", goal.goalKm)
+                goal.perDayKm != null -> String.format("%.0f of %.0f km goal · %.0f km a day to make it", goal.km, goal.goalKm, goal.perDayKm)
+                else -> String.format("%.0f of %.0f km goal", goal.km, goal.goalKm)
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = if (goal.done) Lime else TextSecondary,
+        )
+    }
+}
+
+@Composable
+private fun GoalSheet(current: Double?, onSave: (Double?) -> Unit, onDismiss: () -> Unit) {
+    var text by remember { mutableStateOf(current?.let { String.format("%.0f", it) } ?: "") }
+    ForgeSheet(title = "Monthly goal", onDismiss = onDismiss, primaryLabel = "Save goal", onPrimary = { onSave(text.toDoubleOrNull()) }) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Km you want to ride each month. The month card tracks it.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            androidx.compose.material3.OutlinedTextField(
+                value = text,
+                onValueChange = { v -> text = v.filter { it.isDigit() }.take(5) },
+                label = { Text("Km a month") },
+                singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (current != null) {
+                ChunkyButton(text = "Remove goal", onClick = { onSave(null) }, style = ChunkyStyle.Outline, compact = true)
+            }
+        }
     }
 }
 

@@ -23,6 +23,9 @@ import dev.gdk.bumblebee.ride.WrappedRecap
 import dev.gdk.bumblebee.ui.ride.BandShare
 import dev.gdk.bumblebee.ui.ride.RideDetail
 import dev.gdk.bumblebee.ui.ride.RideRow
+import dev.gdk.bumblebee.ride.GoalView
+import dev.gdk.bumblebee.ride.MonthTotal
+import dev.gdk.bumblebee.ride.RideHistory
 import dev.gdk.bumblebee.ui.ride.detailExtras
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -71,6 +74,11 @@ data class ExplorerUiState(
     val routes: List<dev.gdk.bumblebee.ride.RouteStats> = emptyList(),
     val journeys: List<JourneyCard> = emptyList(),
     val selectedIds: Set<Long> = emptySet(),
+    /** Km in each of the last six months, oldest first, ending on [month]. */
+    val monthTotals: List<MonthTotal> = emptyList(),
+    /** Where the month lands at its pace so far; current month only. */
+    val projectedKm: Double? = null,
+    val goal: GoalView? = null,
 )
 
 data class LongestRide(
@@ -90,6 +98,7 @@ data class JourneyCard(
 
 class ExplorerViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as DashApp
+    private val prefs = ExplorerPrefs(application)
     private val _ui = MutableStateFlow(ExplorerUiState())
     val ui: StateFlow<ExplorerUiState> = _ui.asStateFlow()
 
@@ -131,6 +140,11 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
             }
             reload(keepMonth = true)
         }
+    }
+
+    fun setGoal(km: Double?) {
+        prefs.monthlyGoalKm = km
+        _ui.update { it.copy(goal = RideHistory.goal(prefs.monthlyGoalKm, it.monthKm, it.month, java.time.LocalDate.now())) }
     }
 
     fun closeDetail() {
@@ -176,8 +190,10 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
         val month = _ui.value.month
         val selected = _ui.value.selectedDate
         val zone = ZoneId.systemDefault()
+        var totals: List<MonthTotal> = emptyList()
         val packed = withContext(Dispatchers.IO) {
             val all = app.capture.finishedRides()
+            totals = RideHistory.monthTotals(all.filter { !it.isDemo }.map { it.toFact() }, month, 6, zone)
             val km = all.groupBy { dateOf(it.startTs) }.mapValues { (_, rides) -> rides.sumOf { it.km() } }
             val pb = app.capture.allTimeMaxSpeed()
             val monthStart = month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
@@ -278,6 +294,9 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
             monthTitle = packed.monthTitle,
             routes = packed.routes,
             journeys = packed.journeys,
+            monthTotals = totals,
+            projectedKm = RideHistory.projectedKm(packed.monthKm, month, java.time.LocalDate.now(zone)),
+            goal = RideHistory.goal(prefs.monthlyGoalKm, packed.monthKm, month, java.time.LocalDate.now(zone)),
         )
     }
 
@@ -471,4 +490,18 @@ private fun bandShares(json: String?): List<BandShare> {
     return dev.gdk.bumblebee.ride.SpeedBand.entries.map { band ->
         BandShare(labels.getValue(band), h.secondsIn(band).toFloat() / total, band)
     }
+}
+
+/** The history views' view of a ride. */
+internal fun dev.gdk.bumblebee.data.local.RideEntity.toFact(): dev.gdk.bumblebee.ride.RideFact {
+    val s = odoStartKm
+    val e = odoEndKm
+    val km = if (s != null && e != null) (e - s).toDouble() else gpsDistanceM / 1000.0
+    val label = when {
+        !name.isNullOrBlank() -> name
+        !startPlace.isNullOrBlank() && !endPlace.isNullOrBlank() && startPlace != endPlace -> "$startPlace → $endPlace"
+        !endPlace.isNullOrBlank() -> endPlace
+        else -> "Ride"
+    }
+    return dev.gdk.bumblebee.ride.RideFact(id, startTs, km, movingSec, maxSpeedKmh, climbM, label)
 }

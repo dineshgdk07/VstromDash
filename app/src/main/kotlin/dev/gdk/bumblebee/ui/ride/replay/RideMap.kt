@@ -73,6 +73,7 @@ internal fun RideMapCanvas(
     modifier: Modifier = Modifier,
     onSelectTs: ((Long) -> Unit)? = null,
     zoomable: Boolean = true,
+    overlay: (DrawScope.(project: (Double, Double) -> Offset) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val cover = remember(fixes) { WebMercator.bounds(fixes)?.let { WebMercator.cover(it) } }
@@ -129,6 +130,7 @@ internal fun RideMapCanvas(
             val frame = mapFrame(size.width, size.height, cover)
             drawTiles(frame, tiles)
             drawRect(dim)
+            overlay?.invoke(this) { lat, lng -> frame.project(lat, lng) }
             drawLegs(frame, legs)
             pins.forEach { drawPin(frame.project(it.lat, it.lng), it.kind) }
             marker?.let { at ->
