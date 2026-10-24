@@ -129,7 +129,7 @@ private fun ShareCardDialog(detail: RideDetail, onDismiss: () -> Unit) {
         value = if (!model.needsTiles) {
             emptyMap()
         } else {
-            val cover = ShareCardMapTransform.posterCover(model.route, model.shape == ShareShape.STORY)
+            val cover = ShareCardMapTransform.posterCover(model.route, model.shape != ShareShape.SQUARE)
             if (cover == null) emptyMap()
             else withContext(Dispatchers.IO) { OsmTileStore(context).load(cover) }
         }
@@ -141,6 +141,7 @@ private fun ShareCardDialog(detail: RideDetail, onDismiss: () -> Unit) {
                 model,
                 photo.takeIf { model.background == ShareBackground.PHOTO },
                 tiles,
+                sticker = false,
             )
         }
     }

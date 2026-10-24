@@ -58,7 +58,7 @@ object ShareCardMap {
         },
     )
 
-    fun dim(canvas: Canvas, layout: ShareCardLayout) {
+    fun dim(canvas: Canvas, width: Float, height: Float) {
         canvas.drawColor(Color.argb(62, 8, 8, 10))
         val header = Paint().apply {
             shader = LinearGradient(
@@ -68,17 +68,17 @@ object ShareCardMap {
                 Shader.TileMode.CLAMP,
             )
         }
-        canvas.drawRect(0f, 0f, layout.width, 240f, header)
+        canvas.drawRect(0f, 0f, width, (height * 0.16f).coerceAtMost(240f), header)
     }
 
-    fun fade(canvas: Canvas, layout: ShareCardLayout) {
-        val span = if (layout.story) 460f else 280f
+    fun fade(canvas: Canvas, width: Float, height: Float) {
+        val top = height * 0.55f
         val paint = Paint().apply {
             shader = LinearGradient(
                 0f,
-                layout.gradientTop,
+                top,
                 0f,
-                layout.gradientTop + span,
+                height,
                 intArrayOf(
                     Color.TRANSPARENT,
                     Color.argb(110, 8, 8, 10),
@@ -89,6 +89,6 @@ object ShareCardMap {
                 Shader.TileMode.CLAMP,
             )
         }
-        canvas.drawRect(0f, layout.gradientTop, layout.width, layout.height, paint)
+        canvas.drawRect(0f, top, width, height, paint)
     }
 }

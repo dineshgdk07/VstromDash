@@ -6,13 +6,74 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PointF
+import android.graphics.RectF
 import dev.gdk.bumblebee.ride.GpsFix
+import dev.gdk.bumblebee.ride.ShareCardModel
 import dev.gdk.bumblebee.ride.SharePlot
 import dev.gdk.bumblebee.ride.TileCover
 import dev.gdk.bumblebee.ride.WebMercator
 import kotlin.math.roundToInt
 
+enum class RouteStyle { GLOW, INK, THIN }
+
 object ShareCardRoute {
+    /** Shared map and route stage. The painter fits map tiles into this rect. */
+    fun stage(layout: ShareCardLayout): RectF =
+        RectF(48f, layout.height * 0.08f, layout.width - 48f, layout.height * 0.70f)
+
+    fun drawRoute(canvas: Canvas, points: List<PointF>, accent: Int, style: RouteStyle) {
+        if (points.size < 2) return
+        val path = Path()
+        path.moveTo(points[0].x, points[0].y)
+        for (i in 1 until points.size) path.lineTo(points[i].x, points[i].y)
+        when (style) {
+            RouteStyle.GLOW -> {
+                val glow = stroke(22f, Color.argb(80, Color.red(accent), Color.green(accent), Color.blue(accent)))
+                glow.maskFilter = BlurMaskFilter(14f, BlurMaskFilter.Blur.NORMAL)
+                canvas.drawPath(path, glow)
+                canvas.drawPath(path, stroke(7f, accent))
+            }
+            RouteStyle.INK -> canvas.drawPath(path, stroke(12f, accent))
+            RouteStyle.THIN -> canvas.drawPath(path, stroke(3.5f, accent))
+        }
+    }
+
+    fun project(card: ShareCardModel, cover: TileCover?, stage: RectF): List<PointF> {
+        val portrait = card.shape != dev.gdk.bumblebee.ride.ShareShape.SQUARE
+        if (cover != null && card.route.size >= 2) {
+            val frame = ShareCardMapTransform.ofRoute(card.route, cover, stage, portrait)
+            return card.route.map { fix ->
+                val pts = floatArrayOf(
+                    (WebMercator.lngToX(fix.lng, cover.zoom) - cover.x0).toFloat() * 256f,
+                    (WebMercator.latToY(fix.lat, cover.zoom) - cover.y0).toFloat() * 256f,
+                )
+                frame.matrix.mapPoints(pts)
+                PointF(pts[0], pts[1])
+            }
+        }
+        if (card.plot.size < 2) return emptyList()
+        val frame = ShareCardMapTransform.ofPlot(card.plot, stage, portrait)
+        return card.plot.map {
+            val pts = floatArrayOf(it.x * 1000f, it.y * 1000f)
+            frame.matrix.mapPoints(pts)
+            PointF(pts[0], pts[1])
+        }
+    }
+
+    fun drawStops(canvas: Canvas, points: List<PointF>, accent: Int) {
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent }
+        val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+            color = Color.WHITE
+        }
+        points.forEach { point ->
+            canvas.drawCircle(point.x, point.y, 9f, fill)
+            canvas.drawCircle(point.x, point.y, 9f, ring)
+        }
+    }
+
     fun drawPlot(canvas: Canvas, plot: List<SharePlot>, matrix: Matrix) {
         tube(canvas, plot.size) { i ->
             val a = map(matrix, plot[i].x * 1000f, plot[i].y * 1000f)
