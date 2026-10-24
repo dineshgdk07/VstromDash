@@ -14,8 +14,12 @@ import dev.gdk.bumblebee.ride.CsvSample
 import dev.gdk.bumblebee.ride.ContinuityDecision
 import dev.gdk.bumblebee.ride.FuelFill
 import dev.gdk.bumblebee.ride.RideContinuity
+import dev.gdk.bumblebee.ride.RideNames
+import dev.gdk.bumblebee.ride.RideHighlights
 import dev.gdk.bumblebee.ride.RideMergeMath
 import dev.gdk.bumblebee.ride.GpsFix
+import dev.gdk.bumblebee.ride.Highlight
+import dev.gdk.bumblebee.ride.HighlightStats
 import dev.gdk.bumblebee.ride.JourneyDetector
 import dev.gdk.bumblebee.ride.JourneyRide
 import dev.gdk.bumblebee.ride.JourneySuggestion
@@ -29,12 +33,16 @@ import dev.gdk.bumblebee.ride.RouteStats
 import dev.gdk.bumblebee.ride.RunningCostAnalytics
 import dev.gdk.bumblebee.ride.ServiceSpend
 import dev.gdk.bumblebee.ride.TelemetrySample
+import dev.gdk.bumblebee.ride.TrackInsights
 import dev.gdk.bumblebee.ride.TrackSimplify
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.format.TextStyle
 import java.util.Locale
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 
 /**
@@ -58,6 +66,9 @@ class RideCaptureRepository(private val db: BumblebeeDb) {
 
     var activeRideId: Long? = null
         private set
+
+    private val finishedSink = MutableSharedFlow<Long>(extraBufferCapacity = 8)
+    val finishedEvents: SharedFlow<Long> = finishedSink
 
     val isRecording: Boolean get() = recorder.isActive
     val isGpsOnly: Boolean get() = activeGpsOnly
@@ -560,6 +571,59 @@ class RideCaptureRepository(private val db: BumblebeeDb) {
         )
     }
 
+    suspend fun renameRide(id: Long, name: String?) {
+        val ride = db.rideDao().byId(id) ?: return
+        setRideMeta(id, RideNames.clean(name), ride.tags)
+    }
+
+    suspend fun setPlaces(id: Long, start: String?, end: String?) {
+        val ride = db.rideDao().byId(id) ?: return
+        db.rideDao().update(ride.copy(startPlace = start, endPlace = end))
+    }
+
+    suspend fun recordWeatherIfMissing(tempC: Double, code: Int) = serial {
+        val id = activeRideId ?: return@serial
+        val ride = db.rideDao().byId(id) ?: return@serial
+        if (ride.weatherTempC != null) return@serial
+        db.rideDao().update(ride.copy(weatherTempC = tempC, weatherCode = code))
+    }
+
+    suspend fun rideNumber(id: Long): Int? {
+        val ride = db.rideDao().byId(id) ?: return null
+        if (ride.endTs == null || ride.isDemo || ride.mergedIntoId != null) return null
+        return db.rideDao().rideNumber(ride.startTs)
+    }
+
+    suspend fun highlightFor(id: Long): Highlight? {
+        val ride = db.rideDao().byId(id) ?: return null
+        if (ride.endTs == null || ride.isDemo || ride.mergedIntoId != null) return null
+        val earlier = db.rideDao().finishedBefore(ride.startTs)
+        return RideHighlights.of(highlightStats(ride), earlier.map { highlightStats(it) })
+    }
+
+    suspend fun ridesOnDay(date: LocalDate, zone: ZoneId = ZoneId.systemDefault()): List<RideEntity> {
+        val from = date.atStartOfDay(zone).toInstant().toEpochMilli()
+        val to = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        return db.rideDao().finishedBetween(from, to)
+    }
+
+    private suspend fun highlightStats(ride: RideEntity): HighlightStats {
+        val climb = ride.climbM ?: TrackInsights.elevationGainM(trackFixes(ride.id))?.also { gain ->
+            db.rideDao().update(ride.copy(climbM = gain))
+        }
+        val km = when {
+            ride.odoStartKm != null && ride.odoEndKm != null && ride.odoEndKm >= ride.odoStartKm ->
+                (ride.odoEndKm - ride.odoStartKm).toDouble()
+            else -> ride.gpsDistanceM / 1000.0
+        }
+        return HighlightStats(km, ride.maxSpeedKmh, climb, ride.movingSec)
+    }
+
+    private suspend fun trackFixes(rideId: Long): List<GpsFix> =
+        db.trackDao().forRide(rideId).map { point ->
+            GpsFix(point.ts, point.lat, point.lng, point.altitudeM, point.bearingDeg, point.speedMps, point.accuracyM)
+        }
+
     suspend fun ensureRide(ts: Long): Long = serial { ensureRideUnlocked(ts) }
 
     suspend fun ingestTelemetry(frame: TelemetryFrame, ts: Long) = serial {
@@ -875,6 +939,7 @@ class RideCaptureRepository(private val db: BumblebeeDb) {
         val agg = recorder.stop(ts)
         val existing = checkNotNull(db.rideDao().byId(rideId))
         closeOpenSegment(rideId, agg.endTs, agg.odoEndKm)
+        val climb = TrackInsights.elevationGainM(trackFixes(rideId))
         val ride = existing.copy(
             endTs = agg.endTs,
             odoStartKm = agg.odoStartKm,
@@ -889,6 +954,7 @@ class RideCaptureRepository(private val db: BumblebeeDb) {
             speedHistogramJson = agg.histogram.toJson(),
             rideState = RIDE_FINISHED,
             pausedAt = null,
+            climbM = climb,
         )
         val empty = ride.movingSec == 0 &&
             ride.gpsDistanceM == 0.0 &&
@@ -902,6 +968,7 @@ class RideCaptureRepository(private val db: BumblebeeDb) {
             db.rideDao().delete(rideId)
         } else {
             db.rideDao().update(ride)
+            if (!existing.isDemo) finishedSink.tryEmit(ride.id)
             if (!skipIfEmpty) updateRollup(ride)
         }
         updateCalibrationUnlocked()

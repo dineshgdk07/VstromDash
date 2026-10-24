@@ -27,6 +27,15 @@ interface RideDao {
     suspend fun childrenOf(parentId: Long): List<RideEntity>
     @Query("SELECT MAX(maxSpeedKmh) FROM rides WHERE endTs IS NOT NULL AND mergedIntoId IS NULL AND isDemo = 0")
     suspend fun allTimeMaxSpeed(): Int?
+
+    @Query("SELECT COUNT(*) FROM rides WHERE endTs IS NOT NULL AND mergedIntoId IS NULL AND isDemo = 0 AND startTs <= :startTs")
+    suspend fun rideNumber(startTs: Long): Int
+
+    @Query("SELECT * FROM rides WHERE endTs IS NOT NULL AND mergedIntoId IS NULL AND isDemo = 0 AND startTs < :startTs")
+    suspend fun finishedBefore(startTs: Long): List<RideEntity>
+
+    @Query("SELECT * FROM rides WHERE endTs IS NOT NULL AND mergedIntoId IS NULL AND isDemo = 0 AND startTs >= :fromTs AND startTs < :toTs ORDER BY startTs")
+    suspend fun finishedBetween(fromTs: Long, toTs: Long): List<RideEntity>
 }
 
 @Dao

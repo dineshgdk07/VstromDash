@@ -32,8 +32,14 @@ class SnapshotInspectTest {
 
     @Test
     fun `newer schema is rejected`() {
-        val verdict = inspectManifest(goodManifest().copy(schema = 9), "abc", goodManifest().counts)
+        val verdict = inspectManifest(goodManifest().copy(schema = 10), "abc", goodManifest().counts)
         assertEquals("This file was made by a newer app.", (verdict as SnapshotVerdict.Rejected).message)
+    }
+
+    @Test
+    fun `schema 8 manifest is still accepted`() {
+        val verdict = inspectManifest(goodManifest().copy(schema = 8), "abc", goodManifest().counts)
+        assertTrue(verdict is SnapshotVerdict.Ok)
     }
 
     @Test
