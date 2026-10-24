@@ -246,7 +246,7 @@ private fun MomentCard(moment: RideMoment, totalKm: Double) {
                         color = TextSecondary,
                     )
                     Text(
-                        "${"%.1f".format(moment.distanceKm)} km of ${"%.0f".format(totalKm)}",
+                        "${"%.1f".format(moment.distanceKm)} km of ${"%.1f".format(totalKm)} km",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextPrimary,
                     )

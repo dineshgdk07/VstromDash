@@ -359,9 +359,11 @@ private fun OdoCard(detail: RideDetail) {
                 )
             }
             if (bikeKm != null && gpsKm > 0) {
+                // The odo counts whole km, so on short rides Δ is rounding, not calibration.
                 val delta = (bikeKm - gpsKm) / gpsKm * 100
+                val deltaText = if (gpsKm >= MIN_DELTA_KM) " · Δ %+.1f%%".format(delta) else ""
                 Text(
-                    "bike %.0f km · GPS %.1f km · Δ %+.1f%%".format(bikeKm, gpsKm, delta),
+                    "bike %.0f km · GPS %.1f km".format(bikeKm, gpsKm) + deltaText,
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary,
                 )
@@ -610,3 +612,6 @@ fun shareCsv(context: Context, csv: String, rideId: Long) {
     }
     context.startActivity(Intent.createChooser(send, "Share CSV"))
 }
+
+/** Below this GPS distance the whole-km odo makes the bike-vs-GPS Δ meaningless. */
+private const val MIN_DELTA_KM = 20.0
