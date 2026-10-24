@@ -343,6 +343,54 @@ class RideCaptureRepositoryTest {
     }
 
     @Test
+    fun `pause time survives a restart and a later alarm cannot end a different ride`() = runTest {
+        repo.startRide(0L)
+        repo.onTelemetry(frame(1500), 1_000L)
+        val original = repo.activeRideId!!
+        repo.pauseActiveRide(10_000L)
+        val revived = RideCaptureRepository(db)
+        revived.recoverUnfinishedRides(now = 20_000L, pauseWindowMin = 45)
+        assertEquals(10_000L, revived.activePausedAt())
+
+        assertEquals(false, revived.finishIfPauseElapsed(rideId = original, now = 20_000L, windowMin = 45, bikeReady = false))
+        assertEquals(original, revived.activeRideId)
+
+        revived.onBikeBack(30_000L, odoKm = null, windowMin = 45)
+        revived.endRideNow(30_000L)
+        val newer = revived.startRide(40_000L, gpsOnly = true)
+        assertEquals(false, revived.finishIfPauseElapsed(rideId = original, now = 10_000L + 45 * 60_000L, windowMin = 45, bikeReady = false))
+        assertEquals(newer, revived.activeRideId)
+    }
+
+    @Test
+    fun `pause alarm finishes the same ride once the window has elapsed`() = runTest {
+        repo.startRide(0L)
+        repo.onTelemetry(frame(1500), 1_000L)
+        val id = repo.activeRideId!!
+        repo.pauseActiveRide(10_000L)
+        val due = 10_000L + 45 * 60_000L
+        assertEquals(true, repo.finishIfPauseElapsed(rideId = id, now = due, windowMin = 45, bikeReady = false))
+        assertNull(repo.activeRideId)
+        assertNotNull(db.rideDao().byId(id)!!.endTs)
+    }
+
+    @Test
+    fun `reconnect odometer jump starts a new ride and a matching reading resumes`() = runTest {
+        repo.startRide(0L)
+        repo.onTelemetry(frame(1500), 1_000L)
+        repo.pauseActiveRide(10_000L)
+        val jumped = repo.onBikeBack(20_000L, odoKm = 1503, windowMin = 45)
+        assertEquals(ContinuityDecision.START_NEW, jumped)
+        val started = repo.activeRideId
+        assertNotNull(started)
+
+        repo.pauseActiveRide(30_000L)
+        val resumed = repo.onBikeBack(40_000L, odoKm = 1503, windowMin = 45)
+        assertEquals(ContinuityDecision.RESUME, resumed)
+        assertEquals(started, repo.activeRideId)
+    }
+
+    @Test
     fun `empty rides are deleted`() = runTest {
         repo.startRide(0L)
         repo.finishRide(1_000L)

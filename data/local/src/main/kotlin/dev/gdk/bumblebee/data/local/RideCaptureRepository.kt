@@ -86,6 +86,39 @@ class RideCaptureRepository(private val db: BumblebeeDb) {
         db.rideDao().byId(id)?.rideState == RIDE_PAUSED
     }
 
+    suspend fun activePausedAt(): Long? = serial {
+        val id = activeRideId ?: return@serial null
+        val ride = db.rideDao().byId(id) ?: return@serial null
+        if (ride.rideState != RIDE_PAUSED) null else ride.pausedAt
+    }
+
+    /**
+     * Ends [rideId] when its pause window is due. A newer ride or a resumed ride is
+     * left alone, so a leftover alarm cannot finish the wrong outing. A connected bike
+     * still finishes a paused ride whose window has already elapsed.
+     */
+    suspend fun finishIfPauseElapsed(
+        rideId: Long,
+        now: Long,
+        windowMin: Int,
+        bikeReady: Boolean,
+    ): Boolean = serial {
+        val id = activeRideId ?: return@serial false
+        if (id != rideId) return@serial false
+        val ride = db.rideDao().byId(id) ?: return@serial false
+        if (ride.rideState == RIDE_PAUSED) {
+            val pausedAt = ride.pausedAt ?: return@serial false
+            if (windowMin <= 0 || now < RideContinuity.pauseDeadlineMs(pausedAt, windowMin)) return@serial false
+            finishRideUnlocked(RideContinuity.finishTimestamp(lastSampleTs(id, ride.startTs), ride.startTs))
+            true
+        } else if (!bikeReady && windowMin <= 0 && ride.endTs == null) {
+            finishRideUnlocked(now)
+            true
+        } else {
+            false
+        }
+    }
+
     suspend fun pausedForMin(now: Long = System.currentTimeMillis()): Int = serial {
         val id = activeRideId ?: return@serial 0
         val ride = db.rideDao().byId(id) ?: return@serial 0

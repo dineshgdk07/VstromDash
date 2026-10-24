@@ -1,5 +1,6 @@
 package dev.gdk.bumblebee.ui.ride
 
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -47,12 +48,16 @@ import dev.gdk.bumblebee.ui.theme.Lime
 import dev.gdk.bumblebee.ui.theme.NumberLarge
 import dev.gdk.bumblebee.ui.theme.TextDisabled
 import dev.gdk.bumblebee.ui.theme.TextPrimary
+import dev.gdk.bumblebee.ui.share.ShareScreen
+import dev.gdk.bumblebee.ui.share.ShareSubject
 import dev.gdk.bumblebee.ui.theme.TextSecondary
 import dev.gdk.bumblebee.ui.theme.Warning
 
 @Composable
 fun RideScreen(
-    model: RideViewModel = viewModel(),
+    model: RideViewModel = viewModel(
+        viewModelStoreOwner = LocalContext.current as ComponentActivity,
+    ),
     onOpenExplorer: () -> Unit = {},
 ) {
     val app = LocalContext.current.applicationContext as DashApp
@@ -71,6 +76,10 @@ fun RideScreen(
             onBack = { model.closeDetail() },
             onRename = { model.renameRide(detail.row.id, it) },
         )
+        val shareId = state.openShareId
+        if (shareId != null && shareId == detail.row.id) {
+            ShareScreen(ShareSubject.Ride(shareId), onDismiss = model::consumeOpenShare)
+        }
         return
     }
     RideArchive(

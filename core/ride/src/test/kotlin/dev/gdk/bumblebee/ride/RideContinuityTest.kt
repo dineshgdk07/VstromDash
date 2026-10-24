@@ -84,4 +84,35 @@ class RideContinuityTest {
     fun `gps stationary timeout uses the same finish rule`() {
         assertEquals(ContinuityDecision.FINISH, RideContinuity.onStationaryTimeout())
     }
+
+    @Test
+    fun `pause deadline and label follow the wall clock`() {
+        val deadline = RideContinuity.pauseDeadlineMs(pausedAt, window)
+        assertEquals(pausedAt + 45 * 60_000L, deadline)
+        assertEquals(12, RideContinuity.pausedMinutes(pausedAt, pausedAt + 12 * 60_000L + 59_000L))
+        assertEquals(46, RideContinuity.pausedMinutes(pausedAt, deadline + 60_000L))
+    }
+
+    @Test
+    fun `odometer check waits for a fresh reading only while the window is open`() {
+        assertEquals(true, RideContinuity.needsFreshOdometer(window, pausedAt, pausedAt + 10 * 60_000L))
+        assertEquals(false, RideContinuity.needsFreshOdometer(window, pausedAt, pausedAt + 46 * 60_000L))
+        assertEquals(false, RideContinuity.needsFreshOdometer(0, pausedAt, pausedAt + 1_000L))
+    }
+
+    @Test
+    fun `a paused ride is restored instead of finished on restart`() {
+        assertEquals(
+            AbandonAction.RESTORE_PAUSE,
+            RideContinuity.abandonAction(hasRide = true, gpsOnly = false, paused = true, bikeReady = false),
+        )
+        assertEquals(
+            AbandonAction.FINISH_UNPAUSED,
+            RideContinuity.abandonAction(hasRide = true, gpsOnly = false, paused = false, bikeReady = false),
+        )
+        assertEquals(
+            AbandonAction.NONE,
+            RideContinuity.abandonAction(hasRide = true, gpsOnly = true, paused = false, bikeReady = false),
+        )
+    }
 }
