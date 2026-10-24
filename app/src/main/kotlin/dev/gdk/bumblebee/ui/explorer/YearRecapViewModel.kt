@@ -16,7 +16,6 @@ import dev.gdk.bumblebee.ride.ShareBackground
 import dev.gdk.bumblebee.ride.ShareCard
 import dev.gdk.bumblebee.ride.ShareCardModel
 import dev.gdk.bumblebee.ride.ShareShape
-import dev.gdk.bumblebee.ride.ShareStyle
 import dev.gdk.bumblebee.ride.ShareSwitches
 import dev.gdk.bumblebee.ride.TrackPlot
 import dev.gdk.bumblebee.ride.TrackSimplify
@@ -166,7 +165,6 @@ internal suspend fun buildRecap(
         zone = zone,
     )
     val card = painted.copy(
-        style = if (longestTrack.size >= 2) ShareStyle.CORRIDOR else painted.style,
         sentence = "${kmText(totalKm)} km across ${rides.size} rides.",
         whenLabel = year.toString(),
         dateText = year.toString(),

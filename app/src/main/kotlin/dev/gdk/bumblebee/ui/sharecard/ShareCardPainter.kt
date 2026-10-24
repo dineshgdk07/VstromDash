@@ -15,8 +15,8 @@ import dev.gdk.bumblebee.ui.sharecard.looks.CardLook
 import dev.gdk.bumblebee.ui.sharecard.looks.CockpitLook
 import dev.gdk.bumblebee.ui.sharecard.looks.LookContext
 import dev.gdk.bumblebee.ui.sharecard.looks.NightGlowLook
-import dev.gdk.bumblebee.ui.sharecard.looks.PlaceholderLook
 import dev.gdk.bumblebee.ui.sharecard.looks.PosterLook
+import dev.gdk.bumblebee.ui.sharecard.looks.RidePassLook
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.max
@@ -71,7 +71,7 @@ object ShareCardPainter {
         ShareLook.NIGHT_GLOW -> NightGlowLook
         ShareLook.POSTER -> PosterLook
         ShareLook.COCKPIT -> CockpitLook
-        ShareLook.RIDE_PASS -> PlaceholderLook
+        ShareLook.RIDE_PASS -> RidePassLook
     }
 
     fun decodePhoto(context: Context, uri: Uri, reqW: Int, reqH: Int): Bitmap? = runCatching {

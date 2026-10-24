@@ -10,9 +10,6 @@ enum class ShareLook { NIGHT_GLOW, POSTER, COCKPIT, RIDE_PASS }
 
 enum class ShareShape { STORY, FEED, SQUARE }
 
-/** Kept until Task 11 so the v1 painter still compiles. Derived from the background. */
-enum class ShareStyle { INK, CORRIDOR, MAP }
-
 enum class ShareBackground { OWN, MAP, PHOTO, TRANSPARENT }
 
 enum class ShareAccent(val argb: Int) {
@@ -58,7 +55,6 @@ data class SharePlot(val x: Float, val y: Float, val pace: Float)
 
 data class ShareCardModel(
     val shape: ShareShape,
-    val style: ShareStyle,
     val background: ShareBackground,
     val sentence: String,
     val whenLabel: String,
@@ -91,7 +87,6 @@ data class ShareCardModel(
     fun withTiles(complete: Boolean): ShareCardModel {
         if (!needsTiles || complete) return this
         return copy(
-            style = ShareStyle.INK,
             background = ShareBackground.OWN,
             needsTiles = false,
             mapFallback = true,
@@ -185,7 +180,6 @@ object ShareCard {
             background = ShareBackground.OWN
         }
         val needsTiles = background == ShareBackground.MAP && drawable
-        val style = if (background == ShareBackground.MAP) ShareStyle.MAP else ShareStyle.INK
         val available = ShareMetrics.of(ride, climbM, tankKmPerL)
         val stats = if (switches.stats == null) {
             ShareMetrics.defaultStats(available)
@@ -202,7 +196,6 @@ object ShareCard {
         val toPlace = extras.endPlace?.takeIf { switches.showPlaces && it.isNotBlank() }
         return ShareCardModel(
             shape = switches.shape,
-            style = style,
             background = background,
             sentence = firstSentence(RideStory.of(ride, storyTrack, zone)),
             whenLabel = whenLabel(ride.startTs, zone),
