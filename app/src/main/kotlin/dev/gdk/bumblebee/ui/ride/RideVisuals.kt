@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -132,26 +133,25 @@ fun RideCalendar(
                         val sel = date == selected
                         val isToday = date == today
                         val heat = (km / peak).toFloat().coerceIn(0f, 1f)
-                        val strong = sel || (on && heat >= 0.55f)
+                        val fill = when {
+                            sel -> BlockYellow
+                            on -> lerp(SurfaceRaised, BlockYellow, 0.35f + 0.65f * heat)
+                            else -> SurfaceRaised
+                        }
+                        // Dark text once the fill is bright enough, so mid-heat days stay readable.
+                        val onYellow = fill.luminance() > 0.3f
                         Box(
                             Modifier
                                 .weight(1f)
                                 .height(52.dp)
                                 .clip(ShapeSm)
-                                .background(
-                                    when {
-                                        sel -> BlockYellow
-                                        on -> lerp(SurfaceRaised, BlockYellow, 0.35f + 0.65f * heat)
-                                        else -> SurfaceRaised
-                                    },
-                                )
+                                .background(fill)
                                 .then(
                                     if (isToday) Modifier.border(2.dp, Lime, ShapeSm) else Modifier,
                                 )
                                 .clickable { onSelect(date) },
                             contentAlignment = Alignment.Center,
                         ) {
-                            val onYellow = strong
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
                                     "${idx + 1}",
@@ -166,7 +166,7 @@ fun RideCalendar(
                                     Text(
                                         if (km >= 10) String.format("%.0f", km) else String.format("%.1f", km),
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = if (onYellow) OnBlock else TextSecondary,
+                                        color = if (onYellow) OnBlock else TextPrimary,
                                     )
                                 }
                             }
@@ -178,7 +178,7 @@ fun RideCalendar(
             }
         }
         Text(
-            "Darker days rode further. Lime ring is today.",
+            "Brighter days rode further. Lime ring is today.",
             style = MaterialTheme.typography.bodySmall,
             color = TextSecondary,
         )
@@ -266,9 +266,9 @@ fun RideDetailPane(detail: RideDetail, onBack: () -> Unit, onSplit: (() -> Unit)
             headlineLabel = "Max",
             headlineValue = max,
             columns = listOf(
-                StatTripleColumn(formatKm(detail.row.km), "Distance", StatTone.Neutral),
-                StatTripleColumn(formatClock(detail.row.movingSec), "Moving", StatTone.Neutral),
-                StatTripleColumn(avg, "Avg", StatTone.Neutral),
+                StatTripleColumn(formatKm(detail.row.km), "Distance", StatTone.Plain),
+                StatTripleColumn(formatClock(detail.row.movingSec), "Moving", StatTone.Plain),
+                StatTripleColumn(avg, "Avg", StatTone.Plain),
             ),
         )
         if (detail.overnight) {

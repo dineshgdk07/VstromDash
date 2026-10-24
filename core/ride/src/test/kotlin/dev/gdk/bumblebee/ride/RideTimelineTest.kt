@@ -88,34 +88,34 @@ class RideTimelineTest {
     }
 
     @Test
-    fun `bike speed within 6s wins otherwise gps`() {
-        val track = listOf(fix(10_000, 12.0, 77.0, speedMps = 10f))
-        val onTop = timeline(
-            track = track,
+    fun `gps speed wins and bike speed within 6s fills in`() {
+        val withGps = timeline(
+            track = listOf(fix(10_000, 12.0, 77.0, speedMps = 10f)),
             telemetry = listOf(sample(10_000, speed = 48)),
             endTs = 10_000,
         ).at(10_000)
-        assertEquals(48, onTop.speedKmh)
-        assertEquals(SpeedSource.BLE, onTop.speedSource)
+        assertEquals(36, withGps.speedKmh)
+        assertEquals(SpeedSource.GPS, withGps.speedSource)
 
-        val tooLate = timeline(
-            track = track,
-            telemetry = listOf(sample(16_001, speed = 48)),
-            endTs = 16_001,
-        ).at(10_000)
-        assertEquals(36, tooLate.speedKmh)
-        assertEquals(SpeedSource.GPS, tooLate.speedSource)
-
+        val noGpsSpeed = listOf(fix(10_000, 12.0, 77.0))
         val edge = timeline(
-            track = track,
+            track = noGpsSpeed,
             telemetry = listOf(sample(16_000, speed = 48)),
             endTs = 16_000,
         ).at(10_000)
         assertEquals(48, edge.speedKmh)
         assertEquals(SpeedSource.BLE, edge.speedSource)
 
+        val tooLate = timeline(
+            track = noGpsSpeed,
+            telemetry = listOf(sample(16_001, speed = 48)),
+            endTs = 16_001,
+        ).at(10_000)
+        assertNull(tooLate.speedKmh)
+        assertEquals(SpeedSource.NONE, tooLate.speedSource)
+
         val tie = timeline(
-            track = track,
+            track = noGpsSpeed,
             telemetry = listOf(sample(4_000, speed = 11), sample(16_000, speed = 99)),
             endTs = 16_000,
         ).at(10_000)
@@ -123,7 +123,7 @@ class RideTimelineTest {
         assertEquals(SpeedSource.BLE, tie.speedSource)
 
         val neither = timeline(
-            track = listOf(fix(10_000, 12.0, 77.0)),
+            track = noGpsSpeed,
             endTs = 10_000,
         ).at(10_000)
         assertNull(neither.speedKmh)

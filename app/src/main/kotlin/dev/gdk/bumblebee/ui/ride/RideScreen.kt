@@ -189,12 +189,10 @@ private fun RideTitle(state: RideUiState) {
 @Composable
 private fun DistanceTriple(state: RideUiState) {
     StatTriple(
-        headlineLabel = "Today",
-        headlineValue = formatKm(state.todayKm),
         columns = listOf(
-            StatTripleColumn(formatKm(state.todayKm), "Today", StatTone.Neutral),
-            StatTripleColumn(formatKm(state.weekKm), "7 days", StatTone.Neutral),
-            StatTripleColumn(formatKm(state.monthKm), "Month", StatTone.Neutral),
+            StatTripleColumn(formatKm(state.todayKm), "Today", StatTone.Plain),
+            StatTripleColumn(formatKm(state.weekKm), "7 days", StatTone.Plain),
+            StatTripleColumn(formatKm(state.monthKm), "Month", StatTone.Plain),
         ),
     )
     if (state.pbKmh > 0) {
