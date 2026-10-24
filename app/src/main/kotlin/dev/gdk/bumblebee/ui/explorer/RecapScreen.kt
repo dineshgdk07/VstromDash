@@ -77,23 +77,23 @@ import kotlinx.coroutines.withContext
 private val pageColors = listOf(BlockLavender, BlockCoral, BlockYellow, BlockMint)
 
 @Composable
-fun YearRecapScreen(year: Int, onBack: () -> Unit) {
+fun RecapScreen(period: RecapPeriod, onBack: () -> Unit) {
     val app = LocalContext.current.applicationContext as DashApp
-    val model: YearRecapViewModel = viewModel(
-        key = "recap-$year",
+    val model: RecapViewModel = viewModel(
+        key = "recap-${period.id}",
         factory = object : ViewModelProvider.Factory {
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 @Suppress("UNCHECKED_CAST")
-                return YearRecapViewModel(app, year) as T
+                return RecapViewModel(app, period) as T
             }
         },
     )
     val state by model.ui.collectAsStateWithLifecycle()
-    YearRecapBody(state = state, onBack = onBack)
+    RecapBody(state = state, onBack = onBack)
 }
 
 @Composable
-private fun YearRecapBody(state: YearRecapUi, onBack: () -> Unit) {
+private fun RecapBody(state: RecapUi, onBack: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
@@ -109,7 +109,7 @@ private fun YearRecapBody(state: YearRecapUi, onBack: () -> Unit) {
         when {
             !state.loaded -> Unit
             state.pages.isEmpty() -> EmptyState(
-                headline = "NO RIDES IN ${state.year}",
+                headline = "NO RIDES IN ${state.period.label.uppercase()}",
                 subtitle = "The road's not going to ride itself.",
                 primaryLabel = "Back",
                 onPrimary = onBack,
@@ -120,7 +120,7 @@ private fun YearRecapBody(state: YearRecapUi, onBack: () -> Unit) {
 }
 
 @Composable
-private fun ColumnScope.RecapPager(state: YearRecapUi) {
+private fun ColumnScope.RecapPager(state: RecapUi) {
     val pagerState = rememberPagerState { state.pages.size }
     VerticalPager(
         state = pagerState,
@@ -129,11 +129,11 @@ private fun ColumnScope.RecapPager(state: YearRecapUi) {
     ) { index ->
         val page = state.pages[index]
         if (page is RecapPage.Share) {
-            SharePage(state.year, state.card)
+            SharePage(state.period, state.card)
         } else {
             FactPage(
                 fact = factFor(page),
-                year = state.year,
+                label = state.period.label,
                 position = "${index + 1} / ${state.pages.size}",
                 more = index < state.pages.lastIndex,
                 color = pageColors[index % pageColors.size],
@@ -196,14 +196,14 @@ private fun factFor(page: RecapPage): RecapFact = when (page) {
 }
 
 @Composable
-private fun FactPage(fact: RecapFact, year: Int, position: String, more: Boolean, color: Color) {
+private fun FactPage(fact: RecapFact, label: String, position: String, more: Boolean, color: Color) {
     Column(
         Modifier
             .fillMaxSize()
             .background(color, ShapeLg)
             .padding(24.dp),
     ) {
-        Text("$year", style = MaterialTheme.typography.labelLarge, color = OnBlock.copy(alpha = 0.7f))
+        Text(label, style = MaterialTheme.typography.labelLarge, color = OnBlock.copy(alpha = 0.7f))
         Text(fact.title.uppercase(), style = MaterialTheme.typography.headlineMedium, color = OnBlock)
         Spacer(Modifier.weight(1f))
         Text(fact.number, style = giantNumber(fact.number), color = OnBlock, maxLines = 1)
@@ -263,7 +263,7 @@ private fun TrackSketch(track: List<GpsFix>) {
 }
 
 @Composable
-private fun SharePage(year: Int, card: ShareCardModel?) {
+private fun SharePage(period: RecapPeriod, card: ShareCardModel?) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val bitmap by produceState<Bitmap?>(null, card) {
@@ -290,7 +290,7 @@ private fun SharePage(year: Int, card: ShareCardModel?) {
             } else {
                 Image(
                     bitmap = image.asImageBitmap(),
-                    contentDescription = "$year recap card",
+                    contentDescription = "${period.label} recap card",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit,
                 )
@@ -304,7 +304,7 @@ private fun SharePage(year: Int, card: ShareCardModel?) {
                 if (image == null) {
                     shareRecapText(context, sentence)
                 } else {
-                    val file = ShareCardPainter.writePng(context, image, year.toLong())
+                    val file = ShareCardPainter.writePng(context, image, period.id)
                     shareRecapImage(context, file, sentence)
                 }
             },
@@ -316,7 +316,7 @@ private fun SharePage(year: Int, card: ShareCardModel?) {
                 val image = bitmap ?: return@ChunkyButton
                 scope.launch {
                     withContext(Dispatchers.IO) {
-                        ShareCardGallery.savePng(context, image, "bumblebee-$year-recap.png")
+                        ShareCardGallery.savePng(context, image, "bumblebee-${period.id}-recap.png")
                     }
                 }
             },
@@ -328,33 +328,33 @@ private fun SharePage(year: Int, card: ShareCardModel?) {
 private fun shareRecapText(context: Context, sentence: String) {
     val send = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
-        putExtra(Intent.EXTRA_SUBJECT, "Bumblebee year")
+        putExtra(Intent.EXTRA_SUBJECT, "Bumblebee recap")
         putExtra(Intent.EXTRA_TEXT, sentence)
     }
-    context.startActivity(Intent.createChooser(send, "Share year"))
+    context.startActivity(Intent.createChooser(send, "Share recap"))
 }
 
 private fun shareRecapImage(context: Context, file: java.io.File, sentence: String) {
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.share", file)
     val send = Intent(Intent.ACTION_SEND).apply {
         type = "image/png"
-        putExtra(Intent.EXTRA_SUBJECT, "Bumblebee year")
+        putExtra(Intent.EXTRA_SUBJECT, "Bumblebee recap")
         putExtra(Intent.EXTRA_TEXT, sentence)
         putExtra(Intent.EXTRA_STREAM, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        clipData = ClipData.newRawUri("year-card.png", uri)
+        clipData = ClipData.newRawUri("recap-card.png", uri)
     }
-    context.startActivity(Intent.createChooser(send, "Share year"))
+    context.startActivity(Intent.createChooser(send, "Share recap"))
 }
 
 @Preview
 @Composable
-private fun YearRecapPreview() {
+private fun RecapPreview() {
     BumblebeeTheme {
         Column(Modifier.background(Canvas)) {
-            YearRecapBody(
-                state = YearRecapUi(
-                    year = 2026,
+            RecapBody(
+                state = RecapUi(
+                    period = RecapPeriod.Year(2026),
                     loaded = true,
                     pages = listOf(
                         RecapPage.Km(4_400.0, "That's Chennai → Delhi ×2.0"),

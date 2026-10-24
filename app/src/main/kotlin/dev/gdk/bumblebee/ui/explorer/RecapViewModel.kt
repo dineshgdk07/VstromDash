@@ -26,12 +26,38 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
+import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
+import kotlin.math.roundToInt
 
 internal const val CHENNAI_DELHI_KM = 2_200.0
+
+/** What a recap covers: a calendar year or one month. */
+sealed interface RecapPeriod {
+    /** "2026" or "October 2026". */
+    val label: String
+
+    /** A stable number for file names: 2026, or 202610. */
+    val id: Long
+
+    fun contains(date: LocalDate): Boolean
+
+    data class Year(val year: Int) : RecapPeriod {
+        override val label get() = year.toString()
+        override val id get() = year.toLong()
+        override fun contains(date: LocalDate) = date.year == year
+    }
+
+    data class Month(val month: YearMonth) : RecapPeriod {
+        override val label get() = month.month.getDisplayName(TextStyle.FULL, Locale.getDefault()) + " ${month.year}"
+        override val id get() = month.year * 100L + month.monthValue
+        override fun contains(date: LocalDate) = YearMonth.from(date) == month
+    }
+}
 
 sealed interface RecapPage {
     data class Km(val km: Double, val comparison: String) : RecapPage
@@ -49,17 +75,17 @@ sealed interface RecapPage {
     data object Share : RecapPage
 }
 
-data class YearRecapUi(
-    val year: Int,
+data class RecapUi(
+    val period: RecapPeriod,
     val pages: List<RecapPage> = emptyList(),
     val card: ShareCardModel? = null,
     val loaded: Boolean = false,
 )
 
-class YearRecapViewModel(application: Application, private val year: Int) : AndroidViewModel(application) {
+class RecapViewModel(application: Application, private val period: RecapPeriod) : AndroidViewModel(application) {
     private val app = application as DashApp
-    private val _ui = MutableStateFlow(YearRecapUi(year = year))
-    val ui: StateFlow<YearRecapUi> = _ui.asStateFlow()
+    private val _ui = MutableStateFlow(RecapUi(period = period))
+    val ui: StateFlow<RecapUi> = _ui.asStateFlow()
 
     init {
         viewModelScope.launch { reload() }
@@ -69,21 +95,21 @@ class YearRecapViewModel(application: Application, private val year: Int) : Andr
         val zone = ZoneId.systemDefault()
         val built = withContext(Dispatchers.IO) {
             val rides = app.capture.finishedRides().filter { ride ->
-                Instant.ofEpochMilli(ride.startTs).atZone(zone).year == year && ride.km() > 0.0
+                period.contains(Instant.ofEpochMilli(ride.startTs).atZone(zone).toLocalDate()) && ride.km() > 0.0
             }
             val fills = app.capture.fuelFills().filter { fill ->
-                Instant.ofEpochMilli(fill.ts).atZone(zone).year == year
+                period.contains(Instant.ofEpochMilli(fill.ts).atZone(zone).toLocalDate())
             }
-            buildRecap(year, rides, fills, zone) { id -> app.capture.trackForRide(id) }
+            buildRecap(period, rides, fills, zone) { id -> app.capture.trackForRide(id) }
         }
-        _ui.value = YearRecapUi(year = year, pages = built.pages, card = built.card, loaded = true)
+        _ui.value = RecapUi(period = period, pages = built.pages, card = built.card, loaded = true)
     }
 }
 
 internal data class BuiltRecap(val pages: List<RecapPage>, val card: ShareCardModel?)
 
 internal suspend fun buildRecap(
-    year: Int,
+    period: RecapPeriod,
     rides: List<RideEntity>,
     fills: List<FuelFill>,
     zone: ZoneId,
@@ -113,7 +139,7 @@ internal suspend fun buildRecap(
     if (top > 0) pages += RecapPage.TopSpeed(top)
 
     val byMonth = rides.groupBy { Instant.ofEpochMilli(it.startTs).atZone(zone).month }
-    if (byMonth.size > 1) {
+    if (period is RecapPeriod.Year && byMonth.size > 1) {
         val best = byMonth.maxBy { (_, monthRides) -> monthRides.sumOf { it.km() } }
         pages += RecapPage.BusiestMonth(
             label = best.key.getDisplayName(TextStyle.FULL, Locale.getDefault()),
@@ -166,9 +192,10 @@ internal suspend fun buildRecap(
     )
     val card = painted.copy(
         sentence = "${kmText(totalKm)} km across ${rides.size} rides.",
-        whenLabel = year.toString(),
-        dateText = year.toString(),
-        timeOfDay = year.toString(),
+        headline = period.label,
+        whenLabel = period.label,
+        dateText = period.label.uppercase(Locale.ENGLISH),
+        timeOfDay = period.label,
     )
     pages += RecapPage.Share
     return BuiltRecap(pages, card)
@@ -176,6 +203,7 @@ internal suspend fun buildRecap(
 
 internal fun chennaiDelhiLine(km: Double): String {
     val times = km / CHENNAI_DELHI_KM
+    if (times < 1.0) return "That's ${(times * 100).roundToInt().coerceAtLeast(1)}% of Chennai → Delhi"
     val n = if (times >= 10.0) "%.0f".format(times) else "%.1f".format(times)
     return "That's Chennai → Delhi ×$n"
 }

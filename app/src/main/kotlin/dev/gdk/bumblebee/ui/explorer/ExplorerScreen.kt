@@ -16,7 +16,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material3.Icon
 import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -80,6 +84,7 @@ import kotlin.math.max
 fun ExplorerScreen(
     model: ExplorerViewModel = viewModel(),
     onOpenRecap: (Int) -> Unit = {},
+    onOpenMonthRecap: (YearMonth) -> Unit = {},
 ) {
     val state by model.ui.collectAsStateWithLifecycle()
     val detail = state.detail
@@ -103,6 +108,7 @@ fun ExplorerScreen(
         onOpenRide = model::openRide,
         onToggleSelected = model::toggleSelected,
         onOpenRecap = onOpenRecap,
+        onOpenMonthRecap = onOpenMonthRecap,
     )
 }
 
@@ -117,6 +123,7 @@ private fun ExplorerBody(
     onOpenRide: (Long) -> Unit,
     onToggleSelected: (Long) -> Unit,
     onOpenRecap: (Int) -> Unit = {},
+    onOpenMonthRecap: (YearMonth) -> Unit = {},
 ) {
     var reviewOpen by remember(state.month, state.selectedDate) { mutableStateOf(false) }
     val day = state.day
@@ -204,8 +211,14 @@ private fun ExplorerBody(
         if (patterns.isNotEmpty()) {
             InsightPager(pageCount = patterns.size) { page ->
                 val kind = patterns[page]
-                PatternCard(kind.title) {
-                    PatternBody(kind, state)
+                if (kind == PatternKind.RECAP) {
+                    PatternCard(monthName(state.month) + " recap", onClick = { onOpenMonthRecap(state.month) }) {
+                        MonthRecap(state)
+                    }
+                } else {
+                    PatternCard(kind.title) {
+                        PatternBody(kind, state)
+                    }
                 }
             }
         }
@@ -343,30 +356,34 @@ private fun RideList(
 }
 
 private enum class PatternKind(val title: String) {
+    RECAP("Month recap"),
     WEEKDAYS("Weekdays"),
     TIME("Time of day"),
     ROUTES("Repeat routes"),
     LONGEST("Longest ride"),
-    MAP("Month map"),
 }
 
+/** The month's recap leads; the patterns follow. */
 private fun patternPages(state: ExplorerUiState): List<PatternKind> = buildList {
+    if (state.monthRideCount > 0) add(PatternKind.RECAP)
     if (state.weekdayKm.any { it > 0.0 }) add(PatternKind.WEEKDAYS)
     if (state.timeOfDayKm.any { it > 0.0 }) add(PatternKind.TIME)
     if (state.routes.isNotEmpty()) add(PatternKind.ROUTES)
     if (state.longest != null) add(PatternKind.LONGEST)
-    if (state.tracks.values.any { it.size >= 2 }) add(PatternKind.MAP)
 }
 
 @Composable
 private fun PatternCard(
     title: String,
+    onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
         Modifier
             .fillMaxWidth()
-            .background(BlockLavender, ShapeLg)
+            .clip(ShapeLg)
+            .background(BlockLavender)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         content = {
@@ -383,9 +400,37 @@ private fun PatternBody(kind: PatternKind, state: ExplorerUiState) {
         PatternKind.TIME -> KmBars(listOf("AM", "PM", "Eve", "Night"), state.timeOfDayKm)
         PatternKind.ROUTES -> RouteLines(state)
         PatternKind.LONGEST -> LongestLine(state.longest)
-        PatternKind.MAP -> MonthMap(state.tracks.values.filter { it.size >= 2 })
+        PatternKind.RECAP -> MonthRecap(state)
     }
 }
+
+/** The month at a glance: its numbers, every track on one map, and the way into the full recap. */
+@Composable
+private fun MonthRecap(state: ExplorerUiState) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        RecapNumber(kmValue(state.monthKm), "km")
+        RecapNumber(state.monthRideCount.toString(), if (state.monthRideCount == 1) "ride" else "rides")
+        RecapNumber(formatClock(state.monthMovingSec), "moving")
+        state.longest?.let { RecapNumber(String.format("%.0f", it.km), "longest km") }
+    }
+    val tracks = state.tracks.values.filter { it.size >= 2 }
+    if (tracks.isNotEmpty()) MonthMap(tracks)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Open recap", style = MaterialTheme.typography.labelLarge, color = OnBlock)
+        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = OnBlock, modifier = Modifier.size(20.dp))
+    }
+}
+
+@Composable
+private fun RecapNumber(value: String, label: String) {
+    Column {
+        Text(value, style = MaterialTheme.typography.titleLarge, color = OnBlock)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = OnBlock.copy(alpha = 0.7f))
+    }
+}
+
+private fun monthName(month: YearMonth): String =
+    month.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())
 
 @Composable
 private fun KmBars(labels: List<String>, values: List<Double>) {

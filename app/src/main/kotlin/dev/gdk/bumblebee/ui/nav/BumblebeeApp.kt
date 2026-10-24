@@ -34,7 +34,8 @@ import dev.gdk.bumblebee.ble.BikeBridgeService
 import dev.gdk.bumblebee.gps.PhoneGps
 import dev.gdk.bumblebee.ui.cockpit.CockpitScreen
 import dev.gdk.bumblebee.ui.explorer.ExplorerScreen
-import dev.gdk.bumblebee.ui.explorer.YearRecapScreen
+import dev.gdk.bumblebee.ui.explorer.RecapPeriod
+import dev.gdk.bumblebee.ui.explorer.RecapScreen
 import dev.gdk.bumblebee.ui.fuel.FuelLogScreen
 import dev.gdk.bumblebee.ui.garage.documents.DocumentsScreen
 import dev.gdk.bumblebee.ui.garage.GarageScreen
@@ -173,6 +174,7 @@ fun BumblebeeApp() {
                         )
                         Pillar.EXPLORER -> ExplorerScreen(
                             onOpenRecap = { year -> navController.navigate("explorer/recap/$year") },
+                            onOpenMonthRecap = { month -> navController.navigate("explorer/recap/${month.year}/${month.monthValue}") },
                         )
                         Pillar.GARAGE -> GarageScreen(
                             onOpenFuel = { navController.navigate("fuel") },
@@ -203,8 +205,26 @@ fun BumblebeeApp() {
                 route = "explorer/recap/{year}",
                 arguments = listOf(navArgument("year") { type = NavType.IntType }),
             ) { entry ->
-                YearRecapScreen(
-                    year = entry.arguments?.getInt("year") ?: java.time.Year.now().value,
+                RecapScreen(
+                    period = RecapPeriod.Year(entry.arguments?.getInt("year") ?: java.time.Year.now().value),
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable(
+                route = "explorer/recap/{year}/{month}",
+                arguments = listOf(
+                    navArgument("year") { type = NavType.IntType },
+                    navArgument("month") { type = NavType.IntType },
+                ),
+            ) { entry ->
+                val now = java.time.YearMonth.now()
+                RecapScreen(
+                    period = RecapPeriod.Month(
+                        java.time.YearMonth.of(
+                            entry.arguments?.getInt("year") ?: now.year,
+                            entry.arguments?.getInt("month") ?: now.monthValue,
+                        ),
+                    ),
                     onBack = { navController.popBackStack() },
                 )
             }
