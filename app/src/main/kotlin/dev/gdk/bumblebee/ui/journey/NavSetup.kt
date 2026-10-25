@@ -29,10 +29,11 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.gdk.bumblebee.BuildConfig
 import dev.gdk.bumblebee.DashApp
-import dev.gdk.bumblebee.journey.GoogleRouting
+import dev.gdk.bumblebee.journey.AppIdentity
+import dev.gdk.bumblebee.journey.KeyChecker
+import dev.gdk.bumblebee.nav.ApiCheck
 import dev.gdk.bumblebee.journey.NavMode
 import dev.gdk.bumblebee.journey.NavSettings
-import dev.gdk.bumblebee.journey.OrsRouting
 import dev.gdk.bumblebee.journey.PlaceHit
 import dev.gdk.bumblebee.journey.Routing
 import dev.gdk.bumblebee.nav.LatLng
@@ -62,6 +63,8 @@ fun NavigationSettingsCard() {
     var orsSaved by remember { mutableStateOf(settings.orsKey.isNotBlank()) }
     var draft by remember(mode) { mutableStateOf("") }
     var status by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    var checks by remember(mode) { mutableStateOf<List<ApiCheck>>(emptyList()) }
+    var checking by remember { mutableStateOf(false) }
     fun open(url: String) = runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 
     SectionCard(header = { SectionLabel(text = "Navigation") }) {
@@ -97,32 +100,39 @@ fun NavigationSettingsCard() {
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                fun runCheck(key: String, saveIfGood: Boolean) {
+                    checking = true
+                    checks = emptyList()
+                    status = null
+                    scope.launch {
+                        val result = KeyChecker.check(context, mode, key)
+                        checks = result
+                        checking = false
+                        val good = KeyChecker.usable(result)
+                        if (saveIfGood && good) {
+                            if (mode == NavMode.GOOGLE) {
+                                settings.googleKey = key
+                                googleSaved = true
+                            } else {
+                                settings.orsKey = key
+                                orsSaved = true
+                            }
+                            draft = ""
+                        }
+                        status = when {
+                            good && saveIfGood -> true to "Key works. Saved on this phone, encrypted."
+                            good -> true to "Saved key is healthy."
+                            saveIfGood -> false to "Not saved: fix the items marked ✗ and try again."
+                            else -> false to "The saved key has a problem: see ✗ above."
+                        }
+                    }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(Modifier.weight(1f)) {
                         ChunkyButton(
-                            text = "Save and test",
-                            enabled = draft.isNotBlank(),
-                            onClick = {
-                                val key = draft
-                                status = true to "Testing…"
-                                scope.launch {
-                                    val routing = if (mode == NavMode.GOOGLE) GoogleRouting(key) else OrsRouting(key)
-                                    val result = runCatching { routing.search("Bengaluru", null) }
-                                    if (result.isSuccess) {
-                                        if (mode == NavMode.GOOGLE) {
-                                            settings.googleKey = key
-                                            googleSaved = true
-                                        } else {
-                                            settings.orsKey = key
-                                            orsSaved = true
-                                        }
-                                        draft = ""
-                                        status = true to "Key works and is saved on this phone, encrypted."
-                                    } else {
-                                        status = false to (result.exceptionOrNull()?.message ?: "The key didn't work.")
-                                    }
-                                }
-                            },
+                            text = if (checking) "Checking…" else "Save and test",
+                            enabled = draft.isNotBlank() && !checking,
+                            onClick = { runCheck(draft, saveIfGood = true) },
                             compact = true,
                             style = ChunkyStyle.Lime,
                         )
@@ -130,22 +140,37 @@ fun NavigationSettingsCard() {
                     if (saved) {
                         Box(Modifier.weight(1f)) {
                             ChunkyButton(
-                                text = "Remove key",
-                                onClick = {
-                                    if (mode == NavMode.GOOGLE) {
-                                        settings.googleKey = ""
-                                        googleSaved = false
-                                    } else {
-                                        settings.orsKey = ""
-                                        orsSaved = false
-                                    }
-                                    status = null
-                                },
+                                text = "Check saved key",
+                                enabled = !checking,
+                                onClick = { runCheck(if (mode == NavMode.GOOGLE) settings.googleKey else settings.orsKey, saveIfGood = false) },
                                 compact = true,
                                 style = ChunkyStyle.Outline,
                             )
                         }
                     }
+                }
+                if (checks.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        checks.forEach { c -> CheckRow(c) }
+                    }
+                }
+                if (saved) {
+                    Text(
+                        "Remove key",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Danger,
+                        modifier = Modifier.clickable {
+                            if (mode == NavMode.GOOGLE) {
+                                settings.googleKey = ""
+                                googleSaved = false
+                            } else {
+                                settings.orsKey = ""
+                                orsSaved = false
+                            }
+                            checks = emptyList()
+                            status = null
+                        }.padding(vertical = 4.dp),
+                    )
                 }
                 status?.let { (ok, msg) -> Text(msg, style = MaterialTheme.typography.bodySmall, color = if (ok) Lime else Danger) }
                 if (mode == NavMode.GOOGLE) {
@@ -155,6 +180,19 @@ fun NavigationSettingsCard() {
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
                     )
+                    AppIdentity.sha1Pretty(context)?.let { sha ->
+                        Column(
+                            Modifier.fillMaxWidth().clip(ShapeMd).background(SurfaceRaised).clickable {
+                                val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+                                cm?.setPrimaryClip(android.content.ClipData.newPlainText("SHA-1", sha))
+                                status = true to "SHA-1 copied. Paste it in the key's Android restriction."
+                            }.padding(12.dp),
+                        ) {
+                            Text("For the key's Android restriction · tap to copy", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                            Text("${context.packageName}", style = MaterialTheme.typography.bodySmall, color = TextPrimary)
+                            Text(sha, style = MaterialTheme.typography.bodySmall, color = TextPrimary)
+                        }
+                    }
                     Text(
                         "Open Google Cloud console",
                         style = MaterialTheme.typography.labelLarge,
@@ -179,11 +217,27 @@ fun NavigationSettingsCard() {
     }
 }
 
+@Composable
+private fun CheckRow(c: ApiCheck) {
+    val tone = when {
+        c.ok -> Lime
+        c.optional -> TextSecondary
+        else -> Danger
+    }
+    Row(Modifier.fillMaxWidth().clip(ShapeMd).background(SurfaceRaised).padding(12.dp)) {
+        Text(if (c.ok) "✓" else if (c.optional) "–" else "✗", style = MaterialTheme.typography.titleSmall, color = tone)
+        Column(Modifier.padding(start = 10.dp)) {
+            Text(c.api, style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+            Text(c.message, style = MaterialTheme.typography.bodySmall, color = if (c.ok) TextSecondary else tone)
+        }
+    }
+}
+
 /** Search for a destination with the current mode's service. */
 @Composable
 fun PlaceSearchSheet(onPick: (PlaceHit) -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val routing = remember { Routing.of(NavSettings(context)) }
+    val routing = remember { Routing.of(context, NavSettings(context)) }
     val near = remember { (context.applicationContext as DashApp).latestGps.value?.let { LatLng(it.lat, it.lng) } }
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<PlaceHit>>(emptyList()) }

@@ -57,7 +57,7 @@ object NavSession {
         stop()
         val app = context.applicationContext as DashApp
         val settings = NavSettings(app)
-        val routing = Routing.of(settings)
+        val routing = Routing.of(app, settings)
         if (routing == null) {
             _state.value = NavState(settings.mode, destination, null, null, null, error = "Add a ${settings.mode.label} key in Settings → Navigation first.")
             return

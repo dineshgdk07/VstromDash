@@ -1,5 +1,7 @@
 package dev.gdk.bumblebee.journey
 
+import dev.gdk.bumblebee.nav.KeyHealth
+import dev.gdk.bumblebee.nav.KeyProblem
 import dev.gdk.bumblebee.nav.LatLng
 import dev.gdk.bumblebee.nav.Maneuvers
 import dev.gdk.bumblebee.nav.NavRoute
@@ -16,7 +18,7 @@ import java.net.URLEncoder
 /** A search result: something to navigate to. Google results carry a place id, others a point. */
 data class PlaceHit(val label: String, val detail: String?, val placeId: String? = null, val at: LatLng? = null)
 
-class RoutingException(message: String) : Exception(message)
+class RoutingException(message: String, val problem: KeyProblem? = null) : Exception(message)
 
 /** Search and routing from one service. */
 interface Routing {
@@ -24,8 +26,8 @@ interface Routing {
     suspend fun route(from: LatLng, to: PlaceHit): NavRoute
 
     companion object {
-        fun of(settings: NavSettings): Routing? = when (settings.mode) {
-            NavMode.GOOGLE -> settings.googleKey.takeIf { it.isNotBlank() }?.let { GoogleRouting(it) }
+        fun of(context: android.content.Context, settings: NavSettings): Routing? = when (settings.mode) {
+            NavMode.GOOGLE -> settings.googleKey.takeIf { it.isNotBlank() }?.let { GoogleRouting(it, AppIdentity.headers(context)) }
             NavMode.OPEN -> settings.orsKey.takeIf { it.isNotBlank() }?.let { OrsRouting(it) }
             NavMode.NOTIFICATIONS -> null
         }
@@ -51,7 +53,10 @@ private suspend fun http(
         }
         val code = conn.responseCode
         val text = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
-        if (code !in 200..299) throw RoutingException(explain(code, text))
+        if (code !in 200..299) {
+            val problem = KeyHealth.classify(code, text)
+            throw RoutingException(if (problem == KeyProblem.OTHER) explain(code, text) else problem.advice, problem)
+        }
         text
     } finally {
         conn.disconnect()
@@ -59,23 +64,14 @@ private suspend fun http(
 }
 
 /** A rider-readable reason for a failed call, from the status and the service's own message. */
-private fun explain(code: Int, body: String): String {
-    val msg = runCatching {
-        val o = JSONObject(body)
-        o.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() } ?: o.optString("message")
-    }.getOrNull().orEmpty().take(160)
-    return when (code) {
-        401, 403 -> "The key was refused. Check it's right and the API is enabled. $msg".trim()
-        429 -> "Too many requests on this key right now. Try again in a minute."
-        else -> "The routing service said $code. $msg".trim()
-    }
-}
+private fun explain(code: Int, body: String): String =
+    "The routing service said $code. ${KeyHealth.message(body).orEmpty()}".trim()
 
 /**
  * Google Places (New) autocomplete and the Routes API in two-wheeler mode. Google's terms allow
  * showing these routes only on a Google map, which the Journey screen respects.
  */
-class GoogleRouting(private val key: String) : Routing {
+class GoogleRouting(private val key: String, private val identity: Map<String, String> = emptyMap()) : Routing {
     override suspend fun search(text: String, near: LatLng?): List<PlaceHit> {
         val body = JSONObject().put("input", text)
         near?.let {
@@ -91,7 +87,7 @@ class GoogleRouting(private val key: String) : Routing {
             http(
                 "https://places.googleapis.com/v1/places:autocomplete",
                 method = "POST",
-                headers = mapOf("X-Goog-Api-Key" to key),
+                headers = identity + ("X-Goog-Api-Key" to key),
                 body = body.toString(),
             ),
         )
@@ -125,7 +121,7 @@ class GoogleRouting(private val key: String) : Routing {
             http(
                 "https://routes.googleapis.com/directions/v2:computeRoutes",
                 method = "POST",
-                headers = mapOf("X-Goog-Api-Key" to key, "X-Goog-FieldMask" to fields),
+                headers = identity + mapOf("X-Goog-Api-Key" to key, "X-Goog-FieldMask" to fields),
                 body = body.toString(),
             ),
         )
