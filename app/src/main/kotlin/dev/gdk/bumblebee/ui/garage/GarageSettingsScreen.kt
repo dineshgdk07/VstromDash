@@ -32,6 +32,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -63,6 +66,12 @@ fun GarageSettingsScreen(
 ) {
     val state by model.ui.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var advanced by rememberSaveable { mutableStateOf(false) }
+    if (advanced) {
+        BackHandler { advanced = false }
+        AdvancedScreen(onBack = { advanced = false })
+        return
+    }
     var permissionTick by remember { mutableIntStateOf(0) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -247,7 +256,7 @@ fun GarageSettingsScreen(
                     Switch(checked = state.crashDetection, onCheckedChange = model::setCrashDetection)
                 }
                 Text(
-                    "Alarms only when a hard impact above 20 km/h is followed by a stop, no riding for a while, and the phone ending up turned over (the bike or you are down). A bump and a red light won't do it. You get 30 s to tap I'm OK before your contacts are texted with your location. A best-effort aid, not a certified emergency device.",
+                    "Alarms only when a hard impact above 20 km/h is followed by a stop, no riding for a while, and the phone ending up turned over (the bike or you are down). A bump and a red light won't do it. You get ${dev.gdk.bumblebee.dev.AdvancedPrefs(context).crashCountdownS} s to tap I'm OK before your contacts are texted with your location. A best-effort aid, not a certified emergency device.",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                 )
@@ -363,6 +372,15 @@ fun GarageSettingsScreen(
                     context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                 }
             }
+        }
+        SectionCard {
+            ListRow(
+                title = "Advanced",
+                subtitle = "Nav and alarm tuning, map storage, data clean-up",
+                onClick = { advanced = true },
+                showDivider = false,
+                trailing = { ListRowChevron() },
+            )
         }
     }
 }

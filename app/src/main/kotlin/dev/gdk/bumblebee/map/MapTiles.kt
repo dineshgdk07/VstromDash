@@ -28,8 +28,6 @@ import java.util.concurrent.ConcurrentHashMap
 object MapTiles {
     private const val USER_AGENT = "BumblebeeDash/0.2 (dev.gdk.bumblebee; ride maps)"
     private const val STALE_MS = 30L * 24 * 3600 * 1000
-    private const val DISK_MAX = 200L * 1024 * 1024
-    private const val DISK_KEEP = 150L * 1024 * 1024
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val network = Semaphore(2)
@@ -55,6 +53,7 @@ object MapTiles {
         val root = File(context.applicationContext.cacheDir, "osm")
         if (!trimmed) {
             trimmed = true
+            diskMax = dev.gdk.bumblebee.dev.AdvancedPrefs(context).tileCacheMb * 1024L * 1024
             scope.launch { trim(root) }
         }
         val now = System.currentTimeMillis()
@@ -113,13 +112,33 @@ object MapTiles {
         }
     }.getOrNull()
 
-    /** Keeps the disk cache bounded: oldest tiles go first. */
+    @Volatile private var diskMax = 200L * 1024 * 1024
+
+    /** Size of the tile cache on disk, in bytes. */
+    fun diskBytes(context: Context): Long =
+        File(context.applicationContext.cacheDir, "osm").walkTopDown().filter { it.isFile }.sumOf { it.length() }
+
+    /** Applies a new disk limit now, trimming if the cache is over it. */
+    fun setDiskLimit(context: Context, mb: Int) {
+        diskMax = mb * 1024L * 1024
+        scope.launch { trim(File(context.applicationContext.cacheDir, "osm")) }
+    }
+
+    /** Drops every cached tile, in memory and on disk. Maps re-download what they show. */
+    fun clear(context: Context) {
+        memory.evictAll()
+        failed.clear()
+        File(context.applicationContext.cacheDir, "osm").deleteRecursively()
+        version.intValue++
+    }
+
+    /** Keeps the disk cache bounded: oldest tiles go first, down to three quarters of the limit. */
     private fun trim(root: File) {
         val files = root.walkTopDown().filter { it.isFile }.toList()
         var total = files.sumOf { it.length() }
-        if (total <= DISK_MAX) return
+        if (total <= diskMax) return
         for (f in files.sortedBy { it.lastModified() }) {
-            if (total <= DISK_KEEP) break
+            if (total <= diskMax * 3 / 4) break
             total -= f.length()
             f.delete()
         }

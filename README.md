@@ -19,9 +19,13 @@ Google Maps to the cluster, and keep a private log of every ride, fill and servi
 | **Garage** | Live bike panel and health score, fuel log with calendar and insights, documents with expiry reminders and a checkpost view, service plans with forecasts, parts wear, cost of ownership, bike passport |
 
 Also:
-- **Crash alerts:** a 30-second "I'm OK" alarm, then an SMS with your location to up to three contacts.
+- **Crash alerts:** an "I'm OK" countdown (30 s by default), then an SMS with your location to up to three contacts.
 - **Share cards:** four designs, map/photo/transparent backgrounds, stickers.
 - **Transfer:** a single-file backup and restore of everything.
+- **Advanced settings:** off-route and re-route tuning, 24-hour cluster clock, crash countdown, map
+  cache size, and clean-up tools (demo or misdated rides, daily totals, fuel gauge, arrow fixes).
+  Tap the version line seven times for developer options: live link and raw frames, force
+  reconnect, database counts, and a log you can share as a debug report (no keys, contacts or places).
 
 ## Privacy
 

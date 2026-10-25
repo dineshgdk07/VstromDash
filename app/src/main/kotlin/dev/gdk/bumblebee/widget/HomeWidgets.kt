@@ -74,6 +74,7 @@ object HomeWidgets {
     }
 
     fun refreshAll(context: Context) {
+        dev.gdk.bumblebee.dev.DevLog.d("widget", "refresh all")
         HomeWidget.entries.forEach { refresh(context, it) }
     }
 

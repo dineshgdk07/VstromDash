@@ -126,6 +126,7 @@ class BikeBridgeService : LifecycleService() {
         lifecycleScope.launch {
             bleClient.state.collect { state ->
                 app.connection.value = state
+                dev.gdk.bumblebee.dev.DevLog.d("link", state.toString())
                 refreshNotification()
                 when (state) {
                     is ConnectionState.Ready -> {
@@ -236,6 +237,17 @@ class BikeBridgeService : LifecycleService() {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
+            }
+            ACTION_RECONNECT -> {
+                val mac = (application as DashApp).prefs.bikeMac
+                if (mac != null) {
+                    dev.gdk.bumblebee.dev.DevLog.d("link", "forced reconnect")
+                    bleClient.disconnect()
+                    lifecycleScope.launch {
+                        delay(1_500)
+                        bleClient.connect(mac)
+                    }
+                }
             }
             ACTION_CONNECT -> {
                 val mac = intent.getStringExtra(EXTRA_MAC)
@@ -387,6 +399,7 @@ class BikeBridgeService : LifecycleService() {
     }
 
     private suspend fun acceptNotify(app: DashApp, bytes: ByteArray) {
+        dev.gdk.bumblebee.dev.DevLog.frame(bytes)
         val frame = runCatching { decodeFrame(bytes) }.getOrNull()
         if (frame is TelemetryFrame && pendingOdoCheck) {
             pendingOdoCheck = false
@@ -802,6 +815,7 @@ class BikeBridgeService : LifecycleService() {
 
         const val ACTION_STOP = "dev.gdk.bumblebee.ble.STOP"
         const val ACTION_CONNECT = "dev.gdk.bumblebee.ble.CONNECT"
+        const val ACTION_RECONNECT = "dev.gdk.bumblebee.ble.RECONNECT"
         const val ACTION_START_GPS_RIDE = "dev.gdk.bumblebee.ble.START_GPS_RIDE"
         const val ACTION_STOP_GPS_RIDE = "dev.gdk.bumblebee.ble.STOP_GPS_RIDE"
         const val ACTION_END_RIDE = "dev.gdk.bumblebee.ble.END_RIDE"
@@ -821,6 +835,11 @@ class BikeBridgeService : LifecycleService() {
                     .setAction(ACTION_CONNECT)
                     .putExtra(EXTRA_MAC, mac),
             )
+        }
+
+        /** Drops the link and dials the saved bike again, for a link that's up but silent. */
+        fun reconnect(context: Context) {
+            launch(context, Intent(context, BikeBridgeService::class.java).setAction(ACTION_RECONNECT))
         }
 
         fun startGpsRide(context: Context) {

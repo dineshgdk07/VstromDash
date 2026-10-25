@@ -108,6 +108,7 @@ interface CalibrationDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun put(entry: CalibrationEntity)
     @Query("SELECT * FROM calibration WHERE `key` = :key") suspend fun get(key: String): CalibrationEntity?
     @Query("SELECT * FROM calibration") suspend fun all(): List<CalibrationEntity>
+    @Query("DELETE FROM calibration WHERE `key` = :key") suspend fun delete(key: String)
 }
 
 @Dao

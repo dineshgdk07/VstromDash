@@ -49,7 +49,6 @@ data class CrashAlertState(
 object CrashAlert {
     const val CHANNEL = "crash_alarm"
     private const val NOTIFICATION_ID = 7_301
-    private const val COUNTDOWN_S = 30
 
     private val _state = MutableStateFlow<CrashAlertState?>(null)
     val state: StateFlow<CrashAlertState?> = _state.asStateFlow()
@@ -81,7 +80,9 @@ object CrashAlert {
         speedBefore = speedBeforeKmh
         this.lat = lat
         this.lng = lng
-        _state.value = CrashAlertState(COUNTDOWN_S, problem = problem(ctx), test = test)
+        val countdown = dev.gdk.bumblebee.dev.AdvancedPrefs(ctx).crashCountdownS
+        dev.gdk.bumblebee.dev.DevLog.d("crash", "alarm started${if (test) " (practice)" else ""}, ${countdown}s, ${speedBeforeKmh} km/h before")
+        _state.value = CrashAlertState(countdown, problem = problem(ctx), test = test)
         tone = runCatching { ToneGenerator(AudioManager.STREAM_ALARM, 100) }.getOrNull()
         tone?.startTone(ToneGenerator.TONE_CDMA_EMERGENCY_RINGBACK)
         vibrate(ctx)
@@ -228,7 +229,7 @@ object CrashAlert {
                 .setContentText("Texted ${s.sentTo} contact${if (s.sentTo == 1) "" else "s"} with your location. Tap I'm OK to tell them you're fine.")
         } else {
             builder.setContentTitle("Possible crash. Are you OK?")
-                .setContentText(s.problem ?: "Emergency contacts will be texted in ${COUNTDOWN_S} s unless you tap I'm OK.")
+                .setContentText(s.problem ?: "Emergency contacts will be texted in ${s.secondsLeft} s unless you tap I'm OK.")
                 .setFullScreenIntent(open, true)
                 .setUsesChronometer(true)
                 .setWhen(System.currentTimeMillis() + s.secondsLeft * 1_000L)

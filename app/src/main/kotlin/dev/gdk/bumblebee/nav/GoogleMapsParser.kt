@@ -30,7 +30,7 @@ object GoogleMapsParser {
         val summary = listOfNotNull(subText, text, title).firstOrNull { looksLikeSummary(it) }
         val stepParts = listOfNotNull(title, text, subText).filter { it != summary }
         val (distNext, distNextUnit) = stepParts.firstNotNullOfOrNull { extractInlineDistance(it) } ?: distanceFromProgress(extras)
-        val eta = normalizeEta(summary, twelveHour = true)
+        val eta = normalizeEta(summary, twelveHour = !dev.gdk.bumblebee.dev.AdvancedPrefs(context).clock24h)
         val (distTotal, distTotalUnit) = extractTotalDistance(summary)
         val instruction = stepParts.firstOrNull { ManeuverText.classify(it) != null }
             ?: stepParts.firstOrNull { extractInlineDistance(it) == null }

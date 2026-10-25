@@ -135,7 +135,11 @@ object Maneuvers {
  * Follows the rider along a [NavRoute]: snaps each fix to the route line, says which step is
  * next, how far to the turn and the end, and notices when the rider has left the route.
  */
-class RouteGuide(val route: NavRoute) {
+class RouteGuide(
+    val route: NavRoute,
+    private val offRouteM: Double = OFF_ROUTE_M,
+    private val offRouteMs: Long = OFF_ROUTE_MS,
+) {
     /** Distance along the route at each point, from the start. */
     private val along: DoubleArray = DoubleArray(route.points.size).also { a ->
         for (i in 1 until route.points.size) a[i] = a[i - 1] + metres(route.points[i - 1], route.points[i])
@@ -196,16 +200,16 @@ class RouteGuide(val route: NavRoute) {
     }
 
     /**
-     * True once the rider has been more than [OFF_ROUTE_M] from the line for [OFF_ROUTE_MS], so a
+     * True once the rider has been more than [offRouteM] from the line for [offRouteMs], so a
      * GPS wobble or a service-lane detour doesn't trigger a re-route.
      */
     fun shouldReroute(p: NavProgress, now: Long): Boolean {
-        if (p.offRouteM <= OFF_ROUTE_M) {
+        if (p.offRouteM <= offRouteM) {
             offSince = null
             return false
         }
         val since = offSince ?: now.also { offSince = it }
-        return now - since >= OFF_ROUTE_MS
+        return now - since >= offRouteMs
     }
 
     companion object {

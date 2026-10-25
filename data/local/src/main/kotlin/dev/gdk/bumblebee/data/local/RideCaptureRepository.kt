@@ -35,10 +35,12 @@ import dev.gdk.bumblebee.ride.ServiceSpend
 import dev.gdk.bumblebee.ride.TelemetrySample
 import dev.gdk.bumblebee.ride.TrackInsights
 import dev.gdk.bumblebee.ride.TrackSimplify
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.time.format.TextStyle
 import java.util.Locale
 import java.time.Instant
@@ -596,6 +598,73 @@ class RideCaptureRepository(private val db: BumblebeeDb) {
         rebuildRollups(dates)
     }
 
+    /**
+     * Deletes a finished ride with its track, telemetry and segments, and anything merged into it,
+     * then rebuilds that day's totals. The ride being recorded can't be deleted.
+     */
+    suspend fun deleteRide(id: Long) = serial {
+        if (id == activeRideId) return@serial
+        val ride = db.rideDao().byId(id) ?: return@serial
+        val ids = listOf(id) + db.rideDao().childrenOf(id).map { it.id }
+        val dates = mutableSetOf(dateOf(ride.startTs))
+        for (rid in ids) {
+            db.rideDao().byId(rid)?.let { dates += dateOf(it.startTs) }
+            db.trackDao().deleteForRide(rid)
+            db.telemetryDao().deleteForRide(rid)
+            db.segmentDao().deleteForRide(rid)
+            db.rideDao().delete(rid)
+        }
+        rebuildRollups(dates)
+    }
+
+    /**
+     * Deletes demo rides, and rides stamped before 2000 (a phone clock that hadn't synced), with
+     * everything recorded for them. Returns how many top-level rides went.
+     */
+    suspend fun deleteJunkRides(demo: Boolean = true, unsynced: Boolean = true): Int {
+        val cutoff = Instant.parse("2000-01-01T00:00:00Z").toEpochMilli()
+        val junk = db.rideDao().finishedNewestFirst()
+            .filter { it.mergedIntoId == null && (demo && it.isDemo || unsynced && it.startTs < cutoff) }
+        junk.forEach { deleteRide(it.id) }
+        return junk.size
+    }
+
+    /** How many demo and pre-2000 rides there are, for the button label. */
+    suspend fun junkRideCount(): Pair<Int, Int> {
+        val cutoff = Instant.parse("2000-01-01T00:00:00Z").toEpochMilli()
+        val top = db.rideDao().finishedNewestFirst().filter { it.mergedIntoId == null }
+        return top.count { it.isDemo } to top.count { it.startTs < cutoff }
+    }
+
+    /**
+     * Forgets the fuel gauge's remembered steady level and recomputes km-per-bar from the fuel log,
+     * for when range or refuel detection has gone odd. Fuel log entries are kept.
+     */
+    suspend fun relearnFuel() = serial {
+        db.calibrationDao().delete(FUEL_STABLE_BARS_KEY)
+        db.calibrationDao().delete("km_per_bar")
+        lastFuelFingerprint = null
+        updateCalibrationUnlocked()
+    }
+
+    /** Row counts per table, for the developer page. */
+    suspend fun tableCounts(): List<Pair<String, Long>> = withContext(Dispatchers.IO) {
+        val sql = db.openHelper.readableDatabase
+        TABLES.map { t ->
+            t to runCatching { sql.query("SELECT COUNT(*) FROM `$t`").use { c -> if (c.moveToFirst()) c.getLong(0) else 0L } }.getOrDefault(-1L)
+        }
+    }
+
+    /** Reclaims space left by deletes. */
+    suspend fun vacuum() = serial {
+        withContext(Dispatchers.IO) { db.openHelper.writableDatabase.execSQL("VACUUM") }
+    }
+
+    /** Recomputes every day's totals from the rides, for when they look wrong. */
+    suspend fun rebuildAllRollups() = serial {
+        rebuildRollups(db.rideDao().finishedNewestFirst().map { dateOf(it.startTs) }.toSet())
+    }
+
     suspend fun setRideMeta(id: Long, name: String?, tags: String?) {
         val ride = db.rideDao().byId(id) ?: return
         db.rideDao().update(
@@ -864,6 +933,10 @@ class RideCaptureRepository(private val db: BumblebeeDb) {
         private const val STALE_RIDE_MS = 5L * 60 * 1000
         const val FUEL_STABLE_BARS_KEY = "fuel_stable_bars"
         private const val MAX_GPS_ACCURACY_M = 25f
+        private val TABLES = listOf(
+            "rides", "ride_segments", "telemetry_samples", "track_points", "fuel_events",
+            "service_logs", "maintenance_plans", "bike_documents", "daily_rollups", "calibration",
+        )
     }
 
     private suspend fun updateRollup(ride: RideEntity) {
@@ -1088,7 +1161,8 @@ class RideCaptureRepository(private val db: BumblebeeDb) {
 
     private suspend fun rebuildRollups(dates: Set<String>) {
         if (dates.isEmpty()) return
-        val finished = db.rideDao().finishedNewestFirst()
+        // Demo rides never count toward the day, matching updateRollup.
+        val finished = db.rideDao().finishedNewestFirst().filter { !it.isDemo }
         for (date in dates) {
             val day = finished.filter { dateOf(it.startTs) == date }
             val km = day.sumOf { it.odoDeltaKm() ?: (it.gpsDistanceM / 1000.0) }

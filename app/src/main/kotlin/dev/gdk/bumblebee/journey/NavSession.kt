@@ -2,6 +2,8 @@ package dev.gdk.bumblebee.journey
 
 import android.content.Context
 import dev.gdk.bumblebee.DashApp
+import dev.gdk.bumblebee.dev.AdvancedPrefs
+import dev.gdk.bumblebee.dev.DevLog
 import dev.gdk.bumblebee.gps.PhoneGps
 import dev.gdk.bumblebee.nav.ArrowSource
 import dev.gdk.bumblebee.nav.LatLng
@@ -47,6 +49,7 @@ object NavSession {
     private var job: Job? = null
     private var guide: RouteGuide? = null
     private var lastReroute = 0L
+    private var advanced: AdvancedPrefs? = null
 
     private val _state = MutableStateFlow<NavState?>(null)
     val state: StateFlow<NavState?> = _state.asStateFlow()
@@ -57,6 +60,7 @@ object NavSession {
         stop()
         val app = context.applicationContext as DashApp
         val settings = NavSettings(app)
+        advanced = AdvancedPrefs(app)
         val routing = Routing.of(app, settings)
         if (routing == null) {
             _state.value = NavState(settings.mode, destination, null, null, null, error = "Add a ${settings.mode.label} key in Settings → Navigation first.")
@@ -86,6 +90,7 @@ object NavSession {
 
     private suspend fun plan(routing: Routing, from: LatLng, to: PlaceHit): NavRoute? {
         val route = runCatching { routing.route(from, to) }.getOrElse { e ->
+            DevLog.d("nav", "route failed: ${e.message}")
             _state.value = _state.value?.copy(rerouting = false, error = e.message ?: "Couldn't plan a route.")
             return null
         }
@@ -93,7 +98,9 @@ object NavSession {
             _state.value = _state.value?.copy(rerouting = false, error = "No route found to ${to.label}.")
             return null
         }
-        guide = RouteGuide(route)
+        val adv = advanced
+        guide = if (adv == null) RouteGuide(route) else RouteGuide(route, adv.offRouteM.toDouble(), adv.rerouteDelayS * 1000L)
+        DevLog.d("nav", "route ${route.steps.size} steps, ${route.distanceM.toInt()} m")
         lastReroute = System.currentTimeMillis()
         _state.value = _state.value?.copy(route = route, rerouting = false, error = null)
         onFix(routing, from)
@@ -120,6 +127,7 @@ object NavSession {
         if (g.shouldReroute(p, now) && now - lastReroute > 20_000) {
             val current = _state.value ?: return
             _state.value = current.copy(rerouting = true)
+            DevLog.d("nav", "off route ${p.offRouteM.toInt()} m, re-planning")
             plan(routing, here, current.destination)
         }
     }
@@ -135,7 +143,7 @@ object NavSession {
                 maneuverId = arrow.clusterByte,
                 distNext = dn,
                 distNextUnit = du,
-                eta = normalizeEta("$minutes min", twelveHour = true),
+                eta = normalizeEta("$minutes min", twelveHour = advanced?.clock24h != true),
                 distTotal = dt,
                 distTotalUnit = dtu,
                 streetName = step?.instruction,
