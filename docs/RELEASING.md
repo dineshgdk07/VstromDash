@@ -63,6 +63,9 @@ and signed by the `Release` workflow when a `v*` tag is pushed.
    git push origin v0.1.0
    ```
 
+   Or, with no laptop: Actions → Release → Run workflow, and enter the version (`v0.1.0`).
+   GitHub creates the tag on the commit it built.
+
    The workflow runs the unit tests, builds `Bumblebee-v0.1.0.apk` with its SHA-256, and publishes
    the release. Tags starting `v0.` or containing `-` (like `v1.0.0-rc1`) are marked pre-release.
 
