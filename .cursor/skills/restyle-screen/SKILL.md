@@ -17,7 +17,7 @@ Do exactly **one** screen per run. If asked for several, do the first and stop.
 ## 1. Gather context
 
 1. Find the screen's row in `docs/design/DESIGN_SYSTEM.md` §5. Note its file, reference image(s) and direction.
-2. Open the reference image(s) in `design/reference/matiks/` and look at them.
+2. Open the reference image(s) in `design/reference/matiks/` (local only, not committed) and look at them.
 3. Read the screen file, its ViewModel and its private `components/` folder. Read the screen doc in `docs/design/screens/` if one exists.
 4. List every piece of data the screen shows and where it comes from. Check each against `docs/design/data-availability.md`. You restyle how data is shown; you never add, remove or invent data sources.
 

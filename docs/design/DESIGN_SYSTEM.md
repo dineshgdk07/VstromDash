@@ -4,8 +4,8 @@ The visual layer for Bumblebee Dash's portrait screens: tokens, components and
 per-screen direction. It sits on top of the Forge UI system in [`README.md`](./README.md).
 That README still owns **what data may appear**. This file owns **how it looks**.
 
-- **Reference images:** [`design/reference/matiks/`](../../design/reference/matiks/), screenshots of
-  the Matiks app (dark, colour-blocked, chunky). We borrow its *visual language*, not its content,
+- **Reference images:** screenshots of the Matiks app (dark, colour-blocked, chunky), kept locally in
+  `design/reference/matiks/` and not committed, since they are another company's work. We borrow its *visual language*, not its content,
   icons, illustrations or copy.
 - **Golden rule still applies:** if a value can't be sourced 🟢/🔵/🟡 (see
   [`data-availability.md`](./data-availability.md)), it doesn't appear as live data, however good it

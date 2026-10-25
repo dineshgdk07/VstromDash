@@ -62,7 +62,19 @@ object ShareCardPainter {
             ShareBackground.TRANSPARENT -> Unit
         }
         look.draw(canvas, ctx)
+        if (card.background == ShareBackground.MAP && tilesComplete) attribution(canvas, layout)
         return bitmap
+    }
+
+    /** OpenStreetMap's tile licence asks for this credit wherever its tiles are shown. */
+    private fun attribution(canvas: Canvas, layout: ShareCardLayout) {
+        val paint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = layout.width / 60f
+            color = android.graphics.Color.argb(150, 255, 255, 255)
+            setShadowLayer(4f, 0f, 1f, android.graphics.Color.argb(160, 0, 0, 0))
+        }
+        val text = "© OpenStreetMap contributors"
+        canvas.drawText(text, layout.width - paint.measureText(text) - layout.width / 60f, layout.height - layout.width / 70f, paint)
     }
 
     /** The map tiles a Map card needs: enough to fill the whole card around the look's route stage. */

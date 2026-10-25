@@ -364,7 +364,7 @@ private fun GaragePairedPreview() {
             GarageBody(
                 state = GarageUiState(
                     connection = ConnectionState.Ready,
-                    bikeMac = "80:C4:1B:47:82:BE",
+                    bikeMac = "00:11:22:33:44:55",
                     odometerKm = 20520,
                     tripAKm = 112.4,
                     tripBKm = 48.0,
@@ -406,7 +406,7 @@ private fun GarageAttentionPreview() {
             GarageBody(
                 state = GarageUiState(
                     connection = ConnectionState.Ready,
-                    bikeMac = "80:C4:1B:47:82:BE",
+                    bikeMac = "00:11:22:33:44:55",
                     odometerKm = 20520,
                     fuelBars = 2,
                     documents = listOf(

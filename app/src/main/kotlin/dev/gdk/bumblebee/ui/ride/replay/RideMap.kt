@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -138,6 +139,15 @@ internal fun RideMapCanvas(
                 drawCircle(OnBlock, 7.dp.toPx(), p)
                 drawCircle(Lime, 4.dp.toPx(), p)
             }
+        }
+        // OpenStreetMap's tile licence asks for this credit wherever its tiles are shown.
+        if (tiles.isNotEmpty()) {
+            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                textSize = 9.dp.toPx()
+                color = android.graphics.Color.argb(170, 255, 255, 255)
+            }
+            val text = "© OpenStreetMap contributors"
+            drawContext.canvas.nativeCanvas.drawText(text, size.width - paint.measureText(text) - 6.dp.toPx(), size.height - 5.dp.toPx(), paint)
         }
     }
 }

@@ -8,3 +8,26 @@
 build/
 local.properties
 /.superpowers/
+
+# Kotlin / tooling caches
+.kotlin/
+*.log
+
+# Signing and secrets: never commit
+*.jks
+*.keystore
+*.p12
+*.pem
+keystore.properties
+.env
+.env.*
+google-services.json
+
+# Build outputs
+*.apk
+*.aab
+
+# Local-only material (third-party screenshots, source art, chat exports)
+design/reference/
+BikeImages/
+LOCAL_NOTES.md

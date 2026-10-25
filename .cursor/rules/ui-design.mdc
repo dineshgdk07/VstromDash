@@ -7,7 +7,7 @@ alwaysApply: false
 # Forge Block UI rules
 
 Spec: @docs/design/DESIGN_SYSTEM.md (read the relevant sections before editing UI).
-Reference images: `design/reference/matiks/` (home, menu-sheet, more-menu, insights, dialog, empty-state).
+Reference images (home, menu-sheet, more-menu, insights, dialog, empty-state) are kept locally in `design/reference/matiks/`; they are third-party screenshots and are not committed.
 Data rules: `docs/design/data-availability.md`. Never show a value the bike or phone doesn't provide; label estimates "est.".
 
 ## Always
