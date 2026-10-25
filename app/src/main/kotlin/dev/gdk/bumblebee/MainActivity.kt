@@ -18,6 +18,7 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         GarageReminders.scheduleDaily(this)
+        openRequests.value = intent?.getStringExtra(EXTRA_OPEN)
         enableEdgeToEdge()
         setContent {
             BumblebeeTheme {
@@ -29,6 +30,8 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // The app is already showing: hand the request to it, since it only read the first intent.
+        intent.getStringExtra(EXTRA_OPEN)?.let { openRequests.value = it }
     }
 
     override fun onResume() {
@@ -38,6 +41,9 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_OPEN = "open"
+
+        /** Where a widget, notification or shortcut asked to go; the app clears it once it has gone there. */
+        val openRequests = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
         fun open(context: Context, destination: String): Intent =
             Intent(context, MainActivity::class.java)

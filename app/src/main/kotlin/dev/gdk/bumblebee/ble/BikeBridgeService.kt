@@ -34,6 +34,8 @@ import dev.gdk.bumblebee.protocol.IdentityFrame
 import dev.gdk.bumblebee.protocol.TelemetryFrame
 import dev.gdk.bumblebee.protocol.decodeFrame
 import dev.gdk.bumblebee.nav.MapsNavSource
+import dev.gdk.bumblebee.widget.HomeWidget
+import dev.gdk.bumblebee.widget.HomeWidgets
 import dev.gdk.bumblebee.ride.AbandonAction
 import dev.gdk.bumblebee.ride.GpsCapturePolicy
 import dev.gdk.bumblebee.ride.RideContinuity
@@ -211,8 +213,13 @@ class BikeBridgeService : LifecycleService() {
         }
 
         notifyJob = lifecycleScope.launch {
+            var ticks = 0
             while (isActive) {
                 refreshNotification()
+                // Once a minute while riding, so the widgets' live km keeps up.
+                if (++ticks % 30 == 0 && (application as DashApp).capture.activeRideId != null) {
+                    listOf(HomeWidget.START, HomeWidget.BIKE, HomeWidget.TODAY).forEach { HomeWidgets.refresh(this@BikeBridgeService, it) }
+                }
                 delay(2_000)
             }
         }

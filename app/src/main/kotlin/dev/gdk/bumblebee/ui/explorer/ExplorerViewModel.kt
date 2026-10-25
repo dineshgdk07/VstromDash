@@ -144,6 +144,7 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
 
     fun setGoal(km: Double?) {
         prefs.monthlyGoalKm = km
+        dev.gdk.bumblebee.widget.HomeWidgets.refresh(getApplication(), dev.gdk.bumblebee.widget.HomeWidget.TODAY)
         _ui.update { it.copy(goal = RideHistory.goal(prefs.monthlyGoalKm, it.monthKm, it.month, java.time.LocalDate.now())) }
     }
 

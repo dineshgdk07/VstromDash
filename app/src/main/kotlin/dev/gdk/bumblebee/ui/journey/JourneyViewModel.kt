@@ -131,11 +131,13 @@ class JourneyViewModel(application: Application) : AndroidViewModel(application)
 
     fun addPlace(name: String, query: String) {
         prefs.places = (prefs.places.filter { !it.name.equals(name, ignoreCase = true) } + SavedPlace(name.trim(), query.trim())).take(8)
+        dev.gdk.bumblebee.widget.HomeWidgets.refresh(app, dev.gdk.bumblebee.widget.HomeWidget.PLACES)
         refresh()
     }
 
     fun removePlace(place: SavedPlace) {
         prefs.places = prefs.places - place
+        dev.gdk.bumblebee.widget.HomeWidgets.refresh(app, dev.gdk.bumblebee.widget.HomeWidget.PLACES)
         refresh()
     }
 

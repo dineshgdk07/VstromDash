@@ -80,6 +80,7 @@ class ServiceViewModel(application: Application) : AndroidViewModel(application)
             val odo = app.latestTelemetry.value?.odometerKm
                 ?: withContext(Dispatchers.IO) { app.capture.latestKnownOdometerKm() }
             val snap = reloadService(app, odo)
+            dev.gdk.bumblebee.widget.HomeWidgets.refresh(app, dev.gdk.bumblebee.widget.HomeWidget.CARE)
             val extras = loadGarageExtras(app, odo)
             _ui.update {
                 it.copy(

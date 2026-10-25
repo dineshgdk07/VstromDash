@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_description">Bumblebee widget</string>
+    <string name="widget_places_description">Your saved places. Tap one to start Google Maps navigation.</string>
+    <string name="widget_bike_label">Bike status</string>
+    <string name="widget_bike_info">Fuel, range, odometer, health and link at a glance</string>
+    <string name="widget_fuel_label">Fuel</string>
+    <string name="widget_fuel_info">Range left and the six fuel bars</string>
+    <string name="widget_start_label">Start ride</string>
+    <string name="widget_start_info">One tap to record a ride; shows the distance while riding</string>
+    <string name="widget_today_label">Today and week</string>
+    <string name="widget_today_info">Today\'s km, the last seven days, streak and monthly goal</string>
+    <string name="widget_care_label">Bike care</string>
+    <string name="widget_care_info">Service and papers coming due</string>
+    <string name="widget_last_label">Last ride</string>
+    <string name="widget_last_info">Your latest route with distance, time and top speed</string>
+    <string name="widget_places_label">Places</string>
+    <string name="widget_places_info">Tap a saved place to navigate there</string>
+</resources>

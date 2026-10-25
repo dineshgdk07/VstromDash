@@ -131,6 +131,7 @@ class DocumentsViewModel(application: Application) : AndroidViewModel(applicatio
                 savedId
             }
             syncPaperPrefs()
+            dev.gdk.bumblebee.widget.HomeWidgets.refresh(getApplication(), dev.gdk.bumblebee.widget.HomeWidget.CARE)
             // The RC's number is the bike's registration; keep the profile in step.
             if (state.docKind == "RC" && state.docNumber.isNotBlank()) {
                 dev.gdk.bumblebee.bike.BikeProfile(getApplication()).regNo = dev.gdk.bumblebee.ride.RegNo.format(state.docNumber)

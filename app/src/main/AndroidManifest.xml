@@ -70,13 +70,79 @@
         <receiver
             android:name=".garage.GarageWidgetProvider"
             android:exported="true"
-            android:label="Bumblebee">
+            android:label="@string/widget_bike_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/garage_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.FuelWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_fuel_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_fuel_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.StartWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_start_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_start_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.TodayWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_today_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_today_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.CareWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_care_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_care_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.LastRideWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_last_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_last_ride_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.PlacesWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_places_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_places_info" />
         </receiver>
         <service
             android:name=".nav.NotificationCaptureService"

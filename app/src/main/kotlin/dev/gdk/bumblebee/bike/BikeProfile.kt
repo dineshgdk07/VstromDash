@@ -47,6 +47,7 @@ data class EmergencyContact(val name: String, val number: String)
 class BikeProfile(context: Context) {
     private val prefs = context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
     private val bike = BikePrefs(context)
+    private val appContext = context.applicationContext
 
     var onboarded: Boolean
         get() = prefs.getBoolean(KEY_ONBOARDED, false)
@@ -57,6 +58,7 @@ class BikeProfile(context: Context) {
         set(value) {
             prefs.edit().putString(KEY_VARIANT, value.name).apply()
             applyAccent()
+            dev.gdk.bumblebee.widget.HomeWidgets.refreshAll(appContext)
         }
 
     /** Null follows the bike's colour. */
@@ -65,6 +67,7 @@ class BikeProfile(context: Context) {
         set(value) {
             prefs.edit().apply { if (value == null) remove(KEY_ACCENT) else putString(KEY_ACCENT, value.name) }.apply()
             applyAccent()
+            dev.gdk.bumblebee.widget.HomeWidgets.refreshAll(appContext)
         }
 
     val accent: Color get() = accentChoice?.color ?: variant.accent
@@ -82,6 +85,7 @@ class BikeProfile(context: Context) {
         set(value) {
             prefs.edit().putString(KEY_REG, value.trim()).apply()
             CurrentBike.regNo = value.trim()
+            dev.gdk.bumblebee.widget.HomeWidgets.refresh(appContext, dev.gdk.bumblebee.widget.HomeWidget.BIKE)
         }
 
     var sosTemplate: String

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -115,10 +116,12 @@ fun BumblebeeApp() {
         }
     }
     val activity = context as? ComponentActivity
-    val open = activity?.intent?.getStringExtra(MainActivity.EXTRA_OPEN)
+    val open by MainActivity.openRequests.collectAsState()
     val rideModel: RideViewModel? = activity?.let { viewModel(viewModelStoreOwner = it) }
     LaunchedEffect(open) {
-        val shareId = SharePrompt.parse(open)
+        val request = open ?: return@LaunchedEffect
+        MainActivity.openRequests.value = null
+        val shareId = SharePrompt.parse(request)
         if (shareId != null) {
             navController.navigate(Pillar.RIDE.route) {
                 popUpTo(Pillar.COCKPIT.route) { saveState = true }
@@ -127,10 +130,19 @@ fun BumblebeeApp() {
             rideModel?.openShare(shareId)
             return@LaunchedEffect
         }
-        val route = when (open) {
+        // "ride:42" opens that ride.
+        request.removePrefix("ride:").takeIf { request.startsWith("ride:") }?.toLongOrNull()?.let { id ->
+            openRideFromExplorer(id)
+            return@LaunchedEffect
+        }
+        val route = when (request) {
             "fuel" -> "fuel"
+            "service" -> "garage/service"
             "garage" -> Pillar.GARAGE.route
             "ride" -> Pillar.RIDE.route
+            "journey" -> Pillar.JOURNEY.route
+            "explorer" -> Pillar.EXPLORER.route
+            "cockpit" -> Pillar.COCKPIT.route
             else -> return@LaunchedEffect
         }
         navController.navigate(route) {
