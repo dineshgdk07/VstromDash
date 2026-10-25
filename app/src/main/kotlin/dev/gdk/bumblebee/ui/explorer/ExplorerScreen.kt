@@ -223,7 +223,7 @@ private fun ExplorerBody(
 
         if (patterns.isNotEmpty()) {
             InsightPager(pageCount = patterns.size) { page ->
-                val kind = patterns[page]
+                val kind = patterns.getOrNull(page) ?: return@InsightPager
                 if (kind == PatternKind.RECAP) {
                     PatternCard(monthName(state.month) + " recap", onClick = { onOpenMonthRecap(state.month) }) {
                         MonthRecap(state)

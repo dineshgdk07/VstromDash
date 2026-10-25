@@ -214,7 +214,7 @@ private fun GarageBody(
         if (attention.isNotEmpty()) {
             SectionLabel(text = "Needs attention")
             InsightPager(pageCount = attention.size) { page ->
-                val item = attention[page]
+                val item = attention.getOrNull(page) ?: return@InsightPager
                 BlockTile(
                     title = item.title,
                     color = if (item.urgent) BlockColor.Coral else BlockColor.Yellow,

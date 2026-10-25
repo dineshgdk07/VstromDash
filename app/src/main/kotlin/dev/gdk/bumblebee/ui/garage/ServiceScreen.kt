@@ -5,6 +5,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxHeight
+import dev.gdk.bumblebee.ride.PartBaseline
+import dev.gdk.bumblebee.ride.PartSince
+import dev.gdk.bumblebee.ui.theme.BlockYellow
+import dev.gdk.bumblebee.ui.theme.ShapePill
+import dev.gdk.bumblebee.ui.theme.SurfaceRaised
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -93,6 +102,8 @@ fun ServiceScreen(
     var detailId by remember { mutableStateOf<Long?>(null) }
     var pendingPlanDelete by remember { mutableStateOf<PlanCard?>(null) }
     var pendingLogDelete by remember { mutableStateOf<ServiceCard?>(null) }
+    var purchaseOpen by remember { mutableStateOf(false) }
+    var partEdit by remember { mutableStateOf<PartWear?>(null) }
     val billPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { model.pickServiceFile(it) }
     RefreshOnResume(model::refresh)
 
@@ -160,7 +171,13 @@ fun ServiceScreen(
                         ChunkyButton(text = "Add plan", onClick = model::beginAddPlan, style = ChunkyStyle.Outline)
                     }
                 } else if (tab == ServiceTab.Parts) {
-                    PartsLife(state.extras?.parts.orEmpty(), onLog = model::beginLog)
+                    PartsLife(
+                        parts = state.extras?.parts.orEmpty(),
+                        purchase = state.extras?.purchase,
+                        onLog = model::beginLog,
+                        onPurchase = { purchaseOpen = true },
+                        onPart = { partEdit = it },
+                    )
                 } else if (state.serviceLogs.isEmpty()) {
                     EmptyState(
                         headline = "No service yet",
@@ -192,6 +209,28 @@ fun ServiceScreen(
                     }
                 }
             }
+        }
+
+        if (purchaseOpen) {
+            PurchaseSheet(
+                current = state.extras?.purchase,
+                onDismiss = { purchaseOpen = false },
+                onSave = { odo, date ->
+                    purchaseOpen = false
+                    model.setPurchase(odo, date)
+                },
+            )
+        }
+        partEdit?.let { part ->
+            PartSheet(
+                part = part,
+                currentOdoKm = state.odometerKm,
+                onDismiss = { partEdit = null },
+                onSave = { baseline ->
+                    partEdit = null
+                    model.setPartBaseline(part.title, baseline)
+                },
+            )
         }
 
         if (state.editingPlan) {
@@ -270,11 +309,8 @@ fun ServiceScreen(
                 if (state.status.isNotBlank()) {
                     Text(state.status, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
                 }
-                KindChips(
-                    SERVICE_KINDS,
-                    selectedKind(state.serviceItem, state.plans, state.servicePlanId),
-                    model::applyServiceKind,
-                )
+                Text("What was done · pick all that apply", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                WorkChips(state.serviceItem, model::toggleWork)
                 GarageField(state.serviceItem, model::setServiceItem, "Work done", modifier = Modifier.padding(top = 12.dp))
                 GarageField(
                     state.serviceOdo,
@@ -311,14 +347,14 @@ fun ServiceScreen(
                 )
                 if (state.plans.isNotEmpty()) {
                     Text(
-                        "Apply to plan",
+                        "Reset plan (Auto resets every plan the work above covers)",
                         style = MaterialTheme.typography.labelSmall,
                         color = TextSecondary,
                         modifier = Modifier.padding(top = 12.dp),
                     )
                     KindChips(
-                        kinds = listOf("NONE") + state.plans.map { it.title },
-                        selected = state.plans.firstOrNull { it.id == state.servicePlanId }?.title ?: "NONE",
+                        kinds = listOf("Auto") + state.plans.map { it.title },
+                        selected = state.plans.firstOrNull { it.id == state.servicePlanId }?.title ?: "Auto",
                         onSelect = { label -> model.setServicePlan(state.plans.firstOrNull { it.title == label }?.id) },
                         raw = true,
                     )
@@ -499,55 +535,197 @@ private fun NextNinetyDays(dates: List<CareDate>, today: LocalDate) {
     }
 }
 
-/** How worn each part is against its usual life. */
+/** How worn each part is against its usual life. Tap a part to say when it was really replaced. */
 @Composable
-private fun PartsLife(parts: List<PartWear>, onLog: () -> Unit) {
+private fun PartsLife(
+    parts: List<PartWear>,
+    purchase: PartBaseline?,
+    onLog: () -> Unit,
+    onPurchase: () -> Unit,
+    onPart: (PartWear) -> Unit,
+) {
     if (parts.isEmpty()) {
         EmptyState(
             headline = "No readings yet",
             subtitle = "Parts wear shows once the bike has sent an odometer reading.",
-            primaryLabel = "Log a replacement",
+            primaryLabel = "Log a service",
             onPrimary = onLog,
             modifier = Modifier.padding(top = 24.dp),
         )
         return
     }
+    SectionCard {
+        ListRow(
+            title = "When you bought the bike",
+            subtitle = purchase?.let {
+                listOfNotNull(
+                    it.odoKm?.let { km -> if (km == 0) "New, 0 km" else "At ${"%,d".format(km)} km" },
+                    it.date?.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)),
+                ).joinToString(" · ")
+            } ?: "Not set · original parts are counted from your first reading in the app",
+            onClick = onPurchase,
+            showDivider = false,
+            trailing = { Text(if (purchase == null) "Set" else "Edit", style = MaterialTheme.typography.labelLarge, color = Lime) },
+        )
+    }
     Text(
-        "Typical life for a V-Strom 250 ridden on Indian roads. Log a replacement in History to reset a part.",
+        "A logged service resets every part it names. For work done before you used the app, tap the part and enter when it was replaced.",
         style = MaterialTheme.typography.bodySmall,
         color = TextSecondary,
     )
     SectionCard {
-        Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            parts.forEach { p ->
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(p.title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                        Text(
-                            when {
-                                p.left <= 0 -> "Past its life"
-                                p.days -> "${p.left / 30} months left"
-                                else -> "${"%,d".format(p.left)} km left"
-                            },
-                            style = MaterialTheme.typography.labelLarge,
-                            color = if (p.fraction >= 1f) Danger else TextPrimary,
-                        )
-                    }
-                    DueMeter(
-                        usedLabel = "%,d".format(p.used),
-                        totalLabel = if (p.days) "${"%,d".format(p.life)} days" else "${"%,d".format(p.life)} km",
-                        fraction = p.fraction.coerceIn(0f, 1f),
-                        tone = when {
-                            p.fraction >= 1f -> StatusChipTone.Overdue
-                            p.fraction >= 0.85f -> StatusChipTone.DueSoon
-                            else -> StatusChipTone.Ok
-                        },
-                    )
-                    if (!p.logged) {
-                        Text("No replacement logged · counted from your first reading", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                    }
-                }
+        Column {
+            parts.forEachIndexed { i, p ->
+                PartRow(p, onClick = { onPart(p) }, last = i == parts.lastIndex)
             }
+        }
+    }
+}
+
+@Composable
+private fun PartRow(p: PartWear, onClick: () -> Unit, last: Boolean) {
+    val tone = when {
+        p.fraction >= 1f -> Danger
+        p.fraction >= 0.85f -> BlockYellow
+        else -> Lime
+    }
+    val unit = if (p.days) "days" else "km"
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(p.title, style = MaterialTheme.typography.titleSmall, color = TextPrimary, modifier = Modifier.weight(1f))
+            Text(
+                when {
+                    p.left <= 0 -> "Due now"
+                    p.days -> "about ${(p.left / 30).coerceAtLeast(1)} months left"
+                    else -> "${"%,d".format(p.left)} km left"
+                },
+                style = MaterialTheme.typography.labelLarge,
+                color = if (p.fraction >= 0.85f) tone else TextPrimary,
+            )
+        }
+        Box(Modifier.fillMaxWidth().height(6.dp).clip(ShapePill).background(SurfaceRaised)) {
+            Box(Modifier.fillMaxHeight().fillMaxWidth(p.fraction.coerceIn(0.02f, 1f)).background(tone, ShapePill))
+        }
+        val date = p.sinceDate?.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH))
+        val at = p.sinceOdoKm?.let { "%,d km".format(it) }
+        Text(
+            "${"%,d".format(p.used)} of ${"%,d".format(p.life)} $unit · " + when (p.since) {
+                PartSince.LOGGED -> "replaced " + listOfNotNull(date, at).joinToString(" at ")
+                PartSince.SET -> "you set " + listOfNotNull(date, at).joinToString(" at ").ifBlank { "its life" }
+                PartSince.PURCHASE -> "original part, since purchase"
+                PartSince.FIRST_READING -> "a guess from your first reading · tap to fix"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = if (p.since == PartSince.FIRST_READING) BlockYellow else TextSecondary,
+        )
+    }
+    if (!last) Box(Modifier.fillMaxWidth().height(1.dp).background(Stroke))
+}
+
+/** Odometer and date when the bike was bought. */
+@Composable
+private fun PurchaseSheet(current: PartBaseline?, onDismiss: () -> Unit, onSave: (Int?, LocalDate?) -> Unit) {
+    var odo by remember { mutableStateOf(current?.odoKm?.toString().orEmpty()) }
+    var date by remember { mutableStateOf(current?.date) }
+    ForgeSheet(
+        title = "When you bought it",
+        onDismiss = onDismiss,
+        primaryLabel = "Save",
+        onPrimary = { onSave(odo.trim().toIntOrNull(), date) },
+    ) {
+        Text(
+            "Parts you never logged a replacement for count from here as the original parts.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextSecondary,
+        )
+        ChunkyButton(
+            text = "Bought new (0 km)",
+            onClick = { odo = "0" },
+            compact = true,
+            style = ChunkyStyle.Outline,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+        GarageField(odo, { odo = it.filter(Char::isDigit) }, "Odometer when bought", KeyboardType.Number, modifier = Modifier.padding(top = 12.dp))
+        DateField(label = "Bought on", value = date, onValueChange = { date = it }, modifier = Modifier.padding(top = 12.dp))
+    }
+}
+
+/** When this part was last replaced, and how long it lasts on this bike. */
+@Composable
+private fun PartSheet(part: PartWear, currentOdoKm: Int?, onDismiss: () -> Unit, onSave: (PartBaseline?) -> Unit) {
+    val today = LocalDate.now()
+    var odo by remember { mutableStateOf(if (part.since == PartSince.SET) part.sinceOdoKm?.toString().orEmpty() else "") }
+    var date by remember { mutableStateOf(if (part.since == PartSince.SET) part.sinceDate else null) }
+    var life by remember { mutableStateOf(part.life.toString()) }
+    ForgeSheet(
+        title = part.title,
+        onDismiss = onDismiss,
+        primaryLabel = "Save",
+        onPrimary = {
+            val o = odo.trim().toIntOrNull()
+            val l = life.trim().toIntOrNull()?.takeIf { it > 0 }
+            onSave(if (o == null && date == null && l == null) null else PartBaseline(o, date, l))
+        },
+    ) {
+        Text(
+            "When was it last replaced? A service you log later with this part resets it on its own.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextSecondary,
+        )
+        ChunkyButton(
+            text = "Replaced today",
+            onClick = {
+                odo = currentOdoKm?.toString().orEmpty()
+                date = today
+            },
+            compact = true,
+            style = ChunkyStyle.Outline,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+        if (!part.days) {
+            GarageField(odo, { odo = it.filter(Char::isDigit) }, "Odometer when replaced", KeyboardType.Number, modifier = Modifier.padding(top = 12.dp))
+        }
+        DateField(label = "Replaced on", value = date, onValueChange = { date = it }, modifier = Modifier.padding(top = 12.dp))
+        GarageField(
+            life,
+            { life = it.filter(Char::isDigit) },
+            if (part.days) "Usually lasts (days)" else "Usually lasts (km)",
+            KeyboardType.Number,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+        ChunkyButton(
+            text = "Back to default",
+            onClick = { onSave(null) },
+            compact = true,
+            style = ChunkyStyle.Outline,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+    }
+}
+
+private val WORK_ITEMS = listOf(
+    "Periodic service", "Engine oil", "Oil filter", "Air filter", "Spark plug", "Chain lube", "Chain kit",
+    "Brake pads", "Brake fluid", "Front tyre", "Rear tyre", "Battery", "Coolant", "Clutch",
+)
+
+/** Tap every job one visit covered; the work text follows. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun WorkChips(item: String, onToggle: (String) -> Unit) {
+    val picked = GarageInsights.workItems(item).map { it.lowercase(Locale.ENGLISH) }.toSet()
+    FlowRow(
+        Modifier.fillMaxWidth().padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        WORK_ITEMS.forEach { job ->
+            PillChip(text = job, selected = job.lowercase(Locale.ENGLISH) in picked, onClick = { onToggle(job) })
         }
     }
 }

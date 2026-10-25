@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.SubcomposeLayout
@@ -29,8 +30,19 @@ fun InsightPager(
     content: @Composable (page: Int) -> Unit,
 ) {
     val count = pageCount.coerceAtLeast(0)
-    val pagerState = rememberPagerState { count.coerceAtLeast(1) }
     if (count == 0) return
+    // A new count starts a fresh pager, so no page left over from a longer list asks for an index
+    // that's gone.
+    key(count) { PagerBody(count, modifier, content) }
+}
+
+@Composable
+private fun PagerBody(
+    count: Int,
+    modifier: Modifier,
+    content: @Composable (page: Int) -> Unit,
+) {
+    val pagerState = rememberPagerState { count }
 
     Column(modifier.fillMaxWidth()) {
         SubcomposeLayout(Modifier.fillMaxWidth()) { constraints ->

@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
+import dev.gdk.bumblebee.ride.GarageInsights
+import dev.gdk.bumblebee.ride.PartBaseline
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -257,6 +259,28 @@ class ServiceViewModel(application: Application) : AndroidViewModel(application)
     fun pickServiceFile(uri: Uri?) {
         pendingServiceUri = uri
         _ui.update { it.copy(serviceFilePending = uri != null) }
+    }
+
+    /** Adds or removes one job from what the visit did. */
+    fun toggleWork(job: String) {
+        _ui.update {
+            val jobs = GarageInsights.workItems(it.serviceItem).toMutableList()
+            val existing = jobs.firstOrNull { j -> j.equals(job, ignoreCase = true) }
+            if (existing != null) jobs.remove(existing) else jobs += job
+            it.copy(serviceItem = jobs.joinToString(", "), servicePlanId = null)
+        }
+    }
+
+    /** Saves when the bike was bought; original parts count from here. */
+    fun setPurchase(odoKm: Int?, date: LocalDate?) {
+        GaragePrefs(app).purchase = if (odoKm == null && date == null) null else PartBaseline(odoKm, date)
+        refresh()
+    }
+
+    /** The rider's own record for one part, or null to go back to the default. */
+    fun setPartBaseline(title: String, baseline: PartBaseline?) {
+        GaragePrefs(app).setPartBaseline(title, baseline)
+        refresh()
     }
 
     fun applyServiceKind(kind: String) {

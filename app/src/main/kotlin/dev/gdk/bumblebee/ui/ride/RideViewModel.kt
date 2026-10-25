@@ -249,7 +249,7 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
             _ui.value = _ui.value.copy(demoRunning = true, status = "Capturing demo ride…")
             try {
                 withContext(Dispatchers.IO) {
-                    session.run(DemoRideSource().asTicks(), isDemo = true)
+                    session.run(DemoRideSource(startTs = System.currentTimeMillis()).asTicks(), isDemo = true)
                 }
             } catch (e: Exception) {
                 _ui.value = _ui.value.copy(status = e.message ?: "Demo ride failed")

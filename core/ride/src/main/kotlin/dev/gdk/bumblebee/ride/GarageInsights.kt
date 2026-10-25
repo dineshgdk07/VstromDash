@@ -32,17 +32,27 @@ data class Ownership(
 /** One upcoming care item, on a date. */
 data class CareDate(val title: String, val date: LocalDate, val overdue: Boolean, val fromPace: Boolean)
 
+/** Where a part's wear is counted from. */
+enum class PartSince { LOGGED, SET, PURCHASE, FIRST_READING }
+
+/** A rider's fix for one part: when it was last replaced and, optionally, how long it lasts. */
+data class PartBaseline(val odoKm: Int? = null, val date: LocalDate? = null, val life: Int? = null)
+
 /** A wearing part: km or days used against a typical life. */
 data class PartWear(
     val title: String,
     val used: Int,
     val life: Int,
     val days: Boolean,
-    /** False when no replacement was logged and wear runs from the first reading. */
-    val logged: Boolean,
+    val since: PartSince,
+    val sinceOdoKm: Int? = null,
+    val sinceDate: LocalDate? = null,
 ) {
     val fraction: Float get() = if (life <= 0) 0f else used.toFloat() / life
     val left: Int get() = life - used
+
+    /** True when the count starts from something real, not just the first reading in the app. */
+    val logged: Boolean get() = since != PartSince.FIRST_READING
 }
 
 data class ChainLube(val kmSince: Int, val wetKm: Int, val due: Boolean, val message: String)
@@ -222,6 +232,20 @@ object GarageInsights {
         PartSpec("Battery", null, 3 * 365) { t -> t.contains("battery") && !t.contains("charg") },
     )
 
+    /** Part names, in the order the Parts tab lists them. */
+    val PART_TITLES: List<String> get() = PARTS.map { it.title }
+
+    /** "Engine oil, Air filter + spark plug" → its separate jobs. */
+    fun workItems(item: String): List<String> =
+        item.split(',', ';', '+', '&', '/', '·', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+
+    private fun matchesPart(spec: PartSpec, item: String): Boolean =
+        workItems(item.lowercase(Locale.ENGLISH)).any(spec.matches)
+
+    /**
+     * Wear for each part, counted from the latest of: a logged replacement, the rider's own
+     * "last replaced" fix, the purchase (original parts), or the first reading in the app.
+     */
     fun partsLife(
         services: List<ServiceSpend>,
         currentOdoKm: Int?,
@@ -229,20 +253,38 @@ object GarageInsights {
         firstTs: Long?,
         today: LocalDate,
         zone: ZoneId,
+        baselines: Map<String, PartBaseline> = emptyMap(),
+        purchase: PartBaseline? = null,
     ): List<PartWear> {
         val newest = services.sortedByDescending { it.ts }
         return PARTS.mapNotNull { spec ->
-            val log = newest.firstOrNull { spec.matches(it.item.lowercase(Locale.ENGLISH)) }
+            val log = newest.firstOrNull { matchesPart(spec, it.item) }
+            val set = baselines[spec.title]
+            val life = set?.life?.takeIf { it > 0 } ?: spec.lifeKm ?: spec.lifeDays!!
             if (spec.lifeDays != null) {
-                val from = log?.ts ?: firstTs ?: return@mapNotNull null
-                val used = ChronoUnit.DAYS.between(dateOf(from, zone), today).toInt().coerceAtLeast(0)
-                PartWear(spec.title, used, spec.lifeDays, days = true, logged = log != null)
+                val candidates = listOfNotNull(
+                    log?.let { PartSince.LOGGED to dateOf(it.ts, zone) },
+                    set?.date?.let { PartSince.SET to it },
+                )
+                val (since, from) = candidates.maxByOrNull { it.second }
+                    ?: purchase?.date?.let { PartSince.PURCHASE to it }
+                    ?: firstTs?.let { PartSince.FIRST_READING to dateOf(it, zone) }
+                    ?: return@mapNotNull null
+                val used = ChronoUnit.DAYS.between(from, today).toInt().coerceAtLeast(0)
+                PartWear(spec.title, used, life, days = true, since = since, sinceDate = from)
             } else {
                 val odo = currentOdoKm ?: return@mapNotNull null
-                val from = log?.odometerKm ?: firstOdoKm ?: return@mapNotNull null
-                PartWear(spec.title, (odo - from).coerceAtLeast(0), spec.lifeKm!!, days = false, logged = log != null)
+                val candidates = listOfNotNull(
+                    log?.let { Triple(PartSince.LOGGED, it.odometerKm, dateOf(it.ts, zone)) },
+                    set?.let { b -> b.odoKm?.let { Triple(PartSince.SET, it, b.date) } },
+                )
+                val (since, from, date) = candidates.maxByOrNull { it.second }
+                    ?: purchase?.let { b -> b.odoKm?.let { Triple(PartSince.PURCHASE, it, b.date) } }
+                    ?: firstOdoKm?.let { Triple(PartSince.FIRST_READING, it, firstTs?.let { ts -> dateOf(ts, zone) }) }
+                    ?: return@mapNotNull null
+                PartWear(spec.title, (odo - from).coerceAtLeast(0), life, days = false, since = since, sinceOdoKm = from, sinceDate = date)
             }
-        }.sortedByDescending { it.fraction }
+        }
     }
 
     // ---- Chain lube ----

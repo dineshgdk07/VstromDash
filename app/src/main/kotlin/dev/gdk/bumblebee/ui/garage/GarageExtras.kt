@@ -16,6 +16,7 @@ import dev.gdk.bumblebee.ride.GarageRide
 import dev.gdk.bumblebee.ride.GarageYear
 import dev.gdk.bumblebee.ride.OdoStory
 import dev.gdk.bumblebee.ride.Ownership
+import dev.gdk.bumblebee.ride.PartBaseline
 import dev.gdk.bumblebee.ride.PartWear
 import dev.gdk.bumblebee.ride.PassportEvent
 import dev.gdk.bumblebee.ride.PlanState
@@ -44,12 +45,14 @@ data class GarageExtras(
     val checkStreak: Int,
     val checkedToday: Boolean,
     val odoKm: Int?,
+    val purchase: PartBaseline?,
 )
 
 internal suspend fun loadGarageExtras(app: DashApp, liveOdoKm: Int?): GarageExtras = withContext(Dispatchers.IO) {
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now(zone)
-    val entities = app.capture.finishedRides().filter { !it.isDemo && it.mergedIntoId == null }
+    // Rides dated before 2000 have a broken clock (old demo rides started at 1970); keep them out of the numbers.
+    val entities = app.capture.finishedRides().filter { !it.isDemo && it.mergedIntoId == null && it.startTs >= SANE_EPOCH_MS }
     val rides = entities.map(RideEntity::toFact)
     val odo = liveOdoKm ?: app.capture.latestKnownOdometerKm()
     val fills = app.capture.fuelFills()
@@ -91,7 +94,13 @@ internal suspend fun loadGarageExtras(app: DashApp, liveOdoKm: Int?): GarageExtr
     val firstOdo = entities.mapNotNull { r -> r.odoStartKm?.let { r.startTs to it } }.minByOrNull { it.first }?.second
         ?: fills.minByOrNull { it.ts }?.odometerKm
     val firstTs = listOfNotNull(entities.minOfOrNull { it.startTs }, fills.minOfOrNull { it.ts }, services.minOfOrNull { it.ts }).minOrNull()
-    val parts = GarageInsights.partsLife(services, odo, firstOdo, firstTs, today, zone)
+    val garagePrefs = GaragePrefs(app)
+    val purchase = garagePrefs.purchase
+    val parts = GarageInsights.partsLife(
+        services, odo, firstOdo, firstTs, today, zone,
+        baselines = garagePrefs.partBaselines(GarageInsights.PART_TITLES),
+        purchase = purchase,
+    )
     val oilOverdue = plans.any { it.kind == "OIL" && it.band == CareBand.OVERDUE }
     val efficiency = GarageInsights.efficiency(fills, rides, oilOverdue, chain?.due == true)
     val fallbackKm = entities.mapNotNull { r ->
@@ -107,7 +116,7 @@ internal suspend fun loadGarageExtras(app: DashApp, liveOdoKm: Int?): GarageExtr
         .map { Instant.ofEpochMilli(it).atZone(zone).year }
         .toSortedSet()
         .reversed()
-    val checks = GaragePrefs(app).checkDays
+    val checks = garagePrefs.checkDays
     val rideDays = entities.map { Instant.ofEpochMilli(it.startTs).atZone(zone).toLocalDate() }.toSet()
 
     GarageExtras(
@@ -125,5 +134,9 @@ internal suspend fun loadGarageExtras(app: DashApp, liveOdoKm: Int?): GarageExtr
         checkStreak = GarageInsights.checkStreak(checks, rideDays, today),
         checkedToday = today in checks,
         odoKm = odo,
+        purchase = purchase,
     )
 }
+
+/** 1 Jan 2000. Anything earlier is a clock error, not a real ride. */
+internal const val SANE_EPOCH_MS = 946_684_800_000L

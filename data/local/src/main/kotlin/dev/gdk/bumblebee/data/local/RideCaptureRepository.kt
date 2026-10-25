@@ -451,25 +451,26 @@ class RideCaptureRepository(private val db: BumblebeeDb) {
         )
     }
 
+    /** Resets every plan the visit covered: the one picked, plus one per listed job. */
     private suspend fun rollPlanAfterWork(planId: Long?, item: String, odometerKm: Int, ts: Long) {
         val plans = db.planDao().all()
-        val plan = planId?.let { id -> plans.firstOrNull { it.id == id } }
-            ?: plans.firstOrNull { it.title.equals(item.trim(), ignoreCase = true) }
-            ?: plans.firstOrNull { item.contains(it.title, ignoreCase = true) }
-            ?: plans.firstOrNull { kindMatches(it.kind, item) }
-        if (plan == null) return
-        val doneOn = Instant.ofEpochMilli(ts).atZone(ZoneId.systemDefault()).toLocalDate()
-        val nextDue = when {
-            plan.intervalDays != null && plan.intervalDays > 0 -> doneOn.plusDays(plan.intervalDays.toLong()).toString()
-            else -> null
+        val picked = planId?.let { id -> plans.firstOrNull { it.id == id } }
+        val matched = dev.gdk.bumblebee.ride.GarageInsights.workItems(item).mapNotNull { job ->
+            plans.firstOrNull { it.title.equals(job, ignoreCase = true) }
+                ?: plans.firstOrNull { job.contains(it.title, ignoreCase = true) }
+                ?: plans.firstOrNull { kindMatches(it.kind, job) }
         }
-        db.planDao().update(
-            plan.copy(
-                lastDoneOdoKm = odometerKm,
-                lastDoneOnIso = doneOn.toString(),
-                dueOnIso = nextDue ?: plan.dueOnIso,
-            ),
-        )
+        val doneOn = Instant.ofEpochMilli(ts).atZone(ZoneId.systemDefault()).toLocalDate()
+        (listOfNotNull(picked) + matched).distinctBy { it.id }.forEach { plan ->
+            val nextDue = plan.intervalDays?.takeIf { it > 0 }?.let { doneOn.plusDays(it.toLong()).toString() }
+            db.planDao().update(
+                plan.copy(
+                    lastDoneOdoKm = odometerKm,
+                    lastDoneOnIso = doneOn.toString(),
+                    dueOnIso = nextDue ?: plan.dueOnIso,
+                ),
+            )
+        }
     }
 
     private fun kindMatches(kind: String, item: String): Boolean {
@@ -479,7 +480,8 @@ class RideCaptureRepository(private val db: BumblebeeDb) {
             "CHAIN" -> t.contains("chain")
             "BRAKES" -> t.contains("brake") || t.contains("pad")
             "TYRES" -> t.contains("tyre") || t.contains("tire")
-            "SERVICE" -> t.contains("service") || t.contains("oil")
+            // Only a service names a service; an oil change has its own plan.
+            "SERVICE" -> t.contains("service")
             else -> false
         }
     }

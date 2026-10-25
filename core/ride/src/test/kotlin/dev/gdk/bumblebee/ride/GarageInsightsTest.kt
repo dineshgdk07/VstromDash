@@ -87,6 +87,41 @@ class GarageInsightsTest {
         assertEquals(287, parts.getValue("Battery").used)
     }
 
+    @Test fun `one visit can replace several parts`() {
+        val parts = GarageInsights.partsLife(
+            listOf(service(1, 6, 1, 14_000, "Front tyre, Rear tyre + air filter", 9000.0)),
+            currentOdoKm = 20_000, firstOdoKm = 5_000, firstTs = ts(1, 1, 2025), today = today, zone = zone,
+        ).associateBy { it.title }
+        assertEquals(6_000, parts.getValue("Front tyre").used)
+        assertEquals(6_000, parts.getValue("Rear tyre").used)
+        assertEquals(6_000, parts.getValue("Air filter").used)
+        assertEquals(PartSince.LOGGED, parts.getValue("Air filter").since)
+        assertEquals(PartSince.FIRST_READING, parts.getValue("Spark plug").since)
+        assertEquals(listOf("Engine oil", "Air filter", "spark plug"), GarageInsights.workItems("Engine oil, Air filter + spark plug"))
+    }
+
+    @Test fun `purchase and the rider's own fixes set where wear counts from`() {
+        val parts = GarageInsights.partsLife(
+            listOf(service(1, 3, 1, 9_000, "Rear tyre", 4000.0)),
+            currentOdoKm = 20_000, firstOdoKm = 15_000, firstTs = ts(6, 1), today = today, zone = zone,
+            baselines = mapOf(
+                // Newer than the logged change, so it wins.
+                "Rear tyre" to PartBaseline(odoKm = 16_000, date = LocalDate.of(2026, 7, 1)),
+                "Brake pads" to PartBaseline(life = 25_000),
+                "Battery" to PartBaseline(date = LocalDate.of(2026, 9, 24)),
+            ),
+            purchase = PartBaseline(odoKm = 0, date = LocalDate.of(2024, 10, 24)),
+        ).associateBy { it.title }
+        assertEquals(4_000, parts.getValue("Rear tyre").used)
+        assertEquals(PartSince.SET, parts.getValue("Rear tyre").since)
+        // Never replaced: original part from purchase, with the rider's own life.
+        assertEquals(20_000, parts.getValue("Brake pads").used)
+        assertEquals(25_000, parts.getValue("Brake pads").life)
+        assertEquals(PartSince.PURCHASE, parts.getValue("Brake pads").since)
+        assertEquals(30, parts.getValue("Battery").used)
+        assertEquals(PartSince.SET, parts.getValue("Battery").since)
+    }
+
     private fun gride(id: Long, m: Int, d: Int, km: Double, code: Int? = null, odo: Int? = null) =
         GarageRide(id, ts(m, d), km, "Ride $id", odo, code)
 
@@ -129,7 +164,7 @@ class GarageInsightsTest {
         val h = GarageInsights.health(
             plans = listOf(plan("Engine oil", "OIL", CareBand.OVERDUE), plan("Brake pads", "BRAKES", CareBand.DUE_SOON)),
             docs = listOf("Insurance" to CareBand.DUE_SOON, "RC" to CareBand.OK),
-            parts = listOf(PartWear("Rear tyre", 19_000, 18_000, false, true), PartWear("Chain & sprockets", 30_000, 20_000, false, false)),
+            parts = listOf(PartWear("Rear tyre", 19_000, 18_000, false, PartSince.SET), PartWear("Chain & sprockets", 30_000, 20_000, false, PartSince.FIRST_READING)),
             efficiency = null,
             chain = ChainLube(600, 0, true, ""),
         )
