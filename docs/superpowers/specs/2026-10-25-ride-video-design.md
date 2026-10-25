@@ -1,7 +1,7 @@
 # Ride video export: design
 
 Date: 2026-10-25
-Status: design agreed, not built
+Status: phase 1 (planning, terrain and camera maths) built and tested
 
 ## Why
 
@@ -52,14 +52,39 @@ and highlights. It can render the flyover itself, on the phone, in its own style
 - **Unreadable overlays.** Every text overlay sits on a scrim or panel and stays legible over bright
   and dark terrain.
 
+## What makes it better than the usual flyover
+
+Most ride-video apps draw a line on a flat map with a fixed overhead camera, so every video looks the
+same. This one is built like a short film:
+
+- **Real light from the real ride.** The sun's direction and height come from the ride's actual time
+  and place, so morning rides glow low and warm, noon rides are crisp, and evening rides get long
+  shadows and a golden sky. Night rides switch to a night palette with the path as the light source.
+- **A directed camera, not a fixed one.** It opens with a reveal, flies low through valleys and
+  climbs with the road, rises before a hairpin section so the bends read, slows down and circles at
+  the highest point, and ends with an orbit around the whole route. Shots vary with the terrain
+  instead of following one rule.
+- **Speed ramping.** Dull straight stretches go fast; twisty sections, climbs and moments slow down,
+  so the time goes on the interesting parts.
+- **A path that shows the ride.** The line glows in the accent colour, with an option to colour it by
+  speed or climb. A bright comet head with a fading trail, and a soft light where the marker passes.
+- **Depth and atmosphere.** Height-based fog in the valleys, haze toward the horizon, a sky gradient
+  that matches the time of day, and a gentle bloom on the path and marker.
+- **Motion that feels filmed.** Eased camera moves with no sudden turns, slight motion blur when
+  moving fast (several sub-frames blended), and a subtle film grain and vignette.
+- **Designed type.** Cards and numbers animate in (counters roll, labels slide) using the share-card
+  fonts, so a frame grabbed from the video looks like a poster.
+- **Peaks and passes named.** The highest point gets a label with its height, and the route's
+  climb shows on the elevation strip as it happens.
+
 ## The video, scene by scene
 
 Times below are for a 30 s video and scale with the chosen length.
 
 | Scene | Share | What happens |
 | --- | --- | --- |
-| **Intro** | ~12% | High overview of the whole region, route ghosted faintly. Title (ride name or auto name), date, from → to place names. Camera dives toward the start of the trimmed route. |
-| **Ride** | ~70% | Chase camera above and behind the rider marker. The path draws in the accent colour with a soft glow; the route still ahead stays ghosted. The camera's time is distance-based and slows down around moments. |
+| **Intro** | ~15% | High overview of the whole region, route ghosted faintly. Title (ride name or auto name), date, from → to place names. Camera dives toward the start of the trimmed route. |
+| **Ride** | ~67% | Chase camera above and behind the rider marker. The path draws in the accent colour with a soft glow; the route still ahead stays ghosted. The camera's time is distance-based and slows down around moments. |
 | **Moments** | inside Ride | At each chosen moment the camera eases, a callout card pops near the marker ("Top speed 112 km/h", "Highest point 2,140 m", "Stopped 25 min", "Refuelled"), holds about 1.5 s, then the ride continues. |
 | **Finish** | ~18% | Marker reaches the end; camera pulls back and orbits to frame the whole route. Stats card: distance, moving time, average speed, total climb, highest point, plus any distance-club badge. Small app mark and data attribution. |
 
@@ -106,7 +131,11 @@ Shorts allows only 60 s.
 - **Path:** a ribbon draped on the terrain, offset a little above it. The ridden part is in the
   accent colour (the rider's bike or custom accent) with a glow. The part not yet ridden is a thin
   translucent line. GPS gaps are drawn dashed.
-- **Rider marker:** a glowing dot with a short fading trail, and a small accent pin at each moment.
+- **Rider marker:** a glowing comet head with a fading trail, and a small accent pin at each moment.
+- **Light:** the sun position from the ride's start time and place drives the hillshade, the sky
+  gradient and the fog colour. A night palette is used when the sun is below the horizon.
+- **Finish:** gentle bloom on bright parts, motion blur from blended sub-frames on fast camera moves,
+  then a light grain and vignette over the frame.
 - **Type:** the share-card fonts (Anton for numbers, Rajdhani for labels).
 - **Flat fallback:** the same style on flat ground with hillshade off, used only when the rider
   accepts it after the elevation-data warning.
@@ -137,8 +166,9 @@ The last-used shape, toggles and music choice are remembered.
   closing card and in `NOTICE.md`.
 - Cached on disk next to the map tiles, under its own size limit, which is shown in Settings →
   Advanced alongside the tile cache.
-- The mesh is sampled from the tiles into a grid of at most 512×512 vertices over the route's bounds
-  plus a margin. Altitudes on the path come from the terrain, not GPS, so the ribbon sits on the
+- Two layers: a wide square base (the route's size plus 90% margin each side) so the terrain reaches
+  the horizon, and a sharper layer over the route itself that blends into the base at its edge.
+  Each is at most 512×512 vertices. The outer 12% of the base fades into the sky haze. Altitudes on the path come from the terrain, not GPS, so the ribbon sits on the
   ground (GPS altitude is noisy).
 
 ### Rendering and encoding
@@ -170,9 +200,11 @@ The last-used shape, toggles and music choice are remembered.
 
 | Where | What |
 | --- | --- |
-| `core/ride` `VideoPlan` | Length recommendation, moment selection, scene timeline, time remap, camera keyframes. Pure Kotlin, unit-tested. |
-| new `core/terrain` | Terrarium decode, tile math, mesh build, exaggeration choice, path draping. Pure Kotlin, unit-tested. |
-| `app/video` | `DemTiles` (fetch and cache), GL renderer and shaders, `VideoEncoder` (codec, muxer, audio), `VideoExportService`, setup screen and preview. |
+| `core/video` (pure Kotlin, unit-tested) | Terrain: `Terrarium` decode and tile maths, `ElevationGrid` (with spike filter), `LayeredElevation` (wide base plus sharp route layer), `TerrainMesh`, `Exaggeration`, `RoutePath`, `SunPosition`. Story: `VideoLength`, `Moments`, `VideoTimeline`. Camera: `CameraDirector` with chase, hold orbit, dive and climb-away moves, speed-linked follow distance, ridge lift and time smoothing. |
+| `app/video` | `DemTiles` (fetch and cache), GL renderer and shaders (following the harness shading model), `VideoEncoder` (codec, muxer, audio), `VideoExportService`, setup screen and preview. |
+
+Terrain, story and camera share one module because the camera needs the timeline and the timeline
+needs route distances; splitting them only added glue.
 
 ### Performance targets
 
