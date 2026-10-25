@@ -311,7 +311,7 @@ fun TerritoryScreen(onBack: () -> Unit, onOpenRide: (Long) -> Unit) {
         val tracks = state.tracks.values.filter { it.size >= 2 }
         val bounds = remember(tracks) { tracks.flatten().let { all -> if (all.size <= 4_000) all else all.filterIndexed { i, _ -> i % (all.size / 4_000 + 1) == 0 } } }
         Text(
-            "Fog covers what you haven't ridden. Pinch to look around.",
+            "Fog covers what you haven't ridden. Pinch or double-tap to zoom in, then drag to look around.",
             style = MaterialTheme.typography.bodySmall,
             color = TextSecondary,
         )
