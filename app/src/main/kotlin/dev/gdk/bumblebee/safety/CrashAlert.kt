@@ -19,6 +19,9 @@ import android.telephony.SmsManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import dev.gdk.bumblebee.DashApp
+import dev.gdk.bumblebee.bike.BikeProfile
+import dev.gdk.bumblebee.ride.SosField
+import dev.gdk.bumblebee.ride.SosTemplate
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -145,15 +148,24 @@ object CrashAlert {
         val ln = fix?.lng ?: lng
         val map = if (la == null || ln == null) "location unavailable" else "https://maps.google.com/?q=$la,$ln"
         val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date())
+        val profile = BikeProfile(ctx)
+        val alert = SosTemplate.render(
+            profile.sosTemplate.takeIf { SosTemplate.problems(it).isEmpty() } ?: SosTemplate.DEFAULT,
+            mapOf(
+                SosField.NAME to app.prefs.riderName,
+                SosField.LOCATION to map,
+                SosField.TIME to time,
+                SosField.SPEED to speedBefore.takeIf { it > 0 }?.let { "$it km/h" },
+                SosField.BIKE to "V-Strom 250 SX (${profile.variant.label})",
+                SosField.REG to profile.regNo,
+                SosField.BLOOD to app.prefs.bloodGroup,
+                SosField.NOTE to app.prefs.medicalNote,
+            ),
+        )
         val body = when {
-            test -> "TEST from Bumblebee for ${app.prefs.riderName}. This is not an emergency. Crash alerts will come from this number."
+            test -> "TEST from Bumblebee, not an emergency. A real alert would read: $alert"
             followUp -> "Update: ${app.prefs.riderName} is OK. Please ignore the earlier crash alert."
-            else -> buildString {
-                append("Possible crash: ${app.prefs.riderName} may need help. $map at $time. Speed before: $speedBefore km/h.")
-                app.prefs.bloodGroup.trim().takeIf { it.isNotEmpty() }?.let { append(" Blood: $it.") }
-                app.prefs.medicalNote.trim().takeIf { it.isNotEmpty() }?.let { append(" Note: $it.") }
-                append(" Sent automatically by Bumblebee.")
-            }
+            else -> alert
         }
         val sms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             ctx.getSystemService(SmsManager::class.java)

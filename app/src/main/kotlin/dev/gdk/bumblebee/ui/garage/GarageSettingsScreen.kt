@@ -10,7 +10,12 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.res.painterResource
+import dev.gdk.bumblebee.ui.bike.EmergencyContactsEditor
+import dev.gdk.bumblebee.ui.bike.SosTemplateEditor
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,6 +58,7 @@ import dev.gdk.bumblebee.ui.theme.TextSecondary
 @Composable
 fun GarageSettingsScreen(
     onBack: () -> Unit,
+    onOpenProfile: () -> Unit = {},
     model: GarageSettingsViewModel = viewModel(),
 ) {
     val state by model.ui.collectAsStateWithLifecycle()
@@ -72,6 +78,7 @@ fun GarageSettingsScreen(
     }
     RefreshOnResume {
         model.refreshEconomics()
+        model.refreshProfile()
         permissionTick += 1
     }
     val appGranted = remember(permissionTick, context) { runtimePermissionsGranted(context) }
@@ -107,6 +114,29 @@ fun GarageSettingsScreen(
         ForgeTopBar(title = "Settings", onBack = onBack)
         if (state.status.isNotBlank()) {
             Text(state.status, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+        }
+        SectionCard(header = { SectionLabel(text = "Bike profile") }) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp).clickable(onClick = onOpenProfile),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Image(
+                    painter = painterResource(state.variant.image),
+                    contentDescription = state.variant.label,
+                    modifier = Modifier.size(width = 96.dp, height = 62.dp),
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(state.variant.label, style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+                    Text(
+                        listOf(state.regNo.ifBlank { "No reg no yet" }, state.riderName).joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                    )
+                    Text("Colour, papers, ownership, contacts", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
+                Text("Edit", style = MaterialTheme.typography.labelLarge, color = Lime)
+            }
         }
         SectionCard(header = { SectionLabel(text = "Bike") }) {
             Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -240,17 +270,20 @@ fun GarageSettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                 )
-                GarageField(state.sosContacts, model::setSosContacts, "Emergency numbers, up to 3", KeyboardType.Phone, singleLine = false)
+                Text("Emergency contacts", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                EmergencyContactsEditor(state.contacts, model::setContacts)
                 GarageField(state.bloodGroup, model::setBloodGroup, "Blood group")
                 GarageField(state.medicalNote, model::setMedicalNote, "Medical note", singleLine = false)
                 ChunkyButton(
-                    text = "Save safety details",
+                    text = "Save blood group and note",
                     onClick = {
                         model.saveSafety()
                         if (!smsGranted) smsSaveLauncher.launch(Manifest.permission.SEND_SMS)
                     },
                     style = ChunkyStyle.Lime,
                 )
+                Text("What they receive", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                SosTemplateEditor(state.sosTemplate, model::saveSosTemplate)
                 PermissionRow("SMS to contacts", smsGranted) {
                     smsSaveLauncher.launch(Manifest.permission.SEND_SMS)
                 }

@@ -28,7 +28,11 @@ import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.runtime.mutableStateOf
+import dev.gdk.bumblebee.bike.BikeProfile
+import dev.gdk.bumblebee.bike.CurrentBike
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -377,9 +381,24 @@ fun PassportScreen(onBack: () -> Unit, onOpenRide: (Long) -> Unit, model: Garage
     GaragePage("Bike passport", onBack) {
         if (extras == null) return@GaragePage
         OdoCard(extras.odo, extras.odoKm)
+        val profile = remember { BikeProfile(context) }
+        var showReg by remember { mutableStateOf(profile.regOnHistoryCard) }
+        val reg = CurrentBike.regNo
+        if (reg.isNotBlank()) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Show $reg on the card", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                    Text("For a buyer matching it to the RC. Leave off for social posts.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
+                Switch(checked = showReg, onCheckedChange = {
+                    showReg = it
+                    profile.regOnHistoryCard = it
+                })
+            }
+        }
         ChunkyButton(
             text = "Share service history",
-            onClick = { scope.launch { shareHistory(context, extras, state.services) } },
+            onClick = { scope.launch { shareHistory(context, extras, state.services, reg.takeIf { showReg }) } },
             style = ChunkyStyle.Lime,
         )
         if (extras.passport.isEmpty()) {
@@ -479,10 +498,11 @@ private fun PassportRow(e: PassportEvent, last: Boolean, onOpenRide: (Long) -> U
     )
 }
 
-private suspend fun shareHistory(context: Context, extras: GarageExtras, services: List<ServiceSpend>) {
+private suspend fun shareHistory(context: Context, extras: GarageExtras, services: List<ServiceSpend>, regNo: String?) {
     val zone = ZoneId.systemDefault()
     val newest = services.sortedByDescending { it.ts }
     val card = ServiceHistoryCard(
+        regNo = regNo,
         bike = "V-Strom 250 SX",
         odoKm = extras.odoKm,
         since = extras.odo.since?.format(DateTimeFormatter.ofPattern("MMM yyyy", Locale.ENGLISH)),

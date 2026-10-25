@@ -22,6 +22,8 @@ data class ServiceHistoryCard(
     val services: Int,
     val careRupees: Double,
     val lines: List<HistoryLine>,
+    /** Only when the rider opted in; for a buyer checking the papers match. */
+    val regNo: String? = null,
 )
 
 /** One number on the year card, with its change from last year. */
@@ -65,6 +67,18 @@ object ServiceHistoryPainter {
         val left = 90f
 
         c.drawText("SERVICE HISTORY", left, 130f, text(30f, LIME, fonts.body, 0.3f))
+        card.regNo?.takeIf { it.isNotBlank() }?.let { reg ->
+            val plate = text(34f, BASE, fonts.display, 0.06f)
+            val w = widthOf(plate, reg) + 40f
+            val r = RectF(W - left - w, 92f, W - left, 142f)
+            c.drawRoundRect(r, 10f, 10f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFF4F5F7.toInt() })
+            c.drawRoundRect(r, 10f, 10f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 4f
+                color = BASE
+            })
+            c.drawText(reg, r.left + 20f, r.bottom - 14f, plate)
+        }
         val name = text(96f, Color.WHITE, fonts.display)
         c.drawText(ShareText.fit(name, card.bike.uppercase(Locale.ENGLISH), W - 180f, 60f), left, 235f, name)
 

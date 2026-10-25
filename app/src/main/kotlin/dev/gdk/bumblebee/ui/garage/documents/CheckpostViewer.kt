@@ -96,8 +96,12 @@ internal fun CheckpostViewer(
                     text = pages.getOrNull(pager.currentPage)?.title ?: "Checkpost",
                     style = MaterialTheme.typography.titleLarge,
                     color = TextPrimary,
-                    modifier = Modifier.padding(start = 8.dp),
+                    modifier = Modifier.padding(start = 8.dp).weight(1f),
                 )
+                // The plate up top, so an officer can match the papers to the bike at a glance.
+                dev.gdk.bumblebee.bike.CurrentBike.regNo.takeIf { it.isNotBlank() }?.let {
+                    dev.gdk.bumblebee.ui.garage.PlateChip(it)
+                }
             }
             HorizontalPager(state = pager, modifier = Modifier.weight(1f)) { index ->
                 CheckpostPage(pages[index])

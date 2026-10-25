@@ -47,7 +47,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import dev.gdk.bumblebee.R
+import dev.gdk.bumblebee.bike.CurrentBike
 import dev.gdk.bumblebee.ble.ConnectionState
 import dev.gdk.bumblebee.ride.BikeHealth
 import dev.gdk.bumblebee.ui.components.ForgeSheet
@@ -89,16 +89,15 @@ internal fun BikeHero(
     val ready = state.connection is ConnectionState.Ready
     SectionCard {
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(72.dp).clip(ShapeSm).background(OnBlock)) {
-                Image(
-                    painter = painterResource(R.drawable.vstrom_hero),
-                    contentDescription = "V-Strom 250 SX",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+            Image(
+                painter = painterResource(CurrentBike.variant.image),
+                contentDescription = "V-Strom 250 SX in ${CurrentBike.variant.label}",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.size(width = 104.dp, height = 68.dp),
+            )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("V-Strom 250 SX", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+                CurrentBike.regNo.takeIf { it.isNotBlank() }?.let { PlateChip(it) }
                 LiveChip(state.connection)
             }
             state.extras?.health?.let { HealthRing(it, onOpenHealth) }
@@ -120,6 +119,21 @@ internal fun BikeHero(
         }
         CheckRow(state.extras, onOpenCheck, Modifier.padding(top = 14.dp))
     }
+}
+
+/** The registration as a small number plate. */
+@Composable
+internal fun PlateChip(reg: String) {
+    Text(
+        reg,
+        style = MaterialTheme.typography.labelMedium,
+        color = OnBlock,
+        maxLines = 1,
+        modifier = Modifier
+            .background(Color(0xFFF4F5F7), ShapeSm)
+            .border(1.5.dp, OnBlock, ShapeSm)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    )
 }
 
 @Composable

@@ -78,9 +78,9 @@ fun BikeHeroCard(
                 ConnectionChip(connection)
             }
             Image(
-                painter = painterResource(R.drawable.vstrom_hero),
+                painter = painterResource(dev.gdk.bumblebee.bike.CurrentBike.variant.image),
                 contentDescription = model,
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .weight(1.25f)
                     .fillMaxHeight(),

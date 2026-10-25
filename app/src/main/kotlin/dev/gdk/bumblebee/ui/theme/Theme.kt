@@ -33,7 +33,7 @@ private val HudColorScheme = darkColorScheme(
 @Composable
 fun BumblebeeTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = ForgeColorScheme,
+        colorScheme = ForgeColorScheme.copy(primary = Lime),
         typography = ForgeTypography,
         shapes = ForgeShapes,
         content = content,

@@ -9,6 +9,9 @@ import dev.gdk.bumblebee.ble.ConnectionState
 import dev.gdk.bumblebee.ble.android.BleScanner
 import dev.gdk.bumblebee.ble.android.DiscoveredBike
 import dev.gdk.bumblebee.garage.GarageReminders
+import dev.gdk.bumblebee.bike.BikeProfile
+import dev.gdk.bumblebee.bike.BikeVariant
+import dev.gdk.bumblebee.bike.EmergencyContact
 import dev.gdk.bumblebee.safety.CrashAlert
 import dev.gdk.bumblebee.ui.share.SharePrefs
 import dev.gdk.bumblebee.nav.MapsNavSource
@@ -39,6 +42,10 @@ data class GarageSettingsUiState(
     val sosContacts: String = "",
     val crashSensitivity: String = "NORMAL",
     val crashDetection: Boolean = true,
+    val contacts: List<EmergencyContact> = emptyList(),
+    val sosTemplate: String = "",
+    val variant: BikeVariant = BikeVariant.YELLOW,
+    val regNo: String = "",
     val bloodGroup: String = "",
     val medicalNote: String = "",
 )
@@ -166,6 +173,31 @@ class GarageSettingsViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun setSosContacts(value: String) { _ui.update { it.copy(sosContacts = value) } }
+
+    fun setContacts(value: List<EmergencyContact>) {
+        val profile = BikeProfile(getApplication())
+        profile.contacts = value
+        _ui.update { it.copy(contacts = profile.contacts, sosContacts = app.prefs.emergencyContacts) }
+    }
+
+    fun saveSosTemplate(value: String) {
+        BikeProfile(getApplication()).sosTemplate = value
+        _ui.update { it.copy(sosTemplate = value, status = "Crash text saved.") }
+    }
+
+    /** Re-reads the bike profile after it was edited elsewhere. */
+    fun refreshProfile() {
+        val profile = BikeProfile(getApplication())
+        _ui.update {
+            it.copy(
+                variant = profile.variant,
+                regNo = profile.regNo,
+                contacts = profile.contacts,
+                riderName = app.prefs.riderName,
+                bloodGroup = app.prefs.bloodGroup,
+            )
+        }
+    }
     fun setCrashSensitivity(value: String) {
         app.prefs.crashSensitivity = value
         _ui.update { it.copy(crashSensitivity = value) }
@@ -204,14 +236,10 @@ class GarageSettingsViewModel(application: Application) : AndroidViewModel(appli
         CrashAlert.start(app, speedBeforeKmh = 0, lat = gps?.lat, lng = gps?.lng, test = true)
     }
 
-    private fun saveContacts() {
-        val contacts = _ui.value.sosContacts.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.take(3)
-        app.prefs.emergencyContacts = contacts.joinToString(",")
-    }
+    /** Contacts save as they're edited; nothing left to write. */
+    private fun saveContacts() = Unit
 
     fun saveSafety() {
-        val contacts = _ui.value.sosContacts.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.take(3)
-        app.prefs.emergencyContacts = contacts.joinToString(",")
         app.prefs.bloodGroup = _ui.value.bloodGroup.trim()
         app.prefs.medicalNote = _ui.value.medicalNote.trim()
         _ui.update {
@@ -257,6 +285,10 @@ class GarageSettingsViewModel(application: Application) : AndroidViewModel(appli
             sosContacts = app.prefs.emergencyContacts,
             crashSensitivity = app.prefs.crashSensitivity,
             crashDetection = app.prefs.crashDetection,
+            contacts = BikeProfile(getApplication()).contacts,
+            sosTemplate = BikeProfile(getApplication()).sosTemplate,
+            variant = BikeProfile(getApplication()).variant,
+            regNo = BikeProfile(getApplication()).regNo,
             bloodGroup = app.prefs.bloodGroup,
             medicalNote = app.prefs.medicalNote,
         )

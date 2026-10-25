@@ -46,6 +46,8 @@ import dev.gdk.bumblebee.ui.explorer.RecapScreen
 import dev.gdk.bumblebee.ui.fuel.FuelLogScreen
 import dev.gdk.bumblebee.ui.garage.documents.DocumentsScreen
 import dev.gdk.bumblebee.ui.garage.CostsScreen
+import dev.gdk.bumblebee.bike.BikeProfile
+import dev.gdk.bumblebee.ui.bike.OnboardingScreen
 import dev.gdk.bumblebee.ui.garage.GarageScreen
 import dev.gdk.bumblebee.ui.garage.PassportScreen
 import dev.gdk.bumblebee.ui.garage.GarageSettingsScreen
@@ -96,7 +98,23 @@ fun BumblebeeApp() {
         HudTheme { RiderHudScreen() }
         return
     }
-    val activity = LocalContext.current as? ComponentActivity
+    val context = LocalContext.current
+    var onboarding by remember { mutableStateOf(!BikeProfile(context).onboarded) }
+    var pairAfterOnboarding by remember { mutableStateOf(false) }
+    if (onboarding) {
+        OnboardingScreen(firstRun = true, onDone = { pair ->
+            pairAfterOnboarding = pair
+            onboarding = false
+        })
+        return
+    }
+    LaunchedEffect(pairAfterOnboarding) {
+        if (pairAfterOnboarding) {
+            pairAfterOnboarding = false
+            navController.navigate("garage/settings")
+        }
+    }
+    val activity = context as? ComponentActivity
     val open = activity?.intent?.getStringExtra(MainActivity.EXTRA_OPEN)
     val rideModel: RideViewModel? = activity?.let { viewModel(viewModelStoreOwner = it) }
     LaunchedEffect(open) {
@@ -126,7 +144,7 @@ fun BumblebeeApp() {
             val backStack by navController.currentBackStackEntryAsState()
             val currentRoute = backStack?.destination?.route
             val coreRoute = when (currentRoute) {
-                "fuel", "transfer", "garage/documents", "garage/service", "garage/settings", "garage/costs", "garage/passport" -> Pillar.GARAGE.route
+                "fuel", "transfer", "garage/documents", "garage/service", "garage/settings", "garage/costs", "garage/passport", "garage/profile" -> Pillar.GARAGE.route
                 else -> currentRoute
             }
             if (currentRoute?.startsWith("explorer/recap") != true) {
@@ -228,8 +246,17 @@ fun BumblebeeApp() {
             composable("garage/passport") {
                 PassportScreen(onBack = { navController.popBackStack() }, onOpenRide = { openRideFromExplorer(it) })
             }
+            composable("garage/profile") {
+                OnboardingScreen(firstRun = false, onDone = { pair ->
+                    navController.popBackStack()
+                    if (pair) navController.navigate("garage/settings")
+                })
+            }
             composable("garage/settings") {
-                GarageSettingsScreen(onBack = { navController.popBackStack() })
+                GarageSettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenProfile = { navController.navigate("garage/profile") },
+                )
             }
             composable(
                 route = "explorer/recap/{year}",
