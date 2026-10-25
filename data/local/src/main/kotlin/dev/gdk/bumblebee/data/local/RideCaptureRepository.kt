@@ -655,6 +655,12 @@ class RideCaptureRepository(private val db: BumblebeeDb) {
         }
     }
 
+    /** Size of the database file in bytes, write-ahead log included. */
+    suspend fun databaseBytes(): Long = withContext(Dispatchers.IO) {
+        val path = db.openHelper.readableDatabase.path ?: return@withContext 0L
+        listOf("", "-wal", "-shm").sumOf { java.io.File(path + it).length() }
+    }
+
     /** Reclaims space left by deletes. */
     suspend fun vacuum() = serial {
         withContext(Dispatchers.IO) { db.openHelper.writableDatabase.execSQL("VACUUM") }

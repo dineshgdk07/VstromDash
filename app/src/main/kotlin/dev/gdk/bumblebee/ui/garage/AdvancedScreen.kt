@@ -318,10 +318,14 @@ private fun DeveloperSection(
     val frame by DevLog.lastFrame.collectAsState()
     val log by DevLog.flow.collectAsState()
     var counts by remember { mutableStateOf<List<Pair<String, Long>>>(emptyList()) }
+    var dbBytes by remember { mutableLongStateOf(0L) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var frames by remember { mutableStateOf(prefs.logFrames) }
 
-    LaunchedEffect(tick) { counts = app.capture.tableCounts() }
+    LaunchedEffect(tick) {
+        counts = app.capture.tableCounts()
+        dbBytes = app.capture.databaseBytes()
+    }
     LaunchedEffect(Unit) {
         while (true) {
             now = System.currentTimeMillis()
@@ -363,11 +367,10 @@ private fun DeveloperSection(
     SectionCard(header = { SectionLabel(text = "Developer · database") }) {
         Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Mono(counts.joinToString("\n") { (t, n) -> "${t.padEnd(18)} ${if (n < 0) "?" else n}" }.ifBlank { "Counting…" })
-            val dbFile = app.getDatabasePath(app.database.openHelper.databaseName ?: "")
-            Mono("size    ${mb(dbFile.length())}")
+            Mono("size    ${mb(dbBytes)}")
             ChunkyButton(
                 text = "Compact database",
-                onClick = { onRun("Compacting") { app.capture.vacuum(); "Database compacted to ${mb(dbFile.length())}." } },
+                onClick = { onRun("Compacting") { app.capture.vacuum(); "Database compacted to ${mb(app.capture.databaseBytes())}." } },
                 style = ChunkyStyle.Outline,
                 compact = true,
             )
