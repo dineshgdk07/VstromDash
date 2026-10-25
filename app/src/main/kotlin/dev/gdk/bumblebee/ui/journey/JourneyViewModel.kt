@@ -76,12 +76,12 @@ class JourneyViewModel(application: Application) : AndroidViewModel(application)
         val latest = rides.maxByOrNull { it.startTs }
         val fresh = JourneyInsights.firstVisit(visited, latest?.endPlace)
             ?.takeIf { latest != null && System.currentTimeMillis() - latest.startTs < 3 * 86_400_000L }
-        val routes = rides.asSequence()
+        // A list, not a sequence: routeOf suspends, and only inline list lambdas may call it.
+        val routes = rides
             .map { it to it.toFact() }
             .filter { (_, f) -> f.km >= 15 }
             .take(6)
             .mapNotNull { (r, f) -> routeOf(r, f.label, f.km) }
-            .toList()
         val log = prefs.log
         val gps = app.latestGps.value ?: app.capture.lastParked()
         val bars = app.latestTelemetry.value?.fuelBars
