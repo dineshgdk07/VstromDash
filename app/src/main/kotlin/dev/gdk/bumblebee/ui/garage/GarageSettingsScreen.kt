@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -64,6 +65,10 @@ fun GarageSettingsScreen(
     }
     val smsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         model.onTestSosPermission(granted)
+        permissionTick += 1
+    }
+    val smsSaveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        permissionTick += 1
     }
     RefreshOnResume {
         model.refreshEconomics()
@@ -73,6 +78,10 @@ fun GarageSettingsScreen(
     val locationOn = remember(permissionTick, context) { locationEnabled(context) }
     val notificationsOn = remember(permissionTick, context) { notificationListenerEnabled(context) }
     val batteryFree = remember(permissionTick, context) { batteryUnrestricted(context) }
+    val smsGranted = remember(permissionTick, context) {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
+    }
+    val fullScreenOk = remember(permissionTick, context) { fullScreenAllowed(context) }
 
     fun requestThenScan() {
         val perms = buildList {
@@ -157,10 +166,10 @@ fun GarageSettingsScreen(
                 ChunkyButton(text = "Save reminder window", onClick = model::saveReminders, style = ChunkyStyle.Lime)
             }
         }
-        SectionCard(header = { SectionLabel(text = "Ride and safety") }) {
+        SectionCard(header = { SectionLabel(text = "Ride") }) {
             Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "A stop inside the pause window stays one ride. Crash alerts are a best-effort aid, not a certified emergency device.",
+                    "A stop inside the pause window stays one ride.",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                 )
@@ -194,20 +203,78 @@ fun GarageSettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                 )
-                GarageField(state.sosContacts, model::setSosContacts, "Emergency numbers, up to 3", singleLine = false)
+            }
+        }
+        SectionCard(header = { SectionLabel(text = "Crash alerts") }) {
+            Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Watch for crashes while riding",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextPrimary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(checked = state.crashDetection, onCheckedChange = model::setCrashDetection)
+                }
+                Text(
+                    "Alarms only when a hard impact above 20 km/h is followed by a stop, no riding for a while, and the phone ending up turned over (the bike or you are down). A bump and a red light won't do it. You get 30 s to tap I'm OK before your contacts are texted with your location. A best-effort aid, not a certified emergency device.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                )
+                Text("Sensitivity", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("LOW", "NORMAL", "HIGH").forEach { level ->
+                    listOf("LOW" to "Low", "NORMAL" to "Normal", "HIGH" to "High").forEach { (level, label) ->
                         PillChip(
-                            text = level,
+                            text = label,
                             selected = state.crashSensitivity == level,
                             onClick = { model.setCrashSensitivity(level) },
                         )
                     }
                 }
+                Text(
+                    when (state.crashSensitivity) {
+                        "LOW" -> "Fewest alarms. Needs a clear fall with the phone ending up turned over."
+                        "HIGH" -> "Catches softer falls and gentler tilts. More chance of a false alarm."
+                        else -> "Needs a fall, or one very hard hit. Recommended."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                )
+                GarageField(state.sosContacts, model::setSosContacts, "Emergency numbers, up to 3", KeyboardType.Phone, singleLine = false)
                 GarageField(state.bloodGroup, model::setBloodGroup, "Blood group")
                 GarageField(state.medicalNote, model::setMedicalNote, "Medical note", singleLine = false)
-                ChunkyButton(text = "Save safety details", onClick = model::saveSafety, style = ChunkyStyle.Lime)
-                ChunkyButton(text = "Test SOS", onClick = { smsLauncher.launch(Manifest.permission.SEND_SMS) }, style = ChunkyStyle.Outline)
+                ChunkyButton(
+                    text = "Save safety details",
+                    onClick = {
+                        model.saveSafety()
+                        if (!smsGranted) smsSaveLauncher.launch(Manifest.permission.SEND_SMS)
+                    },
+                    style = ChunkyStyle.Lime,
+                )
+                PermissionRow("SMS to contacts", smsGranted) {
+                    smsSaveLauncher.launch(Manifest.permission.SEND_SMS)
+                }
+                PermissionRow("Alarm over the lock screen", fullScreenOk, last = true) {
+                    openFullScreenSettings(context)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.weight(1f)) {
+                        ChunkyButton(text = "Practice alarm", onClick = model::practiceAlarm, compact = true, style = ChunkyStyle.Outline)
+                    }
+                    Box(Modifier.weight(1f)) {
+                        ChunkyButton(
+                            text = "Test SMS",
+                            onClick = { smsLauncher.launch(Manifest.permission.SEND_SMS) },
+                            compact = true,
+                            style = ChunkyStyle.Outline,
+                        )
+                    }
+                }
+                Text(
+                    "Practice runs the real alarm; when it ends, contacts get a text marked TEST. On Xiaomi, also allow \"Display pop-up windows while running in the background\" and \"Show on lock screen\" for Bumblebee, or the alarm may only show as a notification.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                )
             }
         }
         SectionCard(header = { SectionLabel(text = "Fuel") }) {
@@ -320,6 +387,22 @@ private fun notificationListenerEnabled(context: android.content.Context): Boole
         Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
     }.getOrNull() ?: return false
     return flat.contains(context.packageName)
+}
+
+/** Android 14 lets people turn off full-screen alarms per app; earlier versions always allow it. */
+private fun fullScreenAllowed(context: android.content.Context): Boolean {
+    if (Build.VERSION.SDK_INT < 34) return true
+    val nm = context.getSystemService(android.app.NotificationManager::class.java) ?: return false
+    return nm.canUseFullScreenIntent()
+}
+
+private fun openFullScreenSettings(context: android.content.Context) {
+    val intent = if (Build.VERSION.SDK_INT >= 34) {
+        Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.fromParts("package", context.packageName, null))
+    } else {
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null))
+    }
+    runCatching { context.startActivity(intent) }
 }
 
 private fun batteryUnrestricted(context: android.content.Context): Boolean {

@@ -29,7 +29,7 @@ import dev.gdk.bumblebee.ble.android.BleClient
 import dev.gdk.bumblebee.ble.android.TelemetrySink
 import dev.gdk.bumblebee.garage.GarageSnapshot
 import dev.gdk.bumblebee.gps.PhoneGps
-import dev.gdk.bumblebee.safety.CrashAlarmActivity
+import dev.gdk.bumblebee.safety.CrashAlert
 import dev.gdk.bumblebee.protocol.IdentityFrame
 import dev.gdk.bumblebee.protocol.TelemetryFrame
 import dev.gdk.bumblebee.protocol.decodeFrame
@@ -429,6 +429,11 @@ class BikeBridgeService : LifecycleService() {
             gps.fixes().collect { fix ->
                 applyPace(app.latestTelemetry.value?.speedKmh, fix.speedMps)
                 app.latestGps.value = fix
+                if (app.capture.activeRideId != null) {
+                    fix.speedMps?.let { mps ->
+                        ensureCrashWatch(app).onSpeed((mps * 3.6f).toInt(), System.currentTimeMillis(), fromGps = true)
+                    }
+                }
                 launch { app.weather.maybeRefresh(fix.lat, fix.lng) }
                 if (app.capture.activeRideId != null) {
                     val linked = bleClient.state.value is ConnectionState.Ready
@@ -685,12 +690,7 @@ class BikeBridgeService : LifecycleService() {
         if (existing != null) return existing
         val watch = CrashWatch(this) { verdict ->
             val gps = app.latestGps.value
-            CrashAlarmActivity.launch(
-                this,
-                speedBefore = verdict.speedBeforeKmh,
-                lat = gps?.lat,
-                lng = gps?.lng,
-            )
+            CrashAlert.start(this, verdict.speedBeforeKmh, gps?.lat, gps?.lng)
         }
         crashWatch = watch
         return watch

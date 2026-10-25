@@ -161,24 +161,32 @@ private fun LiveChip(connection: ConnectionState) {
 private fun HealthRing(health: BikeHealth, onClick: () -> Unit) {
     val sweep by animateFloatAsState(health.score / 100f, tween(900), label = "health")
     val tone = healthColor(health.score)
-    Box(
+    // Only the number sits inside the ring; the label goes underneath so "100" never crowds it.
+    Column(
         Modifier
-            .size(64.dp)
-            .clip(ShapePill)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+            .clip(ShapeMd)
+            .clickable(onClick = onClick)
+            .padding(4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Canvas(Modifier.fillMaxSize().padding(4.dp)) {
-            val w = 6.dp.toPx()
-            val inset = w / 2
-            val arc = Size(size.width - w, size.height - w)
-            drawArc(Stroke, -90f, 360f, false, Offset(inset, inset), arc, style = DrawStroke(w))
-            drawArc(tone, -90f, 360f * sweep, false, Offset(inset, inset), arc, style = DrawStroke(w, cap = StrokeCap.Round))
+        Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.fillMaxSize()) {
+                val w = 5.dp.toPx()
+                val inset = w / 2
+                val arc = Size(size.width - w, size.height - w)
+                drawArc(Stroke, -90f, 360f, false, Offset(inset, inset), arc, style = DrawStroke(w))
+                drawArc(tone, -90f, 360f * sweep, false, Offset(inset, inset), arc, style = DrawStroke(w, cap = StrokeCap.Round))
+            }
+            Text(
+                "${health.score}",
+                style = MaterialTheme.typography.titleMedium,
+                color = TextPrimary,
+                maxLines = 1,
+                softWrap = false,
+            )
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("${health.score}", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
-            Text("HEALTH", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
-        }
+        Text("HEALTH", style = MaterialTheme.typography.labelSmall, color = TextSecondary, maxLines = 1)
     }
 }
 

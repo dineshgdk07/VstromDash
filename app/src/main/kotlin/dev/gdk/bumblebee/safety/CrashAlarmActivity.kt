@@ -1,58 +1,42 @@
 package dev.gdk.bumblebee.safety
 
-import android.Manifest
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.media.AudioManager
-import android.media.ToneGenerator
 import android.os.Build
 import android.os.Bundle
-import android.telephony.SmsManager
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import dev.gdk.bumblebee.DashApp
 import dev.gdk.bumblebee.ui.theme.BumblebeeTheme
 import dev.gdk.bumblebee.ui.theme.ForgeBlack
 import dev.gdk.bumblebee.ui.theme.SuzukiYellow
-import java.text.DateFormat
-import java.util.Date
 
 /**
- * Best-effort safety aid, not a certified emergency device.
- * A 30 second alarm. If it is not cancelled, SMS goes to the saved contacts.
+ * The full-screen face of [CrashAlert]: a countdown, a huge "I'm OK", and "Send help now".
+ * Closing this screen doesn't stop the countdown; only "I'm OK" does.
  */
 class CrashAlarmActivity : ComponentActivity() {
-    private var tone: ToneGenerator? = null
-    private var secondsLeft by mutableIntStateOf(30)
-    private var sent = false
-    private val ticker = object : Runnable {
-        override fun run() {
-            if (secondsLeft <= 0) {
-                sendSms(test = false, followUp = false)
-                secondsLeft = -1
-                return
-            }
-            secondsLeft -= 1
-            window.decorView.postDelayed(this, 1_000L)
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,82 +50,83 @@ class CrashAlarmActivity : ComponentActivity() {
                     WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
             )
         }
-        tone = runCatching { ToneGenerator(AudioManager.STREAM_ALARM, 100) }.getOrNull()
-        tone?.startTone(ToneGenerator.TONE_CDMA_EMERGENCY_RINGBACK)
-        window.decorView.postDelayed(ticker, 1_000L)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (handleOk(intent)) return
         setContent {
             BumblebeeTheme {
-                Box(Modifier.fillMaxSize().background(ForgeBlack), contentAlignment = Alignment.Center) {
+                val state by CrashAlert.state.collectAsState()
+                LaunchedEffect(state == null) { if (state == null) finish() }
+                val s = state ?: return@BumblebeeTheme
+                Column(
+                    Modifier.fillMaxSize().background(ForgeBlack).safeDrawingPadding().padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        when {
+                            s.test -> "Practice alarm"
+                            s.sent -> "Help alerted"
+                            else -> "Possible crash"
+                        },
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = Color.White,
+                    )
+                    Text(
+                        when {
+                            s.test && s.sent -> "Sent a TEST text to ${s.sentTo} contact${if (s.sentTo == 1) "" else "s"}. This is what a real alarm looks like."
+                            s.test -> "In ${s.secondsLeft} s your contacts get a TEST text, not a real alert. Tap I'm OK to stop."
+                            s.sent -> "Texted ${s.sentTo} contact${if (s.sentTo == 1) "" else "s"} with your location."
+                            else -> "Your emergency contacts get a text with your location in ${s.secondsLeft} s."
+                        },
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color.White.copy(alpha = 0.8f),
+                        textAlign = TextAlign.Center,
+                    )
+                    s.problem?.let {
+                        Text(it, style = MaterialTheme.typography.bodyLarge, color = Color(0xFFFF8A80), textAlign = TextAlign.Center)
+                    }
                     Button(
-                        onClick = { cancel(sent) },
-                        modifier = Modifier.fillMaxSize().padding(24.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = SuzukiYellow),
+                        onClick = { CrashAlert.cancel(this@CrashAlarmActivity) },
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = SuzukiYellow, contentColor = Color.Black),
                     ) {
                         Text(
-                            if (secondsLeft >= 0) "I'm OK\n${secondsLeft}s" else "Help alerted\nCancel — I'm OK",
-                            style = MaterialTheme.typography.headlineLarge,
+                            if (s.sent) "I'm OK\ntell them" else "I'm OK\n${s.secondsLeft}",
+                            style = MaterialTheme.typography.displayMedium,
+                            textAlign = TextAlign.Center,
                         )
+                    }
+                    if (!s.sent) {
+                        OutlinedButton(
+                            onClick = { CrashAlert.sendNow(this@CrashAlarmActivity) },
+                            modifier = Modifier.fillMaxWidth().height(64.dp),
+                        ) {
+                            Text("Send help now", style = MaterialTheme.typography.titleLarge, color = Color.White)
+                        }
                     }
                 }
             }
         }
     }
 
-    private fun cancel(alreadySent: Boolean) {
-        window.decorView.removeCallbacks(ticker)
-        tone?.stopTone()
-        if (alreadySent) sendSms(test = false, followUp = true)
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleOk(intent)
+    }
+
+    /** The notification's "I'm OK" lands here. */
+    private fun handleOk(intent: Intent?): Boolean {
+        if (intent?.action != ACTION_OK) return false
+        CrashAlert.cancel(this)
         finish()
-    }
-
-    private fun sendSms(test: Boolean, followUp: Boolean) {
-        if (sent && !followUp) return
-        val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) ==
-            PackageManager.PERMISSION_GRANTED
-        if (!granted) return
-        val app = application as DashApp
-        val numbers = app.prefs.emergencyContacts.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.take(3)
-        if (numbers.isEmpty()) return
-        val lat = intent.getDoubleExtra(EXTRA_LAT, Double.NaN)
-        val lng = intent.getDoubleExtra(EXTRA_LNG, Double.NaN)
-        val speed = intent.getIntExtra(EXTRA_SPEED, 0)
-        val whenText = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date())
-        val map = if (lat.isNaN() || lng.isNaN()) "location unavailable" else "https://maps.google.com/?q=$lat,$lng"
-        val body = when {
-            test -> "TEST from Bumblebee. This is not an emergency."
-            followUp -> "Update: ${app.prefs.riderName} is OK. Earlier alert can be ignored."
-            else -> buildString {
-                append("Possible crash detected for ${app.prefs.riderName}. Location: $map at $whenText. Speed before: $speed km/h.")
-                app.prefs.bloodGroup.trim().takeIf { it.isNotEmpty() }?.let { append(" Blood: $it.") }
-                app.prefs.medicalNote.trim().takeIf { it.isNotEmpty() }?.let { append(" Note: $it.") }
-                append(" This is a best-effort alert, not a certified emergency service.")
-            }
-        }
-        val sms = SmsManager.getDefault()
-        for (number in numbers) {
-            runCatching { sms.sendTextMessage(number, null, body, null, null) }
-        }
-        sent = !followUp
-    }
-
-    override fun onDestroy() {
-        tone?.release()
-        super.onDestroy()
+        return true
     }
 
     companion object {
-        private const val EXTRA_SPEED = "speed"
-        private const val EXTRA_LAT = "lat"
-        private const val EXTRA_LNG = "lng"
+        const val ACTION_OK = "dev.gdk.bumblebee.CRASH_OK"
 
-        fun launch(context: Context, speedBefore: Int, lat: Double?, lng: Double?) {
-            context.startActivity(
-                Intent(context, CrashAlarmActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    .putExtra(EXTRA_SPEED, speedBefore)
-                    .putExtra(EXTRA_LAT, lat ?: Double.NaN)
-                    .putExtra(EXTRA_LNG, lng ?: Double.NaN),
-            )
-        }
+        fun intent(context: Context): Intent =
+            Intent(context, CrashAlarmActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
     }
 }

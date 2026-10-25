@@ -9,6 +9,7 @@ import dev.gdk.bumblebee.ble.ConnectionState
 import dev.gdk.bumblebee.ble.android.BleScanner
 import dev.gdk.bumblebee.ble.android.DiscoveredBike
 import dev.gdk.bumblebee.garage.GarageReminders
+import dev.gdk.bumblebee.safety.CrashAlert
 import dev.gdk.bumblebee.ui.share.SharePrefs
 import dev.gdk.bumblebee.nav.MapsNavSource
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +38,7 @@ data class GarageSettingsUiState(
     val sharePrompt: Boolean = true,
     val sosContacts: String = "",
     val crashSensitivity: String = "NORMAL",
+    val crashDetection: Boolean = true,
     val bloodGroup: String = "",
     val medicalNote: String = "",
 )
@@ -171,22 +173,40 @@ class GarageSettingsViewModel(application: Application) : AndroidViewModel(appli
     fun setBloodGroup(value: String) { _ui.update { it.copy(bloodGroup = value) } }
     fun setMedicalNote(value: String) { _ui.update { it.copy(medicalNote = value) } }
 
+    fun setCrashDetection(on: Boolean) {
+        app.prefs.crashDetection = on
+        _ui.update {
+            it.copy(
+                crashDetection = on,
+                status = if (on) "Crash alerts on." else "Crash alerts off. Nothing will watch for falls.",
+            )
+        }
+    }
+
     fun onTestSosPermission(granted: Boolean) {
         if (!granted) {
-            _ui.update { it.copy(status = "SMS permission is required to send a test.") }
+            _ui.update { it.copy(status = "SMS permission is needed, or crash alerts can't text anyone.") }
             return
         }
-        val numbers = app.prefs.emergencyContacts.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.take(3)
-        if (numbers.isEmpty()) {
-            _ui.update { it.copy(status = "Save at least one emergency number first.") }
+        saveContacts()
+        if (CrashAlert.numbers(app).isEmpty()) {
+            _ui.update { it.copy(status = "Add at least one emergency number first.") }
             return
         }
-        val sms = android.telephony.SmsManager.getDefault()
-        val body = "TEST from Bumblebee. This is not an emergency."
-        for (number in numbers) {
-            runCatching { sms.sendTextMessage(number, null, body, null, null) }
-        }
-        _ui.update { it.copy(status = "Test SMS sent to ${numbers.size} contact${if (numbers.size == 1) "" else "s"}.") }
+        val sent = CrashAlert.text(app, followUp = false, test = true)
+        _ui.update { it.copy(status = "Test SMS sent to $sent contact${if (sent == 1) "" else "s"}.") }
+    }
+
+    /** Runs the real alarm screen, sound and countdown; contacts only get a TEST text. */
+    fun practiceAlarm() {
+        saveContacts()
+        val gps = app.latestGps.value
+        CrashAlert.start(app, speedBeforeKmh = 0, lat = gps?.lat, lng = gps?.lng, test = true)
+    }
+
+    private fun saveContacts() {
+        val contacts = _ui.value.sosContacts.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.take(3)
+        app.prefs.emergencyContacts = contacts.joinToString(",")
     }
 
     fun saveSafety() {
@@ -236,6 +256,7 @@ class GarageSettingsViewModel(application: Application) : AndroidViewModel(appli
             sharePrompt = SharePrefs(getApplication()).promptEnabled,
             sosContacts = app.prefs.emergencyContacts,
             crashSensitivity = app.prefs.crashSensitivity,
+            crashDetection = app.prefs.crashDetection,
             bloodGroup = app.prefs.bloodGroup,
             medicalNote = app.prefs.medicalNote,
         )

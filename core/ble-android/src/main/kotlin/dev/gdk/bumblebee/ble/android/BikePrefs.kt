@@ -156,6 +156,13 @@ class BikePrefs(context: Context) {
             prefs.edit().putString(KEY_SKIP_AUTO, value).apply()
         }
 
+    /** Crash alerts on or off. On by default. */
+    var crashDetection: Boolean
+        get() = prefs.getBoolean(KEY_CRASH_ON, true)
+        set(value) {
+            prefs.edit().putBoolean(KEY_CRASH_ON, value).apply()
+        }
+
     var crashSensitivity: String
         get() = prefs.getString(KEY_CRASH_SENS, "NORMAL") ?: "NORMAL"
         set(value) {
@@ -205,6 +212,7 @@ class BikePrefs(context: Context) {
         private const val KEY_AUTO_CONNECT = "auto_connect"
         private const val KEY_SKIP_AUTO = "skip_auto_connect_date"
         private const val KEY_CRASH_SENS = "crash_sensitivity"
+        private const val KEY_CRASH_ON = "crash_detection"
         private const val KEY_SOS = "emergency_contacts"
         private const val KEY_BLOOD = "blood_group"
         private const val KEY_MEDICAL = "medical_note"
