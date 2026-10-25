@@ -14,6 +14,20 @@ val mapsApiKey: String = Properties().apply {
     rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
 }.getProperty("MAPS_API_KEY").orEmpty()
 
+/**
+ * The version comes from the release tag: CI passes -PversionName=1.2.3 for tag v1.2.3. The code
+ * is major*10000 + minor*100 + patch, so every tagged release installs over the one before.
+ */
+val appVersionName: String = (findProperty("versionName") as String?)?.removePrefix("v") ?: "0.1.0"
+val appVersionCode: Int = appVersionName.substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }
+    .let { (it.getOrElse(0) { 0 } * 10_000) + (it.getOrElse(1) { 0 } * 100) + it.getOrElse(2) { 0 } }
+    .coerceAtLeast(1)
+
+/** Release signing comes from the environment only; keystores never live in the repo. */
+val releaseStore: String? = System.getenv("BUMBLEBEE_STORE_FILE")
+/** Lets a local release build be debug-signed for testing the minified app: -PdebugSignRelease. */
+val debugSignRelease = hasProperty("debugSignRelease")
+
 android {
     namespace = "dev.gdk.bumblebee"
     compileSdk = 35
@@ -24,15 +38,14 @@ android {
         buildConfigField("boolean", "HAS_MAPS_KEY", mapsApiKey.isNotBlank().toString())
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
     signingConfigs {
         getByName("debug")
         create("release") {
-            val store = System.getenv("BUMBLEBEE_STORE_FILE")
-            if (store != null) {
-                storeFile = file(store)
+            if (releaseStore != null) {
+                storeFile = file(releaseStore)
                 storePassword = System.getenv("BUMBLEBEE_STORE_PASSWORD")
                 keyAlias = System.getenv("BUMBLEBEE_KEY_ALIAS")
                 keyPassword = System.getenv("BUMBLEBEE_KEY_PASSWORD")
@@ -48,10 +61,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            signingConfig = if (System.getenv("BUMBLEBEE_STORE_FILE") != null) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
+            // No silent debug signing: without a keystore the release APK comes out unsigned,
+            // unless -PdebugSignRelease asks for a debug-signed one to test locally.
+            signingConfig = when {
+                releaseStore != null -> signingConfigs.getByName("release")
+                debugSignRelease -> signingConfigs.getByName("debug")
+                else -> null
             }
         }
     }

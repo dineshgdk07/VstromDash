@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 11 and older. The navigation keys are encrypted with a key that never leaves this phone,
+  so a restored copy couldn't be read; leave them out and re-enter them on the new phone.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="bumblebee_nav.xml" />
+</full-backup-content>

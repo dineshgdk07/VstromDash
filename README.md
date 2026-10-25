@@ -13,7 +13,7 @@ Google Maps to the cluster, and keep a private log of every ride, fill and servi
 | Tab | Highlights |
 | --- | --- |
 | **Cockpit** | Readiness check (fuel, weather, link, service), live trip computer, ride suggestions, odometer milestones, "on this day", where you parked |
-| **Journey** | Google Maps turn-by-turn on the cluster, read from Maps notifications (no Maps API key) |
+| **Journey** | Turn-by-turn on the cluster from Google Maps notifications (no key needed), or the app's own navigation with your Google or OpenRouteService key; trip log, saved places, arrow fixes |
 | **Ride** | Live splits, fuel ahead, break nudges, ghost of your usual pace; afterwards a ride score, replay map, speed and elevation chart, and share cards |
 | **Explorer** | Calendar of rides, monthly goal, 6-month bars, personal records, year heatmap, territory "fog" map, badges and challenges, riding DNA, ride compare |
 | **Garage** | Live bike panel and health score, fuel log with calendar and insights, documents with expiry reminders and a checkpost view, service plans with forecasts, parts wear, cost of ownership, bike passport |
@@ -34,6 +34,8 @@ online for:
 
 - **Map tiles** from [OpenStreetMap](https://www.openstreetmap.org/copyright) (© OpenStreetMap contributors)
 - **Weather** from [Open-Meteo](https://open-meteo.com/)
+- **Routing and place search** from Google or [OpenRouteService](https://openrouteservice.org/), only if you
+  add your own key and choose that navigation mode
 - **SMS** to your own emergency contacts, only after a crash alarm is not cancelled, or when you send a test
 
 Sensitive permissions and why:
@@ -46,6 +48,12 @@ Sensitive permissions and why:
 | SMS | Crash alerts to your chosen contacts |
 | Full-screen intent | Showing the crash alarm over the lock screen |
 
+## Install
+
+Download the latest APK from [Releases](https://github.com/dineshgdk07/VstromDash/releases) on your
+phone and allow installs from your browser or file manager. Android 8.0 or newer. Updates install
+over the previous version and keep your data.
+
 ## Build
 
 Requirements: JDK 17 and the Android SDK (compileSdk 35, minSdk 26).
@@ -55,8 +63,10 @@ Requirements: JDK 17 and the Android SDK (compileSdk 35, minSdk 26).
 ./gradlew test                      # JVM unit tests for all modules
 ```
 
-Release builds are signed only when these environment variables are set. Never commit keystores or
-passwords; `.gitignore` blocks the usual files.
+Release builds are signed only when these environment variables are set; otherwise the APK comes out
+unsigned (add `-PdebugSignRelease` to debug-sign one for testing). Never commit keystores or
+passwords; `.gitignore` blocks the usual files. Tagged releases are built by CI; see
+[docs/RELEASING.md](docs/RELEASING.md).
 
 ```bash
 export BUMBLEBEE_STORE_FILE=/path/to/release.jks

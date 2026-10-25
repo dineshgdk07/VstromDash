@@ -1,0 +1,67 @@
+name: Release
+
+# Push a tag like v0.1.0 to build a signed APK and publish it as a GitHub Release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Keystore and keys from secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.BUMBLEBEE_KEYSTORE_BASE64 }}
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Set the BUMBLEBEE_KEYSTORE_BASE64 secret (see docs/RELEASING.md)"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "BUMBLEBEE_STORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          # Optional: the Google map display key. Without it the app hides the Google map.
+          if [ -n "$MAPS_API_KEY" ]; then echo "MAPS_API_KEY=$MAPS_API_KEY" > local.properties; fi
+
+      - name: Test and build
+        env:
+          BUMBLEBEE_STORE_PASSWORD: ${{ secrets.BUMBLEBEE_STORE_PASSWORD }}
+          BUMBLEBEE_KEY_ALIAS: ${{ secrets.BUMBLEBEE_KEY_ALIAS }}
+          BUMBLEBEE_KEY_PASSWORD: ${{ secrets.BUMBLEBEE_KEY_PASSWORD }}
+        run: |
+          ./gradlew test :app:assembleRelease -PversionName="${GITHUB_REF_NAME}"
+          apk="Bumblebee-${GITHUB_REF_NAME}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$apk"
+          sha256sum "$apk" > "$apk.sha256"
+          echo "APK=$apk" >> "$GITHUB_ENV"
+
+      - name: Release notes from CHANGELOG
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '$0 ~ "^## \\[?"v"\\]?" {on=1; next} on && /^## / {exit} on' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "See CHANGELOG.md." > notes.md
+          cat >> notes.md <<'NOTE'
+
+          ---
+          Install: download the APK on your phone and allow installs from your browser or file manager.
+          Not affiliated with, endorsed or sponsored by Suzuki Motor Corporation.
+          NOTE
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: notes.md
+          prerelease: ${{ contains(github.ref_name, '-') || startsWith(github.ref_name, 'v0.') }}
+          files: |
+            ${{ env.APK }}
+            ${{ env.APK }}.sha256
