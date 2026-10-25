@@ -31,6 +31,7 @@ class DashApp : Application() {
     override fun onCreate() {
         super.onCreate()
         dev.gdk.bumblebee.bike.BikeProfile(this).applyAccent()
+        dev.gdk.bumblebee.journey.JourneyTracker.start(this, appScope)
         appScope.launch {
             capture.restoreFuelDetector()
             capture.recoverUnfinishedRides()

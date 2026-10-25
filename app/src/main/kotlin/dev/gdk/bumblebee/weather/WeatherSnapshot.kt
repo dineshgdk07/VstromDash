@@ -6,7 +6,12 @@ data class WeatherSnapshot(
     val lowC: Double?,
     val code: Int,
     val fetchedAt: Long,
+    /** Hourly (epoch ms, % chance of rain), today and tomorrow. */
+    val rainChance: List<Pair<Long, Int>> = emptyList(),
 ) {
+    /** Rain chance in the forecast hour holding [ts], if the forecast reaches that far. */
+    fun rainAt(ts: Long): Int? = rainChance.lastOrNull { it.first <= ts }?.takeIf { ts - it.first < 3_600_000 }?.second
+
     val label: String get() = WmoCode.label(code)
 
     /** Suzuki cluster icon code carried in the a533 heartbeat frame. */

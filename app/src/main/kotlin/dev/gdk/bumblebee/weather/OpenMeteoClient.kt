@@ -17,7 +17,8 @@ class OpenMeteoClient(private val endpoint: String = DEFAULT_ENDPOINT) {
             "$endpoint?latitude=%.4f&longitude=%.4f".format(lat, lon) +
                 "&current=temperature_2m,weather_code" +
                 "&daily=temperature_2m_max,temperature_2m_min" +
-                "&timezone=auto&forecast_days=1",
+                "&hourly=precipitation_probability&timeformat=unixtime" +
+                "&timezone=auto&forecast_days=2",
         )
         runCatching {
             val body = (url.openConnection() as HttpURLConnection).run {
@@ -46,7 +47,18 @@ class OpenMeteoClient(private val endpoint: String = DEFAULT_ENDPOINT) {
             lowC = daily?.optJSONArray("temperature_2m_min")?.optDouble(0)?.takeIf { !it.isNaN() },
             code = current.optInt("weather_code", -1),
             fetchedAt = System.currentTimeMillis(),
+            rainChance = hourlyRain(root),
         )
+    }
+
+    /** (epoch ms, % chance of rain) for each forecast hour. */
+    private fun hourlyRain(root: JSONObject): List<Pair<Long, Int>> {
+        val hourly = root.optJSONObject("hourly") ?: return emptyList()
+        val times = hourly.optJSONArray("time") ?: return emptyList()
+        val probs = hourly.optJSONArray("precipitation_probability") ?: return emptyList()
+        return (0 until minOf(times.length(), probs.length())).mapNotNull { i ->
+            if (probs.isNull(i)) null else times.getLong(i) * 1000 to probs.getInt(i)
+        }
     }
 
     private companion object {

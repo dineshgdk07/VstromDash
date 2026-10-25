@@ -15,10 +15,10 @@ class NavPipelineTest {
     }
 
     @Test
-    fun `head north is compass cluster 40`() {
+    fun `head north is straight ahead`() {
         val mappls = MapplsIdGuesser.fromText("Head north on MG Road")
-        assertEquals(50, mappls)
-        assertEquals(40, ManeuverMap.mapplsIdToClusterByte(mappls))
+        assertEquals(7, mappls)
+        assertEquals(8, ManeuverMap.mapplsIdToClusterByte(mappls))
     }
 
     @Test
@@ -29,10 +29,10 @@ class NavPipelineTest {
     }
 
     @Test
-    fun `destination beats head catch-all`() {
+    fun `destination beats head catch-all and shows the arrival flag`() {
         val mappls = MapplsIdGuesser.fromText("Head to your destination")
-        assertEquals(40, mappls)
-        assertNull(ManeuverMap.mapplsIdToClusterByte(40))
+        assertEquals(8, mappls)
+        assertEquals(9, ManeuverMap.mapplsIdToClusterByte(mappls))
     }
 
     @Test

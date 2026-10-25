@@ -17,7 +17,7 @@ class NotificationCaptureService : NotificationListenerService() {
         if (sbn.packageName != GoogleMapsParser.PKG_GOOGLE_MAPS) return
         val app = applicationContext as? DashApp ?: return
         if (!app.prefs.mapsNavToCluster) return
-        MapsNavSource.update(GoogleMapsParser.parse(sbn), sbn.key)
+        MapsNavSource.update(GoogleMapsParser.parse(this, sbn), sbn.key)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {

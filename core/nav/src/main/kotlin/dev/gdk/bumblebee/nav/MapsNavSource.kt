@@ -17,6 +17,11 @@ object MapsNavSource {
     private val _frame = MutableStateFlow<NavFrame?>(null)
     val frame: StateFlow<NavFrame?> = _frame.asStateFlow()
 
+    private val _parsed = MutableStateFlow<ParsedNavData?>(null)
+
+    /** The current step with everything Maps said about it, for the trip card and arrow fixer. */
+    val parsed: StateFlow<ParsedNavData?> = _parsed.asStateFlow()
+
     private val _street = MutableStateFlow<String?>(null)
     val street: StateFlow<String?> = _street.asStateFlow()
 
@@ -33,6 +38,7 @@ object MapsNavSource {
             return
         }
         activeKey = key
+        _parsed.value = parsed
         _frame.value = parsed.toNavFrame()
         _street.value = parsed.streetName
         staleJob?.cancel()
@@ -40,6 +46,7 @@ object MapsNavSource {
             delay(STALE_AFTER_MS)
             if (_frame.value != null) {
                 _frame.value = null
+                _parsed.value = null
                 _street.value = null
                 activeKey = null
             }
@@ -52,6 +59,7 @@ object MapsNavSource {
 
     fun clear() {
         _frame.value = null
+        _parsed.value = null
         _street.value = null
         activeKey = null
         staleJob?.cancel()

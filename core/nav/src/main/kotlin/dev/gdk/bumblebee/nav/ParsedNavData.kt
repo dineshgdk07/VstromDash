@@ -13,6 +13,15 @@ data class ParsedNavData(
     val distTotal: String,
     val distTotalUnit: String,
     val streetName: String?,
+    /** The arrow chosen for this step and how it was decided. */
+    val arrow: ArrowKind? = null,
+    val arrowSource: ArrowSource = ArrowSource.DEFAULT,
+    /** Fingerprint of Maps' own arrow picture, when the notification carried one. */
+    val iconHash: Long? = null,
+    /** Maps' full instruction, e.g. "Turn left onto MG Road". */
+    val instruction: String? = null,
+    /** Maps' "12 min · 3.4 km · 5:40 pm" line, kept for the trip card. */
+    val summary: String? = null,
 )
 
 fun ParsedNavData.toNavFrame(): NavFrame = NavFrame(
