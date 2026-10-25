@@ -31,7 +31,8 @@ object MapsNavSource {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile private var staleJob: Job? = null
 
-    fun update(parsed: ParsedNavData?, key: String? = null) {
+    /** [staleAfterMs] null keeps the step until replaced: the app's own navigation updates as it likes. */
+    fun update(parsed: ParsedNavData?, key: String? = null, staleAfterMs: Long? = STALE_AFTER_MS) {
         if (parsed == null) {
             if (key != null && activeKey != null && key != activeKey) return
             clear()
@@ -42,8 +43,9 @@ object MapsNavSource {
         _frame.value = parsed.toNavFrame()
         _street.value = parsed.streetName
         staleJob?.cancel()
+        if (staleAfterMs == null) return
         staleJob = scope.launch {
-            delay(STALE_AFTER_MS)
+            delay(staleAfterMs)
             if (_frame.value != null) {
                 _frame.value = null
                 _parsed.value = null

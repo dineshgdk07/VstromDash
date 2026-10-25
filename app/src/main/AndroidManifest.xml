@@ -37,6 +37,10 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:theme="@style/Theme.Bumblebee.Splash"
         android:supportsRtl="true">
+        <!-- Google's map key, from local.properties at build time. Empty is fine: the map is hidden. -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${MAPS_API_KEY}" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

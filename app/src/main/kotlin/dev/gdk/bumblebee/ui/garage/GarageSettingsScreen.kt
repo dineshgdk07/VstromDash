@@ -328,6 +328,7 @@ fun GarageSettingsScreen(
                 )
             }
         }
+        dev.gdk.bumblebee.ui.journey.NavigationSettingsCard()
         SectionCard(header = { SectionLabel(text = "Cluster nav") }) {
             Column(Modifier.padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(

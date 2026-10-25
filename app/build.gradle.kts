@@ -1,8 +1,18 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+
+/**
+ * Google's map display reads its key at build time only. Put MAPS_API_KEY=... in
+ * local.properties (git-ignored); without it the app builds and simply hides the Google map.
+ */
+val mapsApiKey: String = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}.getProperty("MAPS_API_KEY").orEmpty()
 
 android {
     namespace = "dev.gdk.bumblebee"
@@ -10,6 +20,8 @@ android {
 
     defaultConfig {
         applicationId = "dev.gdk.bumblebee"
+        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
+        buildConfigField("boolean", "HAS_MAPS_KEY", mapsApiKey.isNotBlank().toString())
         minSdk = 26
         targetSdk = 35
         versionCode = 1
@@ -82,6 +94,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.play.services.location)
+    implementation(libs.maps.compose)
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)

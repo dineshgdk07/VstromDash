@@ -247,7 +247,7 @@ internal fun RideMapCanvas(
  * Tiles at the nearest whole zoom. A tile still loading borrows a blown-up piece of a coarser
  * tile already in memory, so zooming shows a soft map that sharpens rather than gaps.
  */
-private fun DrawScope.drawTiles(cam: MapCamera, tilePx: Double) {
+internal fun DrawScope.drawTiles(cam: MapCamera, tilePx: Double) {
     val w = size.width.toDouble()
     val h = size.height.toDouble()
     for (id in SlippyMap.visibleTiles(cam, w, h, tilePx)) {

@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Route
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -58,7 +59,13 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.gdk.bumblebee.BuildConfig
 import dev.gdk.bumblebee.DashApp
+import dev.gdk.bumblebee.journey.NavMode
+import dev.gdk.bumblebee.journey.NavSession
+import dev.gdk.bumblebee.journey.NavSettings
+import dev.gdk.bumblebee.journey.NavState
+import dev.gdk.bumblebee.journey.PlaceHit
 import dev.gdk.bumblebee.ble.ConnectionState
 import dev.gdk.bumblebee.journey.BigMode
 import dev.gdk.bumblebee.journey.SavedPlace
@@ -120,6 +127,9 @@ fun JourneyScreen(model: JourneyViewModel = viewModel()) {
     var checkOpen by remember { mutableStateOf(false) }
     var fixOpen by remember { mutableStateOf(false) }
     var addOpen by remember { mutableStateOf(false) }
+    var searchOpen by remember { mutableStateOf(false) }
+    var navMode by remember { mutableStateOf(NavSettings(context).mode) }
+    val session by NavSession.state.collectAsStateWithLifecycle()
     var normalView by remember { mutableStateOf(false) }
     RefreshOnResume(model::refresh)
     val lifecycle = LocalLifecycleOwner.current
@@ -127,6 +137,7 @@ fun JourneyScreen(model: JourneyViewModel = viewModel()) {
         val obs = LifecycleEventObserver { _, e ->
             if (e == Lifecycle.Event.ON_RESUME) {
                 access = notificationAccessGranted(context)
+                navMode = NavSettings(context).mode
                 toCluster = app.prefs.mapsNavToCluster
             }
         }
@@ -140,7 +151,9 @@ fun JourneyScreen(model: JourneyViewModel = viewModel()) {
     }
     fun go(destination: String) {
         model.heading(destination)
-        openMaps(context, JourneyInsights.navigateUri(destination))
+        // In the Google and Open modes this app navigates itself; otherwise Google Maps does.
+        if (navMode == NavMode.NOTIFICATIONS) openMaps(context, JourneyInsights.navigateUri(destination))
+        else NavSession.start(context, PlaceHit(destination, null))
     }
 
     // Biggest remaining distance seen this trip, for the progress bar.
@@ -170,7 +183,9 @@ fun JourneyScreen(model: JourneyViewModel = viewModel()) {
                 modifier = Modifier.clip(ShapePill).clickable { checkOpen = true }.padding(8.dp),
             )
         }
-        if (!access || !toCluster) SetupBanner(access, toCluster, onEnable = ::enableAccess, onCheck = { checkOpen = true })
+        if (navMode == NavMode.NOTIFICATIONS && (!access || !toCluster)) SetupBanner(access, toCluster, onEnable = ::enableAccess, onCheck = { checkOpen = true })
+
+        session?.let { s -> NavPanel(s, onRetry = { NavSession.start(context, s.destination) }, onEnd = { NavSession.stop() }) }
 
         if (live != null) {
             if (big) {
@@ -190,7 +205,15 @@ fun JourneyScreen(model: JourneyViewModel = viewModel()) {
             }
         } else {
             state.newPlace?.let { NewPlaceCard(it.name) }
-            PlacesCard(state.places, state.visited.take(6).map { it.name }, onGo = ::go, onAdd = { addOpen = true }, onRemove = model::removePlace)
+            PlacesCard(
+                state.places,
+                state.visited.take(6).map { it.name },
+                inApp = navMode != NavMode.NOTIFICATIONS,
+                onGo = ::go,
+                onSearch = { searchOpen = true },
+                onAdd = { addOpen = true },
+                onRemove = model::removePlace,
+            )
             if (state.routes.isNotEmpty()) RoutesCard(state.routes, onOpen = { openMaps(context, it.url) })
             LogCard(state)
             if (state.visited.isNotEmpty()) BeenCard(state.visited)
@@ -221,6 +244,16 @@ fun JourneyScreen(model: JourneyViewModel = viewModel()) {
                 if (!it) MapsNavSource.clear()
             },
             onDismiss = { checkOpen = false },
+        )
+    }
+    if (searchOpen) {
+        PlaceSearchSheet(
+            onPick = { hit ->
+                searchOpen = false
+                model.heading(hit.label)
+                NavSession.start(context, hit)
+            },
+            onDismiss = { searchOpen = false },
         )
     }
     if (addOpen) {
@@ -261,17 +294,29 @@ private fun SetupBanner(access: Boolean, toCluster: Boolean, onEnable: () -> Uni
 private fun PlacesCard(
     saved: List<SavedPlace>,
     frequent: List<String>,
+    inApp: Boolean,
     onGo: (String) -> Unit,
+    onSearch: () -> Unit,
     onAdd: () -> Unit,
     onRemove: (SavedPlace) -> Unit,
 ) {
     SectionCard(header = { SectionLabel(text = "Where to?") }) {
         Text(
-            "Tap a place: Google Maps opens already navigating, two-wheeler mode, and the cluster follows.",
+            if (inApp) "Search or tap a place and this app guides you, turn by turn on the cluster."
+            else "Tap a place: Google Maps opens already navigating, two-wheeler mode, and the cluster follows.",
             style = MaterialTheme.typography.bodySmall,
             color = TextSecondary,
             modifier = Modifier.padding(top = 6.dp, bottom = 10.dp),
         )
+        if (inApp) {
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(ShapeMd).background(SurfaceRaised).clickable(onClick = onSearch).padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.Search, contentDescription = null, tint = Lime, modifier = Modifier.size(20.dp))
+                Text("Search a place or address", style = MaterialTheme.typography.bodyMedium, color = TextSecondary, modifier = Modifier.padding(start = 10.dp))
+            }
+        }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             saved.forEach { p -> PlaceChip(p.name, onClick = { onGo(p.query) }, onRemove = { onRemove(p) }) }
             frequent.filter { f -> saved.none { it.query.equals(f, ignoreCase = true) } }.forEach { name ->
@@ -425,6 +470,39 @@ private fun PrefsCard(state: JourneyUi, onAuto: (Boolean) -> Unit, onBig: (BigMo
 }
 
 // ---- Navigating ----
+
+/** The app's own navigation: the map (when allowed), status, and the way out. */
+@Composable
+private fun NavPanel(s: NavState, onRetry: () -> Unit, onEnd: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        val mapBox = Modifier.fillMaxWidth().height(260.dp).clip(ShapeLg)
+        when {
+            s.route == null -> Unit
+            s.mode == NavMode.OPEN -> OsmRouteMap(s, mapBox)
+            s.mode == NavMode.GOOGLE && BuildConfig.HAS_MAPS_KEY -> GoogleRouteMap(s, mapBox)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("To ${s.destination.label}", style = MaterialTheme.typography.titleMedium, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    when {
+                        s.error != null -> s.error
+                        s.arrived -> "You've arrived"
+                        s.rerouting && s.route == null -> "Planning the route…"
+                        s.rerouting -> "Off the route. Finding a new one…"
+                        else -> s.progress?.nextStep?.let { "Then: ${it.arrow.label.lowercase()}" } ?: "${s.mode.label} navigation"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (s.error != null) Danger else TextSecondary,
+                )
+            }
+            if (s.error != null) {
+                Text("Retry", style = MaterialTheme.typography.labelLarge, color = Lime, modifier = Modifier.clip(ShapePill).clickable(onClick = onRetry).padding(8.dp))
+            }
+            Text("End", style = MaterialTheme.typography.labelLarge, color = Danger, modifier = Modifier.clip(ShapePill).clickable(onClick = onEnd).padding(8.dp))
+        }
+    }
+}
 
 @Composable
 private fun LiveTripCard(step: ParsedNavData, linked: Boolean, tripKm: Double?, onFix: () -> Unit) {
