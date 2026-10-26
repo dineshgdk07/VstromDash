@@ -122,8 +122,8 @@ class TerrainRenderer(
 
         drawSky(vm)
         drawTerrain(vm)
-        val upTo = if (cue.shot == Shot.INTRO) 0.0 else cue.distanceM
-        drawRibbons(vm, upTo)
+        val (upTo, fade) = trailAt(cue)
+        drawRibbons(vm, upTo, fade)
         drawSprites(vm, upTo, cue)
         drawPost()
 
@@ -207,7 +207,28 @@ class TerrainRenderer(
      * The route as camera-facing ribbons built each frame: a soft accent glow and a bright core
      * for the ridden part, a thin pale line for the rest. Widths are in pixels at any distance.
      */
-    private fun drawRibbons(vm: ViewMath, upTo: Double) {
+    /**
+     * How much of the route is lit, and how strongly. In the map-reveal finale the trail fades
+     * out once the camera is up high, then a wave of light redraws the whole ride from the start.
+     */
+    private fun trailAt(cue: Cue): Pair<Double, Float> {
+        val l = plan.path.length
+        return when {
+            cue.shot == Shot.INTRO -> 0.0 to 1f
+            cue.shot == Shot.FINISH && cfg.mapReveal -> {
+                val p = cue.progress
+                when {
+                    p < 0.40 -> l to 1f
+                    p < 0.46 -> l to (1 - (p - 0.40) / 0.06).toFloat()
+                    p < 0.78 -> l * smootherstep((p - 0.46) / 0.32) to 1f
+                    else -> l to 1f
+                }
+            }
+            else -> cue.distanceM to 1f
+        }
+    }
+
+    private fun drawRibbons(vm: ViewMath, upTo: Double, fade: Float) {
         val path = plan.path
         val split = path.index(upTo)
         val pxToWorld = 2.0 * vm.tanHalfFov / height
@@ -229,9 +250,9 @@ class TerrainRenderer(
             }
         }
         if (split > 0) {
-            if (glow > 0f) strip(vm, 0, split, 34.0 * scale, pxToWorld)?.let { drawStrip(it, accent, (0.30f * glow).coerceAtMost(0.8f), 3.0f) }
-            strip(vm, 0, split, 13.0 * scale, pxToWorld)?.let { drawStrip(it, accent, 0.85f, 1.6f) }
-            strip(vm, 0, split, 4.0 * scale, pxToWorld)?.let { drawStrip(it, floatArrayOf(1f, 0.98f, 0.88f), 1f, 0.8f) }
+            if (glow > 0f) strip(vm, 0, split, 34.0 * scale, pxToWorld)?.let { drawStrip(it, accent, (0.30f * glow).coerceAtMost(0.8f) * fade, 3.0f) }
+            strip(vm, 0, split, 13.0 * scale, pxToWorld)?.let { drawStrip(it, accent, 0.85f * fade, 1.6f) }
+            strip(vm, 0, split, 4.0 * scale, pxToWorld)?.let { drawStrip(it, floatArrayOf(1f, 0.98f, 0.88f), fade, 0.8f) }
         }
         GLES30.glDepthMask(true)
     }
@@ -306,7 +327,13 @@ class TerrainRenderer(
             val active = cue.moment == m
             sprites += floatArrayOf(pos.x.toFloat(), pos.y.toFloat(), pos.z.toFloat(), (if (active) 46 else 26) * scale.toFloat(), accent[0], accent[1], accent[2], 0.9f)
         }
-        if (cue.shot != Shot.INTRO || cue.progress > 0.15) {
+        val revealing = cue.shot == Shot.FINISH && cfg.mapReveal && cue.progress in 0.46..0.78
+        val headShown = when (cue.shot) {
+            Shot.INTRO -> cue.progress > 0.15
+            Shot.FINISH -> !cfg.mapReveal || cue.progress < 0.40 || revealing
+            else -> true
+        }
+        if (headShown) {
             val head = plan.path.at(upTo) - vm.eye
             val pulse = 1.0 + 0.08 * kotlin.math.sin(cue.progress * 40)
             sprites += floatArrayOf(head.x.toFloat(), head.y.toFloat(), head.z.toFloat(), (110 * scale * pulse * look.pathGlow * (0.6 + 0.4 * cfg.glow) * cfg.pathWidth.coerceIn(0.8, 1.5)).toFloat(), accent[0], accent[1], accent[2], 1f)

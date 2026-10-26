@@ -44,6 +44,8 @@ class RideVideoPlan private constructor(
     val length: LengthRange,
     /** True when no elevation could be fetched and the terrain is flat. */
     val flat: Boolean,
+    /** Named acts of the ride; empty when it was all one thing or chapters are off. */
+    val chapters: List<Chapter>,
     private val alongTs: LongArray,
     private val alongD: DoubleArray,
     private val speedKmh: DoubleArray,
@@ -254,12 +256,24 @@ class RideVideoPlan private constructor(
             val probe = VideoTimeline(totalS, path.length, emptyList())
             val moments = Moments.pick(candidates, path.length, probe.rideS)
             val twistWindow = max(600.0, path.length * 0.02)
-            val timeline = VideoTimeline(totalS, path.length, moments) { d -> path.twistiness(d, twistWindow) * 2 }
-            val director = CameraDirector(path, land, ex, config.shape.aspect, config.cameraDistance)
+            // The teaser is the most important moment.
+            val teaser = if (config.coldOpen) moments.minByOrNull { it.kind.rank } else null
+            val timeline = VideoTimeline(totalS, path.length, moments, teaser) { d -> path.twistiness(d, twistWindow) * 2 }
+            val director = CameraDirector(path, land, ex, config.shape.aspect, CameraStyle.of(config))
+            val chapters = if (config.chapters) {
+                Chapters.plan(
+                    path.length,
+                    altitudeAt = { d -> if (flat) null else path.at(d).let { land.heightAt(it.x, it.y) } },
+                    twistAt = { d -> path.twistiness(d, twistWindow) },
+                    breaks = stops,
+                )
+            } else {
+                emptyList()
+            }
             val first = kept.first()
             val sun = SunPosition.at(input.startTs, first.lat, first.lng)
             return RideVideoPlan(
-                input, config, land, ex, path, timeline, director, sun, length, flat,
+                input, config, land, ex, path, timeline, director, sun, length, flat, chapters,
                 alongTs, alongD, speeds, trimStart,
             )
         }

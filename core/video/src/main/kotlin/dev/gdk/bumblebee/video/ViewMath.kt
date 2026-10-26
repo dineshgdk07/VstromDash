@@ -9,8 +9,13 @@ import kotlin.math.tan
 class ViewMath(pose: CameraPose, val aspect: Double, val near: Double, val far: Double) {
     val eye: Vec3 = pose.eye
     val forward: Vec3 = (pose.target - pose.eye).normalized()
-    val right: Vec3 = forward.cross(Vec3.UP).normalized().let { if (it.length < 0.5) Vec3(1.0, 0.0, 0.0) else it }
-    val up: Vec3 = right.cross(forward)
+    private val level: Vec3 = forward.cross(Vec3.UP).normalized().let { if (it.length < 0.5) Vec3(1.0, 0.0, 0.0) else it }
+    private val levelUp: Vec3 = level.cross(forward)
+    private val roll = Math.toRadians(pose.rollDeg)
+
+    /** Screen right and up in the world, after the camera's roll (positive lowers the right). */
+    val right: Vec3 = level * kotlin.math.cos(roll) - levelUp * kotlin.math.sin(roll)
+    val up: Vec3 = levelUp * kotlin.math.cos(roll) + level * kotlin.math.sin(roll)
     val tanHalfFov: Double = tan(Math.toRadians(pose.fovYDeg / 2))
 
     /** Column-major view-projection for eye-relative positions. */

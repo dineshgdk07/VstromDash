@@ -45,13 +45,14 @@ class RideVideoPlanTest {
     }
 
     @Test fun `plan trims, places moments and keeps to the length rules`() {
-        val plan = RideVideoPlan.build(ride(), VideoConfig(), ::hills)!!
+        val plan = RideVideoPlan.build(ride(), VideoConfig(lengthS = 45), ::hills)!!
         assertTrue(!plan.flat)
         // About 30 km, less 500 m each end.
         assertTrue(plan.routeKm in 27.0..32.0)
         assertEquals(500.0, plan.trimStartM, 30.0)
         assertTrue(plan.totalS >= plan.length.min && plan.totalS <= plan.length.max)
-        assertEquals(plan.length.recommended.toDouble(), plan.totalS, 0.0)
+        assertEquals(45.0, plan.totalS, 0.0)
+        assertEquals(plan.length.recommended.toDouble(), RideVideoPlan.build(ride(), VideoConfig(), ::hills)!!.totalS, 0.0)
         assertEquals((plan.totalS * 30).toInt(), plan.frameCount)
         val kinds = plan.timeline.moments.map { it.kind }
         assertTrue("moments $kinds", MomentKind.STOP in kinds || MomentKind.REFUEL in kinds)

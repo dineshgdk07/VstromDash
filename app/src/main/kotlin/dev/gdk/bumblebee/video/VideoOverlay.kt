@@ -46,23 +46,70 @@ class VideoOverlay(
     private val profile: FloatArray = FloatArray(PROFILE_POINTS + 1) { plan.altitudeAt(plan.path.length * it / PROFILE_POINTS).toFloat() }
     private val stats = plan.stats()
 
+    /** When each chapter's card appears: as the marker reaches the chapter's start. */
+    private val chapterTimes = plan.chapters.map { plan.timeline.timeAt(it.startM) }
+
     fun draw(t: Double): Bitmap {
         bitmap.eraseColor(Color.TRANSPARENT)
         val cue = plan.timeline.cue(t)
         when (cue.shot) {
+            Shot.COLD -> cue.moment?.let { teaser(it, cue.progress) }
             Shot.INTRO -> if (cfg.titleCard) intro(cue.progress)
             Shot.RIDE, Shot.HOLD -> {
                 // The HUD fades in over the first half second of the ride.
-                val since = t - plan.timeline.introS
+                val since = t - plan.timeline.rideStartS
                 hud(cue, (since / 0.5).coerceIn(0.0, 1.0).toFloat())
                 if (cfg.moments) cue.moment?.let { if (cue.shot == Shot.HOLD) momentCard(it, cue.progress) }
+                if (cue.shot == Shot.RIDE) chapterCard(t)
             }
             Shot.FINISH -> {
                 hud(cue, (1 - cue.progress / 0.25).coerceIn(0.0, 1.0).toFloat())
                 if (cfg.finishCard) finish(cue.progress)
             }
         }
+        flash(t)
         return bitmap
+    }
+
+    /** A white flash across the cut from the cold open into the title. */
+    private fun flash(t: Double) {
+        val cut = plan.timeline.coldS
+        if (cut <= 0) return
+        val a = when {
+            t in (cut - 0.12)..cut -> (t - (cut - 0.12)) / 0.12
+            t in cut..(cut + 0.35) -> 1 - (t - cut) / 0.35
+            else -> return
+        }.coerceIn(0.0, 1.0)
+        fill.color = Color.argb((a * 230).toInt(), 255, 255, 255)
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), fill)
+    }
+
+    /** The cold open: the best moment's card, big, with a hint of what's coming. */
+    private fun teaser(m: VideoMoment, p: Double) {
+        val a = (min(p, 1 - p) / 0.15).coerceIn(0.0, 1.0).toFloat()
+        momentCard(m, 0.5, alphaOverride = a)
+        label("TODAY'S RIDE", 56 * u, height - 120 * u, 28 * u, Color.WHITE, a * 0.8f, fonts.labelBold, tracking = 0.25f)
+    }
+
+    /** "Chapter 2 · The climb", top left, for a couple of seconds as each act begins. */
+    private fun chapterCard(t: Double) {
+        val i = chapterTimes.indexOfLast { it <= t }
+        if (i < 0) return
+        val since = t - chapterTimes[i]
+        if (since > CHAPTER_S) return
+        val a = when {
+            since < 0.3 -> since / 0.3
+            since > CHAPTER_S - 0.4 -> (CHAPTER_S - since) / 0.4
+            else -> 1.0
+        }.toFloat()
+        val c = plan.chapters[i]
+        val left = 56 * u
+        val slide = (1 - a) * 30 * u
+        var y = 150 * u
+        label("CHAPTER ${c.number}", left - slide, y, 26 * u, accent, a, fonts.labelBold, tracking = 0.3f)
+        y += 70 * u
+        label(c.title.uppercase(Locale.ENGLISH), left - slide, y, fitSize(c.title.uppercase(Locale.ENGLISH), fonts.display, 76 * u, width - left * 2), Color.WHITE, a, fonts.display)
+        c.detail?.let { label(it, left - slide, y + 44 * u, 28 * u, Color.WHITE, a * 0.8f, fonts.label) }
     }
 
     private fun intro(p: Double) {
@@ -158,10 +205,10 @@ class VideoOverlay(
         canvas.drawCircle(head, y + h + 12 * u, 6 * u, fill)
     }
 
-    private fun momentCard(m: VideoMoment, p: Double) {
+    private fun momentCard(m: VideoMoment, p: Double, alphaOverride: Float? = null) {
         // Slides in, holds, slides out, inside the hold.
         val inOut = min(p, 1 - p)
-        val a = (inOut / 0.18).coerceIn(0.0, 1.0).toFloat()
+        val a = alphaOverride ?: (inOut / 0.18).coerceIn(0.0, 1.0).toFloat()
         if (a <= 0f) return
         val slide = (1 - a) * 40 * u
         val titleSize = 30 * u
@@ -186,7 +233,9 @@ class VideoOverlay(
     }
 
     private fun finish(p: Double) {
-        val a = ((p - 0.45) / 0.18).coerceIn(0.0, 1.0).toFloat()
+        // After the map reveal has drawn the route, if it's on.
+        val from = if (cfg.mapReveal) 0.78 else 0.45
+        val a = ((p - from) / 0.14).coerceIn(0.0, 1.0).toFloat()
         if (a <= 0f) return
         fill.color = Color.argb((a * 120).toInt(), 0, 0, 0)
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), fill)
@@ -239,5 +288,6 @@ class VideoOverlay(
 
     private companion object {
         const val PROFILE_POINTS = 160
+        const val CHAPTER_S = 2.4
     }
 }

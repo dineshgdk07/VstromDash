@@ -26,6 +26,12 @@ data class VideoConfig(
     val places: Boolean = true,
     val moments: Boolean = true,
     val finishCard: Boolean = true,
+    /** A short teaser of the best moment before the title. */
+    val coldOpen: Boolean = true,
+    /** Named acts (the climb, the twisties, after the break) with a card as each begins. */
+    val chapters: Boolean = true,
+    /** The finale climbs to a top-down view and redraws the whole route in light. */
+    val mapReveal: Boolean = true,
     // Overlays
     val hud: Boolean = true,
     val clock: Boolean = true,
@@ -35,6 +41,12 @@ data class VideoConfig(
     val cameraDistance: Double = 1.0,
     /** Null for automatic height exaggeration. */
     val exaggeration: Double? = null,
+    /** A different camera move for each kind of moment, rather than one orbit for all. */
+    val momentShots: Boolean = true,
+    /** How much the camera leans into turns, 0 (level) to 1. */
+    val bank: Double = 0.6,
+    /** Rise to a near top-down view over hairpins. */
+    val hairpinView: Boolean = true,
     // Look
     val pathWidth: Double = 1.0,
     val glow: Double = 1.0,
@@ -49,6 +61,7 @@ data class VideoConfig(
         title = title?.trim()?.take(40)?.ifBlank { null },
         cameraDistance = cameraDistance.coerceIn(0.5, 2.0),
         exaggeration = exaggeration?.coerceIn(1.0, 4.0),
+        bank = bank.coerceIn(0.0, 1.0),
         pathWidth = pathWidth.coerceIn(0.5, 2.5),
         glow = glow.coerceIn(0.0, 2.0),
         haze = haze.coerceIn(0.2, 2.0),
@@ -58,11 +71,12 @@ data class VideoConfig(
     fun withPreset(p: VideoPreset): VideoConfig {
         val base = when (p) {
             VideoPreset.CINEMATIC, VideoPreset.CUSTOM -> VideoConfig()
-            VideoPreset.ADVENTURE -> VideoConfig(cameraDistance = 0.8, exaggeration = 2.4, pathWidth = 1.3, glow = 1.5, haze = 0.8)
+            VideoPreset.ADVENTURE -> VideoConfig(cameraDistance = 0.8, exaggeration = 2.4, pathWidth = 1.3, glow = 1.5, haze = 0.8, bank = 1.0)
             VideoPreset.DATA -> VideoConfig(cameraDistance = 1.2, haze = 0.5, pathWidth = 1.1, glow = 0.8, grain = false)
             VideoPreset.MINIMAL -> VideoConfig(
                 hud = false, clock = false, elevationStrip = false, moments = false, places = false,
                 contours = false, grain = false, pathWidth = 0.8, glow = 0.7,
+                coldOpen = false, chapters = false, bank = 0.3,
             )
         }
         return base.copy(preset = p, shape = shape, lengthS = lengthS, title = title)
@@ -78,6 +92,12 @@ data class VideoConfig(
         "places" to places,
         "moments" to moments,
         "finishCard" to finishCard,
+        "coldOpen" to coldOpen,
+        "chapters" to chapters,
+        "mapReveal" to mapReveal,
+        "momentShots" to momentShots,
+        "bank" to bank,
+        "hairpinView" to hairpinView,
         "hud" to hud,
         "clock" to clock,
         "strip" to elevationStrip,
@@ -108,6 +128,12 @@ data class VideoConfig(
                 places = b("places", d.places),
                 moments = b("moments", d.moments),
                 finishCard = b("finishCard", d.finishCard),
+                coldOpen = b("coldOpen", d.coldOpen),
+                chapters = b("chapters", d.chapters),
+                mapReveal = b("mapReveal", d.mapReveal),
+                momentShots = b("momentShots", d.momentShots),
+                bank = n("bank", d.bank),
+                hairpinView = b("hairpinView", d.hairpinView),
                 hud = b("hud", d.hud),
                 clock = b("clock", d.clock),
                 elevationStrip = b("strip", d.elevationStrip),

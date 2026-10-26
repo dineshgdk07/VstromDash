@@ -168,25 +168,32 @@ object Moments {
     private fun metres(m: Double) = String.format(Locale.ENGLISH, "%,d", m.roundToInt())
 }
 
-enum class Shot { INTRO, RIDE, HOLD, FINISH }
+enum class Shot { COLD, INTRO, RIDE, HOLD, FINISH }
 
 /** What the camera and overlays should show at one instant. [progress] runs 0..1 within the shot. */
 data class Cue(val shot: Shot, val progress: Double, val distanceM: Double, val moment: VideoMoment? = null)
 
 /**
- * The video's clock: an intro, the ride with pauses at moments, and a finish. During the ride the
- * marker's distance follows a warped clock that slows near moments, near both ends, and wherever
- * [interest] is high (twisty or steep road), so the time goes on the good parts.
+ * The video's clock: an optional cold open (a teaser of [teaser] before anything else), an intro,
+ * the ride with pauses at moments, and a finish. During the ride the marker's distance follows a
+ * warped clock that slows near moments, near both ends, and wherever [interest] is high (twisty or
+ * steep road), so the time goes on the good parts.
  */
 class VideoTimeline(
     val totalS: Double,
     val routeLengthM: Double,
     moments: List<VideoMoment>,
+    val teaser: VideoMoment? = null,
     interest: (distanceM: Double) -> Double = { 0.0 },
 ) {
-    val introS = max(3.0, totalS * 0.15)
-    val finishS = max(3.5, totalS * 0.18)
-    val rideS = max(1.0, totalS - introS - finishS)
+    val coldS = if (teaser == null) 0.0 else (totalS * 0.09).coerceIn(2.0, 3.0)
+    private val mainS = totalS - coldS
+    val introS = max(3.0, mainS * 0.15)
+    val finishS = max(4.5, mainS * 0.24)
+    val rideS = max(1.0, mainS - introS - finishS)
+
+    /** Video time at which the ride (after the cold open and intro) begins. */
+    val rideStartS: Double get() = coldS + introS
     val moments: List<VideoMoment> = moments.sortedBy { it.distanceM }
     private val holdS: Double = if (moments.isEmpty()) 0.0 else min(HOLD_S, rideS * 0.30 / moments.size)
     private val travelS = rideS - holdS * moments.size
@@ -231,7 +238,23 @@ class VideoTimeline(
     /** Ride-scene times at which each moment's hold starts. */
     val holdStarts: List<Double> = this.moments.mapIndexed { k, m -> warpAt(m.distanceM) / cum[n] * travelS + k * holdS }
 
-    fun cue(t: Double): Cue {
+    /**
+     * The stretch of video [t] belongs to, between hard cuts. Smoothing must not reach across a
+     * cut, or the teaser and the intro would blur into each other.
+     */
+    fun segment(t: Double): ClosedFloatingPointRange<Double> =
+        if (t < coldS) 0.0..(coldS - 1e-6) else coldS..totalS
+
+    /** Video time when the marker reaches [d] on the ride (holds before it included). */
+    fun timeAt(d: Double): Double {
+        val travel = warpAt(d.coerceIn(0.0, routeLengthM)) / cum[n] * travelS
+        val holds = moments.count { it.distanceM < d } * holdS
+        return rideStartS + travel + holds
+    }
+
+    fun cue(time: Double): Cue {
+        if (teaser != null && time < coldS) return Cue(Shot.COLD, (time / coldS).coerceIn(0.0, 1.0), teaser.distanceM, teaser)
+        val t = time - coldS
         if (t < introS) return Cue(Shot.INTRO, (t / introS).coerceIn(0.0, 1.0), 0.0)
         val r = t - introS
         if (r >= rideS) return Cue(Shot.FINISH, ((r - rideS) / finishS).coerceIn(0.0, 1.0), routeLengthM)
@@ -247,6 +270,6 @@ class VideoTimeline(
     }
 
     companion object {
-        const val HOLD_S = 1.6
+        const val HOLD_S = 2.2
     }
 }

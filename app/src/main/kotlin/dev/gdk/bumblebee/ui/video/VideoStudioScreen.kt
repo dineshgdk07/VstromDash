@@ -201,10 +201,20 @@ private fun Setup(ui: StudioUi, failed: String?, vm: VideoStudioViewModel) {
 
             SectionCard(header = { SectionLabel(text = "Story") }) {
                 TitleField(config.title ?: plan?.input?.title.orEmpty()) { t -> vm.updateKeepingPreset { it.copy(title = t) } }
+                Toggle("Cold open: tease the best moment first", config.coldOpen) { v -> vm.update { it.copy(coldOpen = v) } }
                 Toggle("Title card at the start", config.titleCard) { v -> vm.update { it.copy(titleCard = v) } }
+                Toggle("Chapters: the climb, the twisties, after the break", config.chapters) { v -> vm.update { it.copy(chapters = v) } }
                 Toggle("From and to place names", config.places) { v -> vm.update { it.copy(places = v) } }
                 Toggle("Pause on highlights", config.moments) { v -> vm.update { it.copy(moments = v) } }
+                Toggle("Map reveal: redraw the route from above at the end", config.mapReveal) { v -> vm.update { it.copy(mapReveal = v) } }
                 Toggle("Stats card at the end", config.finishCard) { v -> vm.update { it.copy(finishCard = v) } }
+                ui.plan?.chapters?.takeIf { it.isNotEmpty() && config.chapters }?.let { chapters ->
+                    Text(
+                        "This ride: " + chapters.joinToString("  ·  ") { it.title },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                    )
+                }
             }
 
             SectionCard(header = { SectionLabel(text = "Overlays") }) {
@@ -215,6 +225,9 @@ private fun Setup(ui: StudioUi, failed: String?, vm: VideoStudioViewModel) {
 
             SectionCard(header = { SectionLabel(text = "Camera and land") }) {
                 Tune("Camera distance", config.cameraDistance, 0.5..2.0, closer = "Closer", further = "Further") { v -> vm.update { it.copy(cameraDistance = v) } }
+                Tune("Lean into turns", config.bank, 0.0..1.0, closer = "Level", further = "Banked") { v -> vm.update { it.copy(bank = v) } }
+                Toggle("A different shot for each highlight", config.momentShots) { v -> vm.update { it.copy(momentShots = v) } }
+                Toggle("Rise over hairpins", config.hairpinView) { v -> vm.update { it.copy(hairpinView = v) } }
                 val auto = config.exaggeration == null
                 Toggle("Automatic hill height", auto) { v -> vm.update { it.copy(exaggeration = if (v) null else plan?.exaggeration ?: 1.5) } }
                 if (!auto) {
@@ -231,7 +244,7 @@ private fun Setup(ui: StudioUi, failed: String?, vm: VideoStudioViewModel) {
                 Toggle("Film grain", config.grain) { v -> vm.update { it.copy(grain = v) } }
             }
             Text(
-                "More is coming to the Studio: chapters and a cold open, time-of-day changes, clouds, place labels, your bike as the marker, a cluster-style HUD, ride photos and music.",
+                "More is coming to the Studio: time-of-day changes, clouds, place labels, your bike as the marker, a cluster-style HUD, ride photos and music.",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 modifier = Modifier.padding(bottom = 8.dp),
