@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Movie
 import dev.gdk.bumblebee.video.VideoExportService
 import dev.gdk.bumblebee.video.VideoExportState
+import dev.gdk.bumblebee.ui.video.VideoStudioScreen
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.automirrored.rounded.Notes
 import androidx.compose.material.icons.rounded.Route
@@ -253,23 +254,12 @@ fun RideDetailPane(
     var shareMenu by remember(detail.row.id) { mutableStateOf(false) }
     var shareCard by remember(detail.row.id) { mutableStateOf(false) }
     val video by VideoExportService.state.collectAsState()
-    val actions = shareActions(detail, context, openCard = { shareCard = true }, videoBusy = video is VideoExportState.Working)
-    // When this ride's video is ready, offer it straight away; a failure says why.
+    var videoStudio by remember(detail.row.id) { mutableStateOf(false) }
+    val actions = shareActions(detail, context, openCard = { shareCard = true }, openVideo = { videoStudio = true })
+    // A finished video for this ride opens the Studio's result screen.
     LaunchedEffect(video) {
-        when (val v = video) {
-            is VideoExportState.Done -> if (v.rideId == detail.row.id) {
-                val send = Intent(Intent.ACTION_SEND).setType("video/mp4")
-                    .putExtra(Intent.EXTRA_STREAM, v.uri)
-                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                context.startActivity(Intent.createChooser(send, "Share ride video"))
-                VideoExportService.consume()
-            }
-            is VideoExportState.Failed -> if (v.rideId == detail.row.id) {
-                android.widget.Toast.makeText(context, "Video failed: ${v.reason}", android.widget.Toast.LENGTH_LONG).show()
-                VideoExportService.consume()
-            }
-            else -> {}
-        }
+        val v = video
+        if (v is VideoExportState.Done && v.rideId == detail.row.id) videoStudio = true
     }
     var draft by remember(detail.row.id, detail.row.name) { mutableStateOf(detail.row.name.orEmpty()) }
     fun jump(ts: Long) {
@@ -335,12 +325,15 @@ fun RideDetailPane(
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    "Cancel",
+                    "Open",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Lime,
-                    modifier = Modifier.clickable { VideoExportService.cancel(context) }.padding(8.dp),
+                    modifier = Modifier.clickable { videoStudio = true }.padding(8.dp),
                 )
             }
+        }
+        if (videoStudio) {
+            VideoStudioScreen(detail.row.id, onDismiss = { videoStudio = false })
         }
         if (shareMenu) {
             ShareMenu(actions, onDismiss = { shareMenu = false })
@@ -649,21 +642,10 @@ private fun FuelFact(label: String, value: String, valueColor: Color) {
 /** One way to share a ride. The header menu and the buttons at the bottom list the same ones. */
 private class ShareAction(val label: String, val hint: String, val icon: ImageVector, val run: () -> Unit)
 
-private fun shareActions(detail: RideDetail, context: Context, openCard: () -> Unit, videoBusy: Boolean): List<ShareAction> = buildList {
+private fun shareActions(detail: RideDetail, context: Context, openCard: () -> Unit, openVideo: () -> Unit): List<ShareAction> = buildList {
     if (detail.row.endTs != null) add(ShareAction("Share card", "Pick a design and share an image", Icons.Rounded.Image, openCard))
     if (detail.row.endTs != null && detail.track.size >= 2) {
-        add(
-            ShareAction(
-                "Share video (beta)",
-                if (videoBusy) "A video is being made; it'll open when ready" else "A 3D flyover of the route, made on this phone",
-                Icons.Rounded.Movie,
-            ) {
-                if (!videoBusy) {
-                    VideoExportService.start(context, detail.row.id)
-                    android.widget.Toast.makeText(context, "Making your ride video. It opens when ready.", android.widget.Toast.LENGTH_SHORT).show()
-                }
-            },
-        )
+        add(ShareAction("Ride video", "A 3D flyover of the route: pick a style, preview, export", Icons.Rounded.Movie, openVideo))
     }
     if (detail.shareText.isNotBlank()) {
         add(ShareAction("Share recap", "A short text summary", Icons.AutoMirrored.Rounded.Notes) { shareRide(context, detail.shareText, null, detail.row.id) })

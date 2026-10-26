@@ -27,14 +27,6 @@ data class RideVideoInput(
     val showPlaces: Boolean = true,
 )
 
-/** What the rider chose on the setup screen. */
-data class VideoSettings(
-    val shape: VideoShape = VideoShape.VERTICAL,
-    /** Null for the recommended length. */
-    val lengthS: Int? = null,
-    val fps: Int = 30,
-)
-
 /**
  * A ride turned into everything the renderer needs: terrain, the trimmed route, moments, the
  * clock, the camera, the light, and the numbers for the overlays. Built once per export; each
@@ -42,7 +34,7 @@ data class VideoSettings(
  */
 class RideVideoPlan private constructor(
     val input: RideVideoInput,
-    val settings: VideoSettings,
+    val config: VideoConfig,
     val land: LayeredElevation,
     val exaggeration: Double,
     val path: RoutePath,
@@ -58,10 +50,13 @@ class RideVideoPlan private constructor(
     val trimStartM: Double,
 ) {
     val totalS: Double get() = timeline.totalS
-    val frameCount: Int get() = (timeline.totalS * settings.fps).roundToInt()
+    val fps: Int get() = FPS
+    val frameCount: Int get() = (timeline.totalS * fps).roundToInt()
+    val shape: VideoShape get() = config.shape
+    val title: String get() = config.title ?: input.title
     val routeKm: Double get() = path.length / 1000
 
-    fun timeOf(frame: Int): Double = frame.toDouble() / settings.fps
+    fun timeOf(frame: Int): Double = frame.toDouble() / fps
 
     fun camera(t: Double): CameraPose = director.shot(timeline, t)
 
@@ -113,7 +108,7 @@ class RideVideoPlan private constructor(
 
     val placesLine: String?
         get() {
-            if (!input.showPlaces) return null
+            if (!input.showPlaces || !config.places) return null
             val a = input.fromPlace
             val b = input.toPlace
             return when {
@@ -167,13 +162,15 @@ class RideVideoPlan private constructor(
         /** Shortest trimmed route worth a video. */
         const val MIN_ROUTE_M = 800.0
 
+        const val FPS = 30
+
         /**
          * Builds the plan, or null when the ride is too short once the privacy trim is taken
          * off. [tile] fetches elevation tiles and may block; call this off the main thread.
          */
         fun build(
             input: RideVideoInput,
-            settings: VideoSettings,
+            config: VideoConfig,
             tile: (z: Int, x: Int, y: Int) -> IntArray?,
         ): RideVideoPlan? {
             val fixes = input.track.filter { (it.accuracyM ?: 0f) <= 50f }
@@ -206,7 +203,7 @@ class RideVideoPlan private constructor(
             if (flat) land = LayeredElevation(ElevationGrid.flat(wide, cells = 128), null)
             val surface = land.detail ?: land.base
             val routeSpan = max(surface.width, surface.height)
-            val ex = if (flat) 1.0 else Exaggeration.choose(surface.maxHeight - surface.minHeight, routeSpan)
+            val ex = if (flat) 1.0 else config.exaggeration ?: Exaggeration.choose(surface.maxHeight - surface.minHeight, routeSpan)
             val path = RoutePath.build(latLng, land, ex, gapAfter = gapAfter)
 
             // Distance along the trimmed route for each kept fix, for speeds and the clock.
@@ -253,16 +250,16 @@ class RideVideoPlan private constructor(
             val candidates = Moments.candidates(samples, stops, refuels)
 
             val length = VideoLength.range((total) / 1000, candidates.size)
-            val totalS = (settings.lengthS ?: length.recommended).coerceIn(length.min, length.max).toDouble()
+            val totalS = (config.lengthS ?: length.recommended).coerceIn(length.min, length.max).toDouble()
             val probe = VideoTimeline(totalS, path.length, emptyList())
             val moments = Moments.pick(candidates, path.length, probe.rideS)
             val twistWindow = max(600.0, path.length * 0.02)
             val timeline = VideoTimeline(totalS, path.length, moments) { d -> path.twistiness(d, twistWindow) * 2 }
-            val director = CameraDirector(path, land, ex, settings.shape.aspect)
+            val director = CameraDirector(path, land, ex, config.shape.aspect, config.cameraDistance)
             val first = kept.first()
             val sun = SunPosition.at(input.startTs, first.lat, first.lng)
             return RideVideoPlan(
-                input, settings, land, ex, path, timeline, director, sun, length, flat,
+                input, config, land, ex, path, timeline, director, sun, length, flat,
                 alongTs, alongD, speeds, trimStart,
             )
         }

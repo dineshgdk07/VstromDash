@@ -44,7 +44,8 @@ class TerrainRenderer(
 
     private val hMin = plan.land.minHeight
     private val hMax = max(plan.land.maxHeight, hMin + 1)
-    private val fogDist = max(plan.land.base.width, plan.land.base.height) * 0.9
+    private val cfg = plan.config
+    private val fogDist = max(plan.land.base.width, plan.land.base.height) * 0.9 / cfg.haze
 
     init {
         val land = plan.land
@@ -180,6 +181,7 @@ class TerrainRenderer(
         GLES30.glUniform1f(p.loc("uExag"), plan.exaggeration.toFloat())
         GLES30.glUniform2f(p.loc("uHeights"), hMin.toFloat(), hMax.toFloat())
         GLES30.glUniform1f(p.loc("uFogDist"), fogDist.toFloat())
+        GLES30.glUniform1f(p.loc("uContours"), if (cfg.contours) 1f else 0f)
         val b = plan.land.base
         GLES30.glUniform4f(p.loc("uArea"), b.x0.toFloat(), b.y0.toFloat(), b.width.toFloat(), b.height.toFloat())
         val stops = look.groundStops
@@ -209,7 +211,7 @@ class TerrainRenderer(
         val path = plan.path
         val split = path.index(upTo)
         val pxToWorld = 2.0 * vm.tanHalfFov / height
-        val scale = height / 1920.0
+        val scale = height / 1920.0 * cfg.pathWidth
         val p = ribbonProg
         p.use()
         GLES30.glUniformMatrix4fv(p.loc("uViewProj"), 1, false, vm.viewProj, 0)
@@ -219,7 +221,7 @@ class TerrainRenderer(
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         val accent = look.accent.floats()
-        val glow = look.pathGlow.toFloat()
+        val glow = (look.pathGlow * cfg.glow).toFloat()
         // Still to ride.
         if (split < path.points.lastIndex) {
             strip(vm, split, path.points.lastIndex, 3.5 * scale, pxToWorld)?.let {
@@ -227,7 +229,7 @@ class TerrainRenderer(
             }
         }
         if (split > 0) {
-            strip(vm, 0, split, 34.0 * scale, pxToWorld)?.let { drawStrip(it, accent, 0.30f * glow, 3.0f) }
+            if (glow > 0f) strip(vm, 0, split, 34.0 * scale, pxToWorld)?.let { drawStrip(it, accent, (0.30f * glow).coerceAtMost(0.8f), 3.0f) }
             strip(vm, 0, split, 13.0 * scale, pxToWorld)?.let { drawStrip(it, accent, 0.85f, 1.6f) }
             strip(vm, 0, split, 4.0 * scale, pxToWorld)?.let { drawStrip(it, floatArrayOf(1f, 0.98f, 0.88f), 1f, 0.8f) }
         }
@@ -307,7 +309,7 @@ class TerrainRenderer(
         if (cue.shot != Shot.INTRO || cue.progress > 0.15) {
             val head = plan.path.at(upTo) - vm.eye
             val pulse = 1.0 + 0.08 * kotlin.math.sin(cue.progress * 40)
-            sprites += floatArrayOf(head.x.toFloat(), head.y.toFloat(), head.z.toFloat(), (110 * scale * pulse * look.pathGlow).toFloat(), accent[0], accent[1], accent[2], 1f)
+            sprites += floatArrayOf(head.x.toFloat(), head.y.toFloat(), head.z.toFloat(), (110 * scale * pulse * look.pathGlow * (0.6 + 0.4 * cfg.glow) * cfg.pathWidth.coerceIn(0.8, 1.5)).toFloat(), accent[0], accent[1], accent[2], 1f)
         }
         if (sprites.isEmpty()) return
         val p = spriteProg
@@ -344,7 +346,10 @@ class TerrainRenderer(
     private val postProg = Program(SKY_VS, POST_FS)
 
     private fun drawPost() {
+        if (!cfg.vignette && !cfg.grain) return
         postProg.use()
+        GLES30.glUniform1f(postProg.loc("uVignette"), if (cfg.vignette) 1f else 0f)
+        GLES30.glUniform1f(postProg.loc("uGrain"), if (cfg.grain) 1f else 0f)
         GLES30.glUniform1f(postProg.loc("uSeed"), (frameNo++ % 97).toFloat())
         GLES30.glUniform2f(postProg.loc("uSize"), width.toFloat(), height.toFloat())
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
@@ -527,6 +532,7 @@ class TerrainRenderer(
             uniform float uStopT[6];
             uniform vec3 uStopC[6];
             uniform vec3 uRock;
+            uniform float uContours;
             $COMMON
             vec3 ground(float t, float slope) {
                 vec3 c = uStopC[0];
@@ -551,7 +557,7 @@ class TerrainRenderer(
                 float f = fract(h / 100.0);
                 float lineM = min(f, 1.0 - f) * 100.0;
                 float widthM = 1.2 + dist / 2500.0;
-                if (lineM < widthM) c *= 1.0 - 0.22 * (1.0 - lineM / widthM) * exp(-dist / 30000.0);
+                if (lineM < widthM) c *= 1.0 - 0.22 * uContours * (1.0 - lineM / widthM) * exp(-dist / 30000.0);
                 float valley = exp(-(h - uHeights.x) / 220.0) * 0.16 * (1.0 - exp(-dist / 5000.0));
                 float fog = 1.0 - exp(-pow(dist / uFogDist, 1.6));
                 c = mix(c, uHaze, clamp(fog * 0.9 + valley, 0.0, 0.95));
@@ -633,13 +639,15 @@ class TerrainRenderer(
             out vec4 outColor;
             uniform float uSeed;
             uniform vec2 uSize;
+            uniform float uVignette;
+            uniform float uGrain;
             float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233)) + uSeed * 7.13) * 43758.5453); }
             void main() {
                 vec2 d = (vUv - 0.5) * vec2(uSize.x / uSize.y, 1.0);
-                float v = 1.0 - 0.38 * pow(length(d) / 0.62, 2.2);
+                float v = 1.0 - 0.38 * uVignette * pow(length(d) / 0.62, 2.2);
                 // Grain can't be negative in an 8-bit target, so darken a touch to stay neutral.
-                float grain = hash(floor(vUv * uSize)) * 0.03;
-                outColor = vec4(vec3(grain), clamp(v, 0.0, 1.0) * 0.985);
+                float grain = hash(floor(vUv * uSize)) * 0.03 * uGrain;
+                outColor = vec4(vec3(grain), clamp(v, 0.0, 1.0) * (1.0 - 0.015 * uGrain));
             }
         """
 

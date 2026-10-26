@@ -1,0 +1,125 @@
+package dev.gdk.bumblebee.video
+
+/** A named starting point in the Studio; any change after picking one makes it [CUSTOM]. */
+enum class VideoPreset(val label: String, val blurb: String) {
+    CINEMATIC("Cinematic", "Balanced: real light, soft glow, the full story"),
+    ADVENTURE("Adventure", "Bolder hills, closer camera, brighter trail"),
+    DATA("Data", "Contours and every readout, clearer air"),
+    MINIMAL("Minimal", "Just the land and the line"),
+    CUSTOM("Custom", "Your own mix"),
+}
+
+/**
+ * Every choice the rider can make about a ride video. Ranges are enforced by [clamped], so a
+ * stored or hand-edited value can't break a render. New options get a default here, and old
+ * saved configs simply pick it up.
+ */
+data class VideoConfig(
+    val preset: VideoPreset = VideoPreset.CINEMATIC,
+    // Size and time
+    val shape: VideoShape = VideoShape.VERTICAL,
+    /** Null for the recommended length. */
+    val lengthS: Int? = null,
+    // Story
+    val title: String? = null,
+    val titleCard: Boolean = true,
+    val places: Boolean = true,
+    val moments: Boolean = true,
+    val finishCard: Boolean = true,
+    // Overlays
+    val hud: Boolean = true,
+    val clock: Boolean = true,
+    val elevationStrip: Boolean = true,
+    // Camera
+    /** Chase height and distance, × the automatic value. */
+    val cameraDistance: Double = 1.0,
+    /** Null for automatic height exaggeration. */
+    val exaggeration: Double? = null,
+    // Look
+    val pathWidth: Double = 1.0,
+    val glow: Double = 1.0,
+    /** Haze toward the horizon, × the default. */
+    val haze: Double = 1.0,
+    val contours: Boolean = true,
+    val vignette: Boolean = true,
+    val grain: Boolean = true,
+) {
+    fun clamped(): VideoConfig = copy(
+        lengthS = lengthS?.coerceIn(5, VideoLength.MAX_S),
+        title = title?.trim()?.take(40)?.ifBlank { null },
+        cameraDistance = cameraDistance.coerceIn(0.5, 2.0),
+        exaggeration = exaggeration?.coerceIn(1.0, 4.0),
+        pathWidth = pathWidth.coerceIn(0.5, 2.5),
+        glow = glow.coerceIn(0.0, 2.0),
+        haze = haze.coerceIn(0.2, 2.0),
+    )
+
+    /** Applies a preset's look and story choices, keeping size, length and title. */
+    fun withPreset(p: VideoPreset): VideoConfig {
+        val base = when (p) {
+            VideoPreset.CINEMATIC, VideoPreset.CUSTOM -> VideoConfig()
+            VideoPreset.ADVENTURE -> VideoConfig(cameraDistance = 0.8, exaggeration = 2.4, pathWidth = 1.3, glow = 1.5, haze = 0.8)
+            VideoPreset.DATA -> VideoConfig(cameraDistance = 1.2, haze = 0.5, pathWidth = 1.1, glow = 0.8, grain = false)
+            VideoPreset.MINIMAL -> VideoConfig(
+                hud = false, clock = false, elevationStrip = false, moments = false, places = false,
+                contours = false, grain = false, pathWidth = 0.8, glow = 0.7,
+            )
+        }
+        return base.copy(preset = p, shape = shape, lengthS = lengthS, title = title)
+    }
+
+    /** A plain key=value form for storing and passing between components. */
+    fun encode(): String = listOf(
+        "preset" to preset.name,
+        "shape" to shape.name,
+        "length" to (lengthS?.toString() ?: ""),
+        "title" to (title ?: "").replace(";", ",").replace("=", "-"),
+        "titleCard" to titleCard,
+        "places" to places,
+        "moments" to moments,
+        "finishCard" to finishCard,
+        "hud" to hud,
+        "clock" to clock,
+        "strip" to elevationStrip,
+        "camera" to cameraDistance,
+        "exag" to (exaggeration?.toString() ?: ""),
+        "pathWidth" to pathWidth,
+        "glow" to glow,
+        "haze" to haze,
+        "contours" to contours,
+        "vignette" to vignette,
+        "grain" to grain,
+    ).joinToString(";") { (k, v) -> "$k=$v" }
+
+    companion object {
+        /** Reads [encode]'s form; unknown or bad entries keep their defaults. */
+        fun decode(s: String?): VideoConfig {
+            if (s.isNullOrBlank()) return VideoConfig()
+            val m = s.split(';').mapNotNull { e -> e.split('=', limit = 2).takeIf { it.size == 2 }?.let { it[0] to it[1] } }.toMap()
+            val d = VideoConfig()
+            fun b(k: String, def: Boolean) = m[k]?.toBooleanStrictOrNull() ?: def
+            fun n(k: String, def: Double) = m[k]?.toDoubleOrNull() ?: def
+            return VideoConfig(
+                preset = m["preset"]?.let { v -> VideoPreset.entries.firstOrNull { it.name == v } } ?: d.preset,
+                shape = m["shape"]?.let { v -> VideoShape.entries.firstOrNull { it.name == v } } ?: d.shape,
+                lengthS = m["length"]?.toIntOrNull(),
+                title = m["title"]?.ifBlank { null },
+                titleCard = b("titleCard", d.titleCard),
+                places = b("places", d.places),
+                moments = b("moments", d.moments),
+                finishCard = b("finishCard", d.finishCard),
+                hud = b("hud", d.hud),
+                clock = b("clock", d.clock),
+                elevationStrip = b("strip", d.elevationStrip),
+                cameraDistance = n("camera", d.cameraDistance),
+                exaggeration = m["exag"]?.toDoubleOrNull(),
+                pathWidth = n("pathWidth", d.pathWidth),
+                glow = n("glow", d.glow),
+                haze = n("haze", d.haze),
+                contours = b("contours", d.contours),
+                vignette = b("vignette", d.vignette),
+                grain = b("grain", d.grain),
+            ).clamped()
+        }
+    }
+}

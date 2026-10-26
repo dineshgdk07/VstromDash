@@ -58,6 +58,8 @@ class CameraDirector(
     private val grid: Elevation,
     private val exaggeration: Double,
     aspect: Double,
+    /** The rider's closer/further choice, × the automatic chase distance. */
+    private val distanceScale: Double = 1.0,
 ) {
     val fovY: Double = when {
         aspect < 0.8 -> 58.0
@@ -76,7 +78,7 @@ class CameraDirector(
     val radius: Double = max(1_000.0, Vec3(maxX - minX, maxY - minY, 0.0).length / 2)
 
     /** Base chase distance behind the marker. */
-    private val back: Double = (radius * 0.07).coerceIn(350.0, 4_000.0)
+    private val back: Double = (radius * 0.07).coerceIn(350.0, 4_000.0) * distanceScale
 
     /**
      * The camera at video time [t]: the cue poses around [t] (within [SMOOTH_S]), each lifted
@@ -134,7 +136,7 @@ class CameraDirector(
         val a = timeline.cue((t - 0.5).coerceIn(0.0, timeline.totalS))
         val b = timeline.cue((t + 0.5).coerceIn(0.0, timeline.totalS))
         val speed = kotlin.math.abs(b.distanceM - a.distanceM) // metres per second of video
-        return max(back, speed * FOLLOW_SECONDS).coerceAtMost(radius * 0.6)
+        return max(back, speed * FOLLOW_SECONDS * distanceScale).coerceAtMost(radius * 0.6)
     }
 
     fun pose(cue: Cue, follow: Double = back): CameraPose = when (cue.shot) {

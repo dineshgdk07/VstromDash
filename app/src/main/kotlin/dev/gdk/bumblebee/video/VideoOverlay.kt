@@ -21,9 +21,15 @@ class VideoFonts(val display: Typeface, val label: Typeface, val labelBold: Type
  * elevation strip during the ride, moment cards, and the closing stats. Layout is in pixels at a
  * 1080-pixel short side and scaled from there, so every shape keeps the same proportions.
  */
-class VideoOverlay(private val plan: RideVideoPlan, private val fonts: VideoFonts, private val accent: Int) {
-    val width = plan.settings.shape.width
-    val height = plan.settings.shape.height
+class VideoOverlay(
+    private val plan: RideVideoPlan,
+    private val fonts: VideoFonts,
+    private val accent: Int,
+    /** Defaults to the video's size; the Studio preview draws smaller. */
+    val width: Int = plan.shape.width,
+    val height: Int = plan.shape.height,
+) {
+    private val cfg = plan.config
     val bitmap: Bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     private val canvas = Canvas(bitmap)
     private val u = min(width, height) / 1080f
@@ -44,16 +50,16 @@ class VideoOverlay(private val plan: RideVideoPlan, private val fonts: VideoFont
         bitmap.eraseColor(Color.TRANSPARENT)
         val cue = plan.timeline.cue(t)
         when (cue.shot) {
-            Shot.INTRO -> intro(cue.progress)
+            Shot.INTRO -> if (cfg.titleCard) intro(cue.progress)
             Shot.RIDE, Shot.HOLD -> {
                 // The HUD fades in over the first half second of the ride.
                 val since = t - plan.timeline.introS
                 hud(cue, (since / 0.5).coerceIn(0.0, 1.0).toFloat())
-                cue.moment?.let { if (cue.shot == Shot.HOLD) momentCard(it, cue.progress) }
+                if (cfg.moments) cue.moment?.let { if (cue.shot == Shot.HOLD) momentCard(it, cue.progress) }
             }
             Shot.FINISH -> {
                 hud(cue, (1 - cue.progress / 0.25).coerceIn(0.0, 1.0).toFloat())
-                finish(cue.progress)
+                if (cfg.finishCard) finish(cue.progress)
             }
         }
         return bitmap
@@ -75,19 +81,40 @@ class VideoOverlay(private val plan: RideVideoPlan, private val fonts: VideoFont
             label(it, left, y, 34 * u, Color.WHITE, a * 0.85f, fonts.label)
         }
         y -= 52 * u
-        val titleSize = fitSize(plan.input.title.uppercase(Locale.ENGLISH), fonts.display, (if (wide) 96 else 112) * u, width - left * 2)
-        label(plan.input.title.uppercase(Locale.ENGLISH), left, y, titleSize, Color.WHITE, a, fonts.display)
+        val titleSize = fitSize(plan.title.uppercase(Locale.ENGLISH), fonts.display, (if (wide) 96 else 112) * u, width - left * 2)
+        label(plan.title.uppercase(Locale.ENGLISH), left, y, titleSize, Color.WHITE, a, fonts.display)
         y -= titleSize * 1.05f
         label(plan.dateLine.uppercase(Locale.ENGLISH), left, y, 28 * u, accent, a, fonts.labelBold, tracking = 0.08f)
     }
 
     private fun hud(cue: Cue, a: Float) {
         if (a <= 0f) return
+        if (cfg.clock) clock(cue.distanceM, a)
+        if (!cfg.hud && !cfg.elevationStrip) return
         val d = cue.distanceM
-        val stripH = 40 * u
+        val stripH = if (cfg.elevationStrip) 40 * u else 0f
         val bottom = height - 54 * u
-        scrimBottom(height - 330 * u, 185, a)
-        // Clock, top right, small.
+        scrimBottom(height - (if (cfg.hud) 330 else 140) * u, 185, a)
+        val left = 56 * u
+        if (cfg.hud) {
+            val cols = listOf(
+                String.format(Locale.ENGLISH, "%.1f", plan.odoKm(d)) to "KM",
+                plan.speedAt(d).toString() to "KM/H",
+                String.format(Locale.ENGLISH, "%,d", plan.altitudeAt(d).toInt()) to "M ALT",
+            )
+            val colW = (width - left * 2) / 3
+            val numY = bottom - stripH - 66 * u
+            cols.forEachIndexed { i, (v, l) ->
+                val x = left + i * colW
+                label(v, x, numY, 84 * u, Color.WHITE, a, fonts.display)
+                label(l, x + 3 * u, numY + 36 * u, 24 * u, Color.WHITE, a * 0.75f, fonts.labelBold, tracking = 0.1f)
+            }
+        }
+        if (cfg.elevationStrip) elevationStrip(left, bottom - stripH, width - left * 2, stripH, d, a)
+    }
+
+    /** Time of day, top right, small. */
+    private fun clock(d: Double, a: Float) {
         text.typeface = fonts.labelBold
         text.textSize = 30 * u
         text.textAlign = Paint.Align.RIGHT
@@ -96,21 +123,6 @@ class VideoOverlay(private val plan: RideVideoPlan, private val fonts: VideoFont
         text.setShadowLayer(6 * u, 0f, 2 * u, Color.argb((a * 140).toInt(), 0, 0, 0))
         canvas.drawText(plan.clockAt(d), width - 48 * u, 84 * u, text)
         text.textAlign = Paint.Align.LEFT
-
-        val cols = listOf(
-            String.format(Locale.ENGLISH, "%.1f", plan.odoKm(d)) to "KM",
-            plan.speedAt(d).toString() to "KM/H",
-            String.format(Locale.ENGLISH, "%,d", plan.altitudeAt(d).toInt()) to "M ALT",
-        )
-        val left = 56 * u
-        val colW = (width - left * 2) / 3
-        val numY = bottom - stripH - 66 * u
-        cols.forEachIndexed { i, (v, l) ->
-            val x = left + i * colW
-            label(v, x, numY, 84 * u, Color.WHITE, a, fonts.display)
-            label(l, x + 3 * u, numY + 36 * u, 24 * u, Color.WHITE, a * 0.75f, fonts.labelBold, tracking = 0.1f)
-        }
-        elevationStrip(left, bottom - stripH, width - left * 2, stripH, d, a)
     }
 
     private fun elevationStrip(x: Float, y: Float, w: Float, h: Float, d: Double, a: Float) {
@@ -181,7 +193,7 @@ class VideoOverlay(private val plan: RideVideoPlan, private val fonts: VideoFont
         val left = 64 * u
         val rise = (1 - a) * 30 * u
         var y = height * (if (wide) 0.26f else 0.30f) + rise
-        val title = plan.input.title.uppercase(Locale.ENGLISH)
+        val title = plan.title.uppercase(Locale.ENGLISH)
         val ts = fitSize(title, fonts.display, 96 * u, width - left * 2)
         label(title, left, y, ts, Color.WHITE, a, fonts.display)
         y += 40 * u

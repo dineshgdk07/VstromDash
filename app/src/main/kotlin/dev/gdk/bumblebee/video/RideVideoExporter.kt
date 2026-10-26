@@ -60,16 +60,16 @@ class RideVideoExporter(private val context: Context) {
         out: File,
         onProgress: (VideoProgress) -> Unit,
     ) {
-        val shape = plan.settings.shape
+        val shape = plan.shape
         var encoder: VideoEncoder? = null
         var renderer: TerrainRenderer? = null
         var overlay: VideoOverlay? = null
         try {
             encoder = try {
-                VideoEncoder(out, shape.width, shape.height, plan.settings.fps, BIT_RATE)
+                VideoEncoder(out, shape.width, shape.height, plan.fps, BIT_RATE)
             } catch (e: Exception) {
                 // Some encoders top out below 1080p: fall back to 720p on the short side.
-                VideoEncoder(out, shape.width * 2 / 3 / 2 * 2, shape.height * 2 / 3 / 2 * 2, plan.settings.fps, BIT_RATE / 2)
+                VideoEncoder(out, shape.width * 2 / 3 / 2 * 2, shape.height * 2 / 3 / 2 * 2, plan.fps, BIT_RATE / 2)
             }
             encoder.makeCurrent()
             renderer = TerrainRenderer(plan, look, encoder.width, encoder.height)

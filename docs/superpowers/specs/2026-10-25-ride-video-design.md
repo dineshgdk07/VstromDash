@@ -225,6 +225,30 @@ needs route distances; splitting them only added glue.
    setting in Advanced.
 6. **Polish:** thermal back-off, failure messages, render-time tuning on real phones.
 
+## Ride Video Studio (v2 direction)
+
+After the first export the rider asked for every creative idea, each one configurable, in one
+screen that takes the settings, shows progress, then offers save, share and other sizes.
+
+- **Layers, not a wall of switches:** style presets (Cinematic, Adventure, Data, Minimal) set
+  every parameter; grouped sections (Story, Overlays, Camera and land, Trail and finish) tune them;
+  any change makes the preset Custom. All values live in `VideoConfig`, clamped to safe ranges,
+  stored as text, remembered between rides (minus per-ride title and length).
+- **Live preview:** the export renderer itself in a `GLSurfaceView` at view size, scrubbable and
+  playable, rebuilt 350 ms after the last change. Tiles stay in memory for the visit.
+- **Render screen:** percentage, step, time left, Cancel, and "leave it running".
+- **Result screen:** plays the video; Save to gallery, Share, another size, or back to the style.
+
+Roadmap, each item landing with its own Studio control:
+
+| Phase | Adds |
+| --- | --- |
+| A (built) | Studio, presets, live preview, render and result screens; title, story and overlay toggles; camera distance, hill height, haze, contours, trail width, glow, vignette, grain |
+| B | Cold-open hook, chapters with title cards, map-reveal finale, a shot per moment type, banking into turns |
+| C | Time of day moving through the ride (stars and moon at night), clouds with ground shadows, lakes with shimmer, place names in 3D |
+| D | The rider's bike as the marker in its paint colour, a cluster-style HUD, ride tags (number, weather, sunrise), ride photos as postcards |
+| E | Kinetic type, speed- or climb-coloured trail, milestone bursts, music with fades and beat-synced cuts |
+
 ## Decided in conversation
 
 - Stylised terrain from open elevation data, not satellite imagery.

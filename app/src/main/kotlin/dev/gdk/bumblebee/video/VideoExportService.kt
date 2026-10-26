@@ -35,8 +35,10 @@ import java.io.File
 /** What the ride screen shows about a video export. */
 sealed interface VideoExportState {
     data object Idle : VideoExportState
-    data class Working(val rideId: Long, val step: String, val fraction: Float?) : VideoExportState
-    data class Done(val rideId: Long, val uri: Uri) : VideoExportState
+    data class Working(val rideId: Long, val step: String, val fraction: Float?, val secondsLeft: Int? = null) : VideoExportState
+
+    /** A finished video in the app's cache: [shareUri] works for sharing and playing it. */
+    data class Done(val rideId: Long, val file: File, val shareUri: Uri, val shape: VideoShape, val renderS: Int) : VideoExportState
     data class Failed(val rideId: Long, val reason: String) : VideoExportState
 }
 
@@ -59,23 +61,22 @@ class VideoExportService : Service() {
             }
             ACTION_START -> {
                 val rideId = intent.getLongExtra(EXTRA_RIDE, -1)
-                val shape = intent.getStringExtra(EXTRA_SHAPE)?.let { s -> VideoShape.entries.firstOrNull { it.name == s } } ?: VideoShape.VERTICAL
-                val length = intent.getIntExtra(EXTRA_LENGTH, 0).takeIf { it > 0 }
+                val config = VideoConfig.decode(intent.getStringExtra(EXTRA_CONFIG))
                 if (!goForeground(progress(null, "Preparing"))) {
                     _state.value = VideoExportState.Failed(rideId, "Android didn't allow the background render. Try again with the app open.")
                     stopSelf()
                     return START_NOT_STICKY
                 }
                 if (job?.isActive == true || rideId < 0) return START_NOT_STICKY
-                job = scope.launch { export(rideId, VideoSettings(shape, length)) }
+                job = scope.launch { export(rideId, config) }
             }
         }
         return START_NOT_STICKY
     }
 
-    private suspend fun export(rideId: Long, settings: VideoSettings) {
+    private suspend fun export(rideId: Long, config: VideoConfig) {
         val app = application as DashApp
-        val out = File(cacheDir, "share/ride-video-$rideId.mp4")
+        val out = File(cacheDir, "share/ride-video-$rideId-${config.shape.name.lowercase()}.mp4")
         try {
             // Keeps the CPU going with the screen off; the render still works without it.
             wake = runCatching {
@@ -85,7 +86,7 @@ class VideoExportService : Service() {
             val tiles = DemTiles(app)
             val plan = withContext(Dispatchers.IO) {
                 val input = RideVideoSource.load(app, rideId) ?: error("This ride has no GPS track to fly over.")
-                RideVideoPlan.build(input, settings, tiles::tile) ?: error("The ride is too short for a video once the start and end are hidden.")
+                RideVideoPlan.build(input, config, tiles::tile) ?: error("The ride is too short for a video once the start and end are hidden.")
             }
             DevLog.d("video", "plan ${"%.1f".format(plan.routeKm)} km, ${plan.totalS.toInt()} s, ${plan.timeline.moments.size} moments, flat=${plan.flat}, exag=${"%.2f".format(plan.exaggeration)}")
             if (plan.flat) step(rideId, "No terrain data (offline?): rendering flat", null)
@@ -93,17 +94,18 @@ class VideoExportService : Service() {
             val started = System.currentTimeMillis()
             RideVideoExporter(app).render(plan, look, RideVideoSource.fonts(app), Accent.color.toArgb(), out) { p ->
                 when (p) {
-                    is VideoProgress.Rendering -> scope.launch { step(rideId, "Rendering", p.fraction) }
+                    is VideoProgress.Rendering -> {
+                        val elapsed = (System.currentTimeMillis() - started) / 1000.0
+                        val left = if (p.fraction > 0.03f) (elapsed / p.fraction * (1 - p.fraction)).toInt() else null
+                        scope.launch { step(rideId, "Rendering", p.fraction, left) }
+                    }
                     else -> {}
                 }
             }
             DevLog.d("video", "rendered ${plan.frameCount} frames in ${(System.currentTimeMillis() - started) / 1000} s, ${out.length() / 1024} KB")
-            step(rideId, "Saving", null)
-            val name = "Bumblebee-ride-$rideId-${System.currentTimeMillis() / 1000}.mp4"
-            val saved = withContext(Dispatchers.IO) { RideVideoExporter(app).saveToGallery(out, name) }
-            val uri = saved ?: FileProvider.getUriForFile(this, "$packageName.share", out)
+            val uri = FileProvider.getUriForFile(this, "$packageName.share", out)
             tiles.trim()
-            _state.value = VideoExportState.Done(rideId, uri)
+            _state.value = VideoExportState.Done(rideId, out, uri, config.shape, ((System.currentTimeMillis() - started) / 1000).toInt())
             notifyDone(uri)
         } catch (e: CancellationException) {
             _state.value = VideoExportState.Idle
@@ -123,8 +125,8 @@ class VideoExportService : Service() {
 
     private var lastShown: Pair<String, Int>? = null
 
-    private fun step(rideId: Long, label: String, fraction: Float?) {
-        _state.value = VideoExportState.Working(rideId, label, fraction)
+    private fun step(rideId: Long, label: String, fraction: Float?, secondsLeft: Int? = null) {
+        _state.value = VideoExportState.Working(rideId, label, fraction, secondsLeft)
         // Android drops notifications posted too often; update only when the whole percent moves.
         val shown = label to ((fraction ?: -0.01f) * 100).toInt()
         if (shown == lastShown) return
@@ -177,7 +179,7 @@ class VideoExportService : Service() {
             NotificationCompat.Builder(this, CHANNEL)
                 .setSmallIcon(android.R.drawable.ic_media_play)
                 .setContentTitle("Ride video ready")
-                .setContentText(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) "Saved to Movies/Bumblebee. Tap to share." else "Tap to share.")
+                .setContentText("Tap to share, or open the ride to save it.")
                 .setContentIntent(open)
                 .setAutoCancel(true)
                 .build(),
@@ -211,8 +213,7 @@ class VideoExportService : Service() {
         private const val ACTION_START = "dev.gdk.bumblebee.video.START"
         private const val ACTION_CANCEL = "dev.gdk.bumblebee.video.CANCEL"
         private const val EXTRA_RIDE = "ride"
-        private const val EXTRA_SHAPE = "shape"
-        private const val EXTRA_LENGTH = "length"
+        private const val EXTRA_CONFIG = "config"
 
         private val _state = MutableStateFlow<VideoExportState>(VideoExportState.Idle)
         val state: StateFlow<VideoExportState> = _state.asStateFlow()
@@ -226,14 +227,13 @@ class VideoExportService : Service() {
             context.startService(Intent(context, VideoExportService::class.java).setAction(ACTION_CANCEL))
         }
 
-        fun start(context: Context, rideId: Long, shape: VideoShape = VideoShape.VERTICAL, lengthS: Int? = null) {
+        fun start(context: Context, rideId: Long, config: VideoConfig) {
             if (_state.value is VideoExportState.Working) return
             _state.value = VideoExportState.Working(rideId, "Preparing", null)
             val intent = Intent(context, VideoExportService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_RIDE, rideId)
-                .putExtra(EXTRA_SHAPE, shape.name)
-                .putExtra(EXTRA_LENGTH, lengthS ?: 0)
+                .putExtra(EXTRA_CONFIG, config.encode())
             ContextCompat.startForegroundService(context, intent)
         }
     }

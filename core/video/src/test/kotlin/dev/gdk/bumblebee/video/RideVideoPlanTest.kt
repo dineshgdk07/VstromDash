@@ -45,7 +45,7 @@ class RideVideoPlanTest {
     }
 
     @Test fun `plan trims, places moments and keeps to the length rules`() {
-        val plan = RideVideoPlan.build(ride(), VideoSettings(), ::hills)!!
+        val plan = RideVideoPlan.build(ride(), VideoConfig(), ::hills)!!
         assertTrue(!plan.flat)
         // About 30 km, less 500 m each end.
         assertTrue(plan.routeKm in 27.0..32.0)
@@ -65,18 +65,18 @@ class RideVideoPlanTest {
     }
 
     @Test fun `chosen length is clamped to the band`() {
-        val plan = RideVideoPlan.build(ride(), VideoSettings(lengthS = 500), ::hills)!!
+        val plan = RideVideoPlan.build(ride(), VideoConfig(lengthS = 500), ::hills)!!
         assertEquals(plan.length.max.toDouble(), plan.totalS, 0.0)
     }
 
     @Test fun `no terrain falls back to flat`() {
-        val plan = RideVideoPlan.build(ride(), VideoSettings(), { _, _, _ -> null })!!
+        val plan = RideVideoPlan.build(ride(), VideoConfig(), { _, _, _ -> null })!!
         assertTrue(plan.flat)
         assertEquals(1.0, plan.exaggeration, 0.0)
     }
 
     @Test fun `too short a ride gives no plan`() {
         val short = ride().let { r -> r.copy(track = r.track.take(100)) } // about 1.1 km
-        assertNull(RideVideoPlan.build(short, VideoSettings(), ::hills))
+        assertNull(RideVideoPlan.build(short, VideoConfig(), ::hills))
     }
 }

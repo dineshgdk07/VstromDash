@@ -1,0 +1,167 @@
+package dev.gdk.bumblebee.ui.video
+
+import android.app.Application
+import android.content.Context
+import androidx.compose.ui.graphics.toArgb
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import dev.gdk.bumblebee.DashApp
+import dev.gdk.bumblebee.ui.theme.Accent
+import dev.gdk.bumblebee.video.DemTiles
+import dev.gdk.bumblebee.video.RideVideoExporter
+import dev.gdk.bumblebee.video.RideVideoInput
+import dev.gdk.bumblebee.video.RideVideoPlan
+import dev.gdk.bumblebee.video.RideVideoSource
+import dev.gdk.bumblebee.video.VideoConfig
+import dev.gdk.bumblebee.video.VideoExportService
+import dev.gdk.bumblebee.video.VideoExportState
+import dev.gdk.bumblebee.video.VideoLook
+import dev.gdk.bumblebee.video.VideoPreset
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
+
+data class StudioUi(
+    val config: VideoConfig = VideoConfig(),
+    val plan: RideVideoPlan? = null,
+    val look: VideoLook? = null,
+    /** Building the plan: fetching terrain the first time, quick after. */
+    val preparing: Boolean = true,
+    /** Why there can't be a video for this ride, if so. */
+    val blocked: String? = null,
+    val message: String? = null,
+    val savedTo: String? = null,
+)
+
+/**
+ * The Ride Video Studio: holds the rider's choices, rebuilds the plan behind the live preview as
+ * they change (after a short pause, so dragging a slider doesn't rebuild per pixel), and starts,
+ * saves and shares renders. The last choices are remembered for next time, minus the per-ride
+ * title and length.
+ */
+class VideoStudioViewModel(app: Application, private val rideId: Long) : AndroidViewModel(app) {
+    private val dash = app as DashApp
+    private val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val tiles = DemTiles(app)
+    private val tileMemory = ConcurrentHashMap<Long, IntArray>()
+    private var input: RideVideoInput? = null
+    private var rebuild: Job? = null
+
+    private val _ui = MutableStateFlow(StudioUi(config = VideoConfig.decode(prefs.getString(KEY_CONFIG, null))))
+    val ui: StateFlow<StudioUi> = _ui.asStateFlow()
+
+    val export: StateFlow<VideoExportState> get() = VideoExportService.state
+
+    init {
+        viewModelScope.launch {
+            input = withContext(Dispatchers.IO) { RideVideoSource.load(dash, rideId) }
+            if (input == null) {
+                _ui.update { it.copy(preparing = false, blocked = "This ride has no GPS track to fly over.") }
+            } else {
+                rebuildNow()
+            }
+        }
+    }
+
+    /** Tiles decoded once per Studio visit; the disk cache keeps them between visits. */
+    private fun tile(z: Int, x: Int, y: Int): IntArray? {
+        val key = (z.toLong() shl 48) or (x.toLong() shl 24) or y.toLong()
+        tileMemory[key]?.let { return it }
+        return tiles.tile(z, x, y)?.also { tileMemory[key] = it }
+    }
+
+    /** Applies a change; anything but picking a preset turns the preset to Custom. */
+    fun update(change: (VideoConfig) -> VideoConfig) {
+        val next = change(_ui.value.config).clamped().let { c -> if (c.preset == _ui.value.config.preset) c.copy(preset = VideoPreset.CUSTOM) else c }
+        set(next)
+    }
+
+    /** Size, length and title don't make the look custom. */
+    fun updateKeepingPreset(change: (VideoConfig) -> VideoConfig) = set(change(_ui.value.config).clamped())
+
+    fun preset(p: VideoPreset) = set(_ui.value.config.withPreset(p))
+
+    private fun set(c: VideoConfig) {
+        _ui.update { it.copy(config = c) }
+        prefs.edit().putString(KEY_CONFIG, c.copy(title = null, lengthS = null).encode()).apply()
+        rebuild?.cancel()
+        rebuild = viewModelScope.launch {
+            delay(350)
+            rebuildNow()
+        }
+    }
+
+    private suspend fun rebuildNow() {
+        val inp = input ?: return
+        _ui.update { it.copy(preparing = true) }
+        val config = _ui.value.config
+        val plan = withContext(Dispatchers.Default) { runCatching { RideVideoPlan.build(inp, config, ::tile) }.getOrNull() }
+        if (plan == null) {
+            _ui.update { it.copy(preparing = false, plan = null, blocked = "The ride is too short for a video once the first and last 500 m are hidden.") }
+            return
+        }
+        _ui.update {
+            it.copy(
+                preparing = false,
+                plan = plan,
+                look = VideoLook(plan.sun, Accent.color.toArgb()),
+                blocked = null,
+                message = if (plan.flat) "Couldn't get terrain (offline?). The preview is flat; connect and reopen for hills." else null,
+            )
+        }
+    }
+
+    fun render() {
+        if (_ui.value.plan == null) return
+        VideoExportService.start(getApplication(), rideId, _ui.value.config)
+    }
+
+    fun cancel() = VideoExportService.cancel(getApplication())
+
+    /** Back to the setup, optionally in another shape, keeping everything else. */
+    fun again(shape: dev.gdk.bumblebee.video.VideoShape? = null) {
+        VideoExportService.consume()
+        _ui.update { it.copy(savedTo = null) }
+        if (shape != null && shape != _ui.value.config.shape) updateKeepingPreset { it.copy(shape = shape) }
+    }
+
+    fun save(done: VideoExportState.Done) {
+        viewModelScope.launch {
+            val name = "Bumblebee-ride-$rideId-${done.shape.name.lowercase()}-${System.currentTimeMillis() / 1000}.mp4"
+            val result = withContext(Dispatchers.IO) { runCatching { RideVideoExporter(getApplication()).saveToGallery(done.file, name) } }
+            _ui.update {
+                it.copy(
+                    savedTo = result.getOrNull()?.let { "Saved to Movies/Bumblebee" },
+                    message = when {
+                        result.isFailure -> "Couldn't save: ${result.exceptionOrNull()?.message}"
+                        result.getOrNull() == null -> "Saving to the gallery needs Android 10 or newer. Use Share to keep it."
+                        else -> null
+                    },
+                )
+            }
+        }
+    }
+
+    fun clearMessage() = _ui.update { it.copy(message = null) }
+
+    class Factory(private val app: Application, private val rideId: Long) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            @Suppress("UNCHECKED_CAST")
+            return VideoStudioViewModel(app, rideId) as T
+        }
+    }
+
+    private companion object {
+        const val PREFS = "video_studio"
+        const val KEY_CONFIG = "config"
+    }
+}
