@@ -37,6 +37,7 @@ data class HudRow(
     val value: String,
     val sub: String,
     val accent: Color = ForgeWhite,
+    val iconAccent: Color = ForgeWhite.copy(alpha = 0.72f),
     val fuelBars: Int? = null,
     val large: Boolean = false,
     /** Draws the yellow edge light down the inner side of this row. */
@@ -72,7 +73,7 @@ fun HudStack(
 
 @Composable
 private fun Divider(accent: Boolean) {
-    val tint = if (accent) SuzukiYellow.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.16f)
+    val tint = if (accent) SuzukiYellow.copy(alpha = 0.40f) else Color.White.copy(alpha = 0.10f)
     Column(Modifier.fillMaxWidth()) {
         Box(
             Modifier
@@ -108,11 +109,11 @@ private fun HudCell(
             row.highlighted -> Box(
                 Modifier.fillMaxSize().background(
                     Brush.verticalGradient(
-                        listOf(Color.White.copy(alpha = 0.085f), Color.White.copy(alpha = 0.035f)),
+                        listOf(Color.White.copy(alpha = 0.045f), Color.White.copy(alpha = 0.012f)),
                     ),
                 ),
             )
-            shaded -> Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.26f)))
+            shaded -> Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.12f)))
         }
         Row(
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 4.dp),
@@ -121,7 +122,7 @@ private fun HudCell(
             Icon(
                 row.icon,
                 contentDescription = null,
-                tint = SuzukiYellow,
+                tint = row.iconAccent,
                 modifier = Modifier.size(if (row.large) 26.dp else 21.dp),
             )
             Column(

@@ -34,8 +34,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
@@ -73,7 +71,7 @@ import kotlin.math.roundToInt
 @Composable
 fun RiderHudScreen(model: HudViewModel = viewModel()) {
     val state by model.ui.collectAsStateWithLifecycle()
-    val digital = if (state.speed.source == SpeedSource.NONE) "0" else state.speed.speedKmh.toString()
+    val digital = if (state.speed.source == SpeedSource.NONE) "—" else state.speed.speedKmh.toString()
     val readyColor = when (state.readiness.band) {
         ReadinessBand.READY -> SuccessGreen
         ReadinessBand.CAUTION -> WarningAmber
@@ -117,16 +115,6 @@ fun RiderHudScreen(model: HudViewModel = viewModel()) {
                 .fillMaxWidth()
                 .padding(horizontal = px(layout.w * 0.05f)),
         )
-        if (state.navStreet != null) {
-            Text(
-                "${state.navDist ?: ""} · ${state.navStreet}",
-                color = SuzukiYellow,
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = px(layout.h * 0.09f)),
-            )
-        }
         HudStack(
             modifier = Modifier
                 .offset {
@@ -142,6 +130,7 @@ fun RiderHudScreen(model: HudViewModel = viewModel()) {
                     if (state.readiness.band == ReadinessBand.COMPUTING) "…" else "${state.readiness.percent}%",
                     state.readiness.label,
                     readyColor,
+                    iconAccent = SuzukiYellow,
                     large = true,
                     railed = true,
                     highlighted = true,
@@ -155,9 +144,9 @@ fun RiderHudScreen(model: HudViewModel = viewModel()) {
                 ),
                 HudRow(
                     HudIcons.Road,
-                    "Trip A",
-                    state.tripAKm?.let { String.format("%.1f km", it) } ?: "—",
-                    "cluster",
+                    "Today's ride",
+                    if (state.todayKm > 0) String.format("%.1f km", state.todayKm) else "Ready to ride",
+                    if (state.todayMovingSec > 0) "${formatMoving(state.todayMovingSec)} moving" else "Distance · duration · average",
                 ),
             ),
         )
@@ -185,10 +174,10 @@ fun RiderHudScreen(model: HudViewModel = viewModel()) {
                     },
                 ),
                 HudRow(
-                    HudIcons.Heart,
-                    "Trip B",
-                    state.tripBKm?.let { String.format("%.1f km", it) } ?: "—",
-                    "cluster",
+                    HudIcons.Nav,
+                    "Next turn",
+                    state.navDist ?: "Maps ready",
+                    state.navStreet ?: "Start navigation on your phone",
                 ),
                 HudRow(
                     HudIcons.Wrench,
@@ -209,6 +198,7 @@ fun RiderHudScreen(model: HudViewModel = viewModel()) {
                     if (state.bleReady) "None" else "Waiting",
                     if (state.bleReady) "All systems normal" else "link after ignition",
                     if (state.bleReady) SuccessGreen else LabelMute,
+                    iconAccent = SuzukiYellow,
                 ),
             ),
         )
@@ -217,10 +207,11 @@ fun RiderHudScreen(model: HudViewModel = viewModel()) {
             speedKmh = state.speed.speedKmh,
             odometerKm = state.odometerKm,
             fuelBars = state.fuelBars,
-            rangeKm = state.rangeKm,
             tripAKm = state.tripAKm,
             tripBKm = state.tripBKm,
-            navLabel = listOfNotNull(state.navDist, state.navStreet).joinToString(" · ").ifBlank { null },
+            economyKml = state.economyKml,
+            heading = state.heading,
+            speedSource = state.speed.source,
             modifier = Modifier
                 .offset {
                     IntOffset(
@@ -365,13 +356,11 @@ private fun StatusDock(
                         .border(1.6.dp, SuzukiYellow.copy(alpha = 0.85f), CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        "S",
-                        fontSize = 32.sp,
-                        color = SuzukiYellow,
-                        fontWeight = FontWeight.Bold,
-                        fontStyle = FontStyle.Italic,
-                        style = MaterialTheme.typography.headlineLarge,
+                    Icon(
+                        HudIcons.SuzukiMark,
+                        contentDescription = "Suzuki",
+                        tint = ForgeWhite,
+                        modifier = Modifier.size(38.dp),
                     )
                 }
             }

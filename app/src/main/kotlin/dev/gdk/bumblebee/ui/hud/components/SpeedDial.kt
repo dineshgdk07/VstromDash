@@ -5,10 +5,8 @@ import android.graphics.Typeface
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,24 +19,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.gdk.bumblebee.ui.theme.ForgeWhite
-import dev.gdk.bumblebee.ui.theme.RedlineGlow
-import dev.gdk.bumblebee.ui.theme.SuccessGreen
 import dev.gdk.bumblebee.ui.theme.SuzukiYellow
-import dev.gdk.bumblebee.ui.theme.WarningAmber
+import dev.gdk.bumblebee.ride.SpeedSource
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
 private const val START_DEG = 135f
 private const val SWEEP_DEG = 270f
-private const val SPEED_MAX = 140
+private const val SPEED_MAX = 160
 private const val SPEED_MAJOR = 20
 
 @Composable
@@ -47,11 +42,12 @@ fun SpeedDial(
     speedKmh: Int,
     odometerKm: Int?,
     fuelBars: Int?,
-    rangeKm: Double?,
     modifier: Modifier = Modifier,
     tripAKm: Double? = null,
     tripBKm: Double? = null,
-    navLabel: String? = null,
+    economyKml: Double? = null,
+    heading: String? = null,
+    speedSource: SpeedSource = SpeedSource.NONE,
 ) {
     val fuelFrac = ((fuelBars ?: 0).coerceIn(0, 6)) / 6f
     val speedFrac = (speedKmh.coerceIn(0, SPEED_MAX)).toFloat() / SPEED_MAX
@@ -65,8 +61,8 @@ fun SpeedDial(
             dialFace(c, half)
             speedBand(c, half, speedFrac)
             subDial(
-                center = c + Offset(0f, half * 0.42f),
-                r = half * 0.155f,
+                center = c + Offset(-half * 0.56f, half * 0.10f),
+                r = half * 0.135f,
                 frac = fuelFrac,
                 accent = SuzukiYellow,
                 topLabel = "F",
@@ -75,16 +71,65 @@ fun SpeedDial(
                 sweep = 140f,
                 labelSide = 0f,
             )
-        }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            if (navLabel != null) {
-                Text(
-                    navLabel,
-                    color = SuzukiYellow,
-                    fontSize = (d * 0.032f).sp,
-                    maxLines = 1,
-                )
+            subDial(
+                center = c + Offset(half * 0.56f, half * 0.10f),
+                r = half * 0.135f,
+                frac = ((economyKml ?: 0.0).coerceIn(0.0, 60.0) / 60.0).toFloat(),
+                accent = SuzukiYellow,
+                topLabel = "",
+                bottomLabel = "",
+                start = 200f,
+                sweep = 140f,
+                labelSide = 0f,
+            )
+            val economyPaint = Paint().apply {
+                color = android.graphics.Color.argb(210, 245, 245, 245)
+                textAlign = Paint.Align.CENTER
+                textSize = half * 0.075f
+                isAntiAlias = true
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             }
+            drawContext.canvas.nativeCanvas.drawText(
+                economyKml?.let { "%.0f".format(java.util.Locale.ROOT, it) } ?: "—",
+                c.x + half * 0.56f,
+                c.y + half * 0.13f,
+                economyPaint,
+            )
+            economyPaint.textSize = half * 0.036f
+            economyPaint.color = android.graphics.Color.argb(150, 190, 195, 202)
+            drawContext.canvas.nativeCanvas.drawText(
+                "km/L",
+                c.x + half * 0.56f,
+                c.y + half * 0.19f,
+                economyPaint,
+            )
+            economyPaint.textSize = half * 0.075f
+            drawContext.canvas.nativeCanvas.drawText(
+                fuelBars?.toString() ?: "—",
+                c.x - half * 0.56f,
+                c.y + half * 0.13f,
+                economyPaint,
+            )
+            economyPaint.textSize = half * 0.036f
+            economyPaint.color = android.graphics.Color.argb(150, 190, 195, 202)
+            drawContext.canvas.nativeCanvas.drawText(
+                "BARS",
+                c.x - half * 0.56f,
+                c.y + half * 0.19f,
+                economyPaint,
+            )
+        }
+        Column(
+            modifier = Modifier.width((d * 0.52f).dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                "V-STROM 250 SX",
+                color = ForgeWhite.copy(alpha = 0.55f),
+                fontSize = (d * 0.035f).sp,
+                letterSpacing = 1.2.sp,
+                maxLines = 1,
+            )
             Text(
                 digital,
                 color = ForgeWhite,
@@ -100,11 +145,12 @@ fun SpeedDial(
                 color = ForgeWhite.copy(alpha = 0.5f),
             )
             Text(
-                rangeKm?.let { "RANGE  ${it.toInt()} km" } ?: "RANGE  —",
+                "${heading ?: "—"}   ·   ${when (speedSource) { SpeedSource.GPS -> "GPS"; SpeedSource.BLE -> "BLE"; SpeedSource.NONE -> "NO FIX" }}",
                 style = MaterialTheme.typography.titleSmall,
-                fontSize = (d * 0.032f).sp,
-                color = ForgeWhite.copy(alpha = 0.66f),
+                fontSize = (d * 0.034f).sp,
+                color = if (speedSource == SpeedSource.NONE) ForgeWhite.copy(alpha = 0.48f) else SuzukiYellow,
                 modifier = Modifier.padding(top = (d * 0.008f).dp),
+                maxLines = 1,
             )
             Text(
                 "ODO  ${odometerKm?.let { "%,d".format(java.util.Locale.ROOT, it) } ?: "—"} km",
@@ -112,12 +158,14 @@ fun SpeedDial(
                 fontSize = (d * 0.036f).sp,
                 color = ForgeWhite.copy(alpha = 0.66f),
                 modifier = Modifier.padding(top = (d * 0.012f).dp),
+                maxLines = 1,
             )
             Text(
-                "A ${tripAKm?.let { java.lang.String.format(java.util.Locale.ROOT, "%.1f", it) } ?: "—"}   B ${tripBKm?.let { java.lang.String.format(java.util.Locale.ROOT, "%.1f", it) } ?: "—"}",
+                "A ${tripAKm?.let { java.lang.String.format(java.util.Locale.ROOT, "%.1f", it) } ?: "—"} km     B ${tripBKm?.let { java.lang.String.format(java.util.Locale.ROOT, "%.1f", it) } ?: "—"} km",
                 style = MaterialTheme.typography.titleSmall,
                 fontSize = (d * 0.032f).sp,
                 color = ForgeWhite.copy(alpha = 0.66f),
+                maxLines = 1,
             )
         }
     }
@@ -194,14 +242,7 @@ private fun DrawScope.speedBand(c: Offset, half: Float, speedFrac: Float) {
         isAntiAlias = true
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    val unitPaint = Paint().apply {
-        color = android.graphics.Color.argb(150, 190, 195, 202)
-        textAlign = Paint.Align.CENTER
-        textSize = half * 0.044f
-        isAntiAlias = true
-    }
     val nc = drawContext.canvas.nativeCanvas
-    nc.drawText("km/h", c.x, c.y - half * 0.615f, unitPaint)
 
     var v = 0
     while (v <= SPEED_MAX) {

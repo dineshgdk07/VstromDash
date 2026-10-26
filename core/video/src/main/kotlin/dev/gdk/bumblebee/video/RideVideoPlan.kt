@@ -224,16 +224,22 @@ class RideVideoPlan private constructor(
         val b = path.at((d + 15).coerceAtMost(path.length))
         val forward = (b - a).let { if (it.length < 1e-6) Vec3(0.0, 1.0, 0.0) else it.normalized() }
         var lean = 0.0
-        val v = speedAt(d) / 3.6
-        for (k in -2..2) {
-            val c = (d + k * 12.0).coerceIn(0.0, path.length)
-            val h1 = path.heading(c, 12.0, 0.0)
-            val h2 = path.heading(c, 0.0, 12.0)
+        var weight = 0.0
+        // Wider Gaussian smoothing avoids lean snapping when sparse GPS points change heading.
+        for (k in -4..4) {
+            val offset = k * 12.0
+            val c = (d + offset).coerceIn(0.0, path.length)
+            val h1 = path.heading(c, 18.0, 0.0)
+            val h2 = path.heading(c, 0.0, 18.0)
             val turn = kotlin.math.atan2(h1.x * h2.y - h1.y * h2.x, h1.dot(h2)) // radians, left positive
-            val curvature = turn / 12.0
-            lean += kotlin.math.atan(v * v * curvature / 9.81)
+            val curvature = turn / 18.0
+            val v = speedAt(c) / 3.6
+            val w = kotlin.math.exp(-(k * k) / 8.0)
+            lean += kotlin.math.atan(v * v * curvature / 9.81) * w
+            weight += w
         }
-        lean = Math.toDegrees(lean / 5).coerceIn(-40.0, 40.0)
+        val rawLean = Math.toDegrees(lean / weight)
+        lean = 36.0 * kotlin.math.tanh(rawLean / 36.0)
         return BikeFrame(ground, forward, lean)
     }
 

@@ -31,7 +31,7 @@ import kotlin.math.min
 
 /** Pixel layout shared by chassis, stacks, and the dial. */
 data class ClusterLayout(val w: Float, val h: Float) {
-    val gaugeD = min(h * 0.685f, w * 0.36f)
+    val gaugeD = min(h * 0.74f, w * 0.44f)
     val cx = w * 0.50f
     val cy = h * 0.435f
     val biteR = gaugeD * 0.50f
@@ -223,19 +223,18 @@ private fun DrawScope.brushedTexture(path: Path, alpha: Float) {
 
 private fun DrawScope.metalPanel(path: Path, dock: Boolean = false) {
     val fill = Brush.linearGradient(
-        0f to Color(0xFF262A32),
-        0.18f to ForgeCardTop,
-        0.55f to Color(0xFF101218),
+        0f to Color(0xFF181A1E),
+        0.16f to Color(0xFF101114),
+        0.55f to Color(0xFF090A0C),
         1f to ForgeBlack,
         start = Offset.Zero,
         end = Offset(size.width * 0.18f, size.height),
     )
     drawPath(path, fill)
-    brushedTexture(path, alpha = if (dock) 0.012f else 0.020f)
     drawPath(
         path,
         Brush.linearGradient(
-            0f to Color.White.copy(alpha = if (dock) 0.10f else 0.24f),
+            0f to Color.White.copy(alpha = if (dock) 0.07f else 0.12f),
             0.22f to Color.Transparent,
             start = Offset.Zero,
             end = Offset(size.width * 0.5f, size.height * 0.4f),
@@ -244,9 +243,9 @@ private fun DrawScope.metalPanel(path: Path, dock: Boolean = false) {
     drawPath(
         path,
         Brush.linearGradient(
-            0f to Color.White.copy(alpha = 0.42f),
-            0.45f to Color.White.copy(alpha = 0.08f),
-            1f to Color.Black.copy(alpha = 0.8f),
+            0f to Color.White.copy(alpha = 0.26f),
+            0.45f to Color.White.copy(alpha = 0.045f),
+            1f to Color.Black.copy(alpha = 0.7f),
         ),
         style = Stroke(2.2.dp.toPx()),
     )
@@ -285,12 +284,11 @@ fun Modifier.hudCardSurface(cutFrac: Float = 0.05f): Modifier = this
     .clip(clusterPanelShape(cutFrac))
     .drawWithCache {
         val path = panelPath(size.width, size.height, cutFrac)
-        val spacing = 4.dp.toPx()
         val fill = Brush.verticalGradient(
-            listOf(Color(0xFF282D35), Color(0xFF1B1F26), Color(0xFF111419)),
+            listOf(Color(0xFF17191D), Color(0xFF101114), Color(0xFF090A0C)),
         )
         val topSheen = Brush.verticalGradient(
-            0f to Color.White.copy(alpha = 0.11f),
+            0f to Color.White.copy(alpha = 0.07f),
             0.12f to Color.Transparent,
         )
         val footShadow = Brush.verticalGradient(
@@ -299,25 +297,14 @@ fun Modifier.hudCardSurface(cutFrac: Float = 0.05f): Modifier = this
         )
         val rim = Brush.linearGradient(
             listOf(
-                Color.White.copy(alpha = 0.24f),
-                Color.White.copy(alpha = 0.05f),
-                Color.Black.copy(alpha = 0.6f),
+                Color.White.copy(alpha = 0.16f),
+                Color.White.copy(alpha = 0.035f),
+                Color.Black.copy(alpha = 0.55f),
             ),
         )
         onDrawBehind {
             drawPath(path, fill)
             clipPath(path) {
-                var x = 0f
-                val end = size.width + size.height
-                while (x < end) {
-                    drawLine(
-                        Color.White.copy(alpha = 0.018f),
-                        Offset(x, 0f),
-                        Offset(x - size.height, size.height),
-                        strokeWidth = 1f,
-                    )
-                    x += spacing
-                }
                 drawRect(topSheen)
                 drawRect(footShadow)
             }
