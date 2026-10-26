@@ -96,7 +96,7 @@ class TransferViewModelTest {
         model.onInspected(BringIn.Held(bundle(), listOf(Clash("rides", "12", "clash ride"))))
         val ui = model.ui.value
         assertEquals("Overwrite those 1", ui.overwriteLabel)
-        assertEquals("1 already live here. Nothing was replaced.", ui.message)
+        assertEquals("1 already live here. Nothing was replaced yet.", ui.message)
         assertTrue(ui.canKeep)
         model.chooseKeep()
         assertEquals(false, model.commits.first())

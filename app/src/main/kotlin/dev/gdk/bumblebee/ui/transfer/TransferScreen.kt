@@ -212,7 +212,7 @@ private fun HeldPreview() {
     BumblebeeTheme {
         TransferBody(
             ui = sample(TransferPhase.HELD, "NOT APPLIED", canSave = false).copy(
-                message = "1 already live here. Nothing was replaced.",
+                message = "1 already live here. Nothing was replaced yet.",
                 canOverwrite = true,
                 canKeep = true,
                 overwriteLabel = "Overwrite those 1",
