@@ -487,7 +487,7 @@ private fun CustomiseStep(
                     .background(Surface),
                 contentAlignment = Alignment.Center,
             ) {
-                if (showAdjust && photo != null) {
+                if (showAdjust) {
                     val layout = ShareCardLayout.forShape(card.shape)
                     AdjustPhoto(photo, ui.photoFrame, layout.width, layout.height, onFrame)
                 } else if (bmp == null) {
