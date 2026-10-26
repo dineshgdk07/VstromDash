@@ -5,6 +5,13 @@ All notable changes to Bumblebee. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-26
+
+### Changed
+- **Unlocking notification access and SMS:** on Android 13+, a downloaded install has both
+  locked ("App was denied access"). The app now guides you through it with a picture of where to
+  tap, opens App info for you, and carries on by itself once they're unlocked.
+
 ## [0.2.0] - 2026-10-26
 
 ### Added

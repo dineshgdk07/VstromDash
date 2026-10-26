@@ -99,6 +99,38 @@ fun GarageSettingsScreen(
     }
     val fullScreenOk = remember(permissionTick, context) { fullScreenAllowed(context) }
 
+    // A downloaded APK on Android 13+ has SMS and notification access locked until the rider
+    // unlocks them; these guides walk through it, then ask again.
+    var smsGuide by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var accessGuide by remember { mutableStateOf(false) }
+    fun askSms(ask: () -> Unit) {
+        if (!smsGranted && dev.gdk.bumblebee.ui.components.RestrictedSettings.applies(context)) smsGuide = ask else ask()
+    }
+    smsGuide?.let { ask ->
+        dev.gdk.bumblebee.ui.components.RestrictedSettingsGuide(
+            context,
+            "SMS",
+            onTry = ask,
+            onUnlocked = {
+                smsGuide = null
+                ask()
+            },
+            onDismiss = { smsGuide = null },
+        )
+    }
+    if (accessGuide) {
+        dev.gdk.bumblebee.ui.components.RestrictedSettingsGuide(
+            context,
+            "notification access",
+            onTry = { dev.gdk.bumblebee.ui.components.openNotificationAccess(context) },
+            onUnlocked = {
+                accessGuide = false
+                dev.gdk.bumblebee.ui.components.openNotificationAccess(context)
+            },
+            onDismiss = { accessGuide = false },
+        )
+    }
+
     fun requestThenScan() {
         val perms = buildList {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -287,14 +319,14 @@ fun GarageSettingsScreen(
                     text = "Save blood group and note",
                     onClick = {
                         model.saveSafety()
-                        if (!smsGranted) smsSaveLauncher.launch(Manifest.permission.SEND_SMS)
+                        if (!smsGranted) askSms { smsSaveLauncher.launch(Manifest.permission.SEND_SMS) }
                     },
                     style = ChunkyStyle.Lime,
                 )
                 Text("What they receive", style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
                 SosTemplateEditor(state.sosTemplate, model::saveSosTemplate)
                 PermissionRow("SMS to contacts", smsGranted) {
-                    smsSaveLauncher.launch(Manifest.permission.SEND_SMS)
+                    askSms { smsSaveLauncher.launch(Manifest.permission.SEND_SMS) }
                 }
                 PermissionRow("Alarm over the lock screen", fullScreenOk, last = true) {
                     openFullScreenSettings(context)
@@ -306,7 +338,7 @@ fun GarageSettingsScreen(
                     Box(Modifier.weight(1f)) {
                         ChunkyButton(
                             text = "Test SMS",
-                            onClick = { smsLauncher.launch(Manifest.permission.SEND_SMS) },
+                            onClick = { askSms { smsLauncher.launch(Manifest.permission.SEND_SMS) } },
                             compact = true,
                             style = ChunkyStyle.Outline,
                         )
@@ -365,10 +397,8 @@ fun GarageSettingsScreen(
                 PermissionRow("Location", locationOn) {
                     context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
                 }
-                var accessHelp by remember { mutableStateOf(false) }
-                if (accessHelp) dev.gdk.bumblebee.ui.components.NotificationAccessHelp(context) { accessHelp = false }
                 PermissionRow("Notification access", notificationsOn) {
-                    if (dev.gdk.bumblebee.ui.components.mayRestrictNotificationAccess()) accessHelp = true
+                    if (!notificationsOn && dev.gdk.bumblebee.ui.components.RestrictedSettings.applies(context)) accessGuide = true
                     else context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                 }
                 PermissionRow("Battery optimisation", batteryFree, last = true) {

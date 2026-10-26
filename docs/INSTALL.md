@@ -26,16 +26,18 @@ your download matches the one built here.
      it, then tap **Install anyway**.
 4. **Turn Play Protect scanning back on** (same place as step 2). Bumblebee stays installed.
 
-## Turn on notification access (Android 13 and newer)
+## Unlock notification access and SMS (Android 13 and newer)
 
-Android greys out notification access for apps installed from a download and shows
-**"Restricted setting"**. To allow it:
+Android locks notification access and SMS for apps installed from a download: trying to turn them
+on shows **"App was denied access"** or **"Restricted setting"**. Bumblebee walks you through
+unlocking them, with a picture of where to tap. It's a one-time step:
 
-1. Open **Settings → Apps → Bumblebee** (or long-press the app icon → **App info**).
-2. Tap **⋮** at the top right → **Allow restricted settings**, and confirm with your PIN or
-   fingerprint.
-3. Back in Bumblebee, turn on notification access when asked (Journey, or Garage → Cluster check
-   → Permissions). The app walks you through this too.
+1. Tap **Turn on access** in Journey (or the SMS or notification access row in Garage → Settings).
+   Bumblebee shows the guide; tap **Try it**. Android says "App was denied access": tap **Close**.
+   Android only offers the unlock after it has said no once.
+2. Tap **Open App info**, then **⋮** at the top right → **Allow restricted settings**, and confirm
+   with your PIN or fingerprint.
+3. Come back to Bumblebee. It notices and opens the setting again, and this time it turns on.
 
 ## Updates
 

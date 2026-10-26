@@ -145,12 +145,23 @@ fun JourneyScreen(model: JourneyViewModel = viewModel()) {
         onDispose { lifecycle.lifecycle.removeObserver(obs) }
     }
     val notifyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    // On Android 13+ the switch may be greyed out for a downloaded APK; explain first.
-    var accessHelp by remember { mutableStateOf(false) }
-    if (accessHelp) dev.gdk.bumblebee.ui.components.NotificationAccessHelp(context) { accessHelp = false }
+    // A downloaded APK on Android 13+ has notification access locked until the rider unlocks it.
+    var accessGuide by remember { mutableStateOf(false) }
+    if (accessGuide) {
+        dev.gdk.bumblebee.ui.components.RestrictedSettingsGuide(
+            context,
+            "notification access",
+            onTry = { dev.gdk.bumblebee.ui.components.openNotificationAccess(context) },
+            onUnlocked = {
+                accessGuide = false
+                dev.gdk.bumblebee.ui.components.openNotificationAccess(context)
+            },
+            onDismiss = { accessGuide = false },
+        )
+    }
     fun enableAccess() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) notifyLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        if (dev.gdk.bumblebee.ui.components.mayRestrictNotificationAccess()) accessHelp = true
+        if (dev.gdk.bumblebee.ui.components.RestrictedSettings.applies(context)) accessGuide = true
         else context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
     }
     fun go(destination: String) {
