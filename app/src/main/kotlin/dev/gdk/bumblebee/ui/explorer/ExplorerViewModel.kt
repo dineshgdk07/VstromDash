@@ -313,7 +313,8 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
         val bike = last?.fuelEconKml
         val litres = FuelEconomics.litresBurnt(entity.km(), tank, bike)
         val story = RideStory.of(input, track)
-        val gpx = if (track.size >= 2) GpxExport.toGpx(entity.name ?: "Ride ${entity.id}", entity.startTs, track) else null
+        val gpxFull = if (track.size >= 2) GpxExport.toGpx(entity.name ?: "Ride ${entity.id}", entity.startTs, track) else null
+        val gpx = GpxExport.withoutEnds(track).takeIf { it.size >= 2 }?.let { GpxExport.toGpx(entity.name ?: "Ride ${entity.id}", entity.startTs, it) }
         val csv = app.capture.csvForRide(entity.id)
         val segments = app.capture.segmentsFor(entity.id)
         val telemetry = app.capture.telemetryForRide(entity.id)
@@ -369,6 +370,7 @@ class ExplorerViewModel(application: Application) : AndroidViewModel(application
             litresEst = litres?.first,
             litresFromFills = litres?.second == true,
             gpx = gpx,
+            gpxFull = gpxFull,
             csv = csv,
             canSplit = app.capture.canSplit(entity.id),
             overnight = overnight,

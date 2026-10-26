@@ -55,6 +55,8 @@ class CrashAlarmActivity : ComponentActivity() {
         setContent {
             BumblebeeTheme {
                 val state by CrashAlert.state.collectAsState()
+                // Recompose as each text's outcome comes in.
+                val delivery by SmsDelivery.status.collectAsState()
                 LaunchedEffect(state == null) { if (state == null) finish() }
                 val s = state ?: return@BumblebeeTheme
                 Column(
@@ -73,9 +75,9 @@ class CrashAlarmActivity : ComponentActivity() {
                     )
                     Text(
                         when {
-                            s.test && s.sent -> "Sent a TEST text to ${s.sentTo} contact${if (s.sentTo == 1) "" else "s"}. This is what a real alarm looks like."
+                            s.test && s.sent -> CrashAlert.deliveryLine(s, delivery) + " This is what a real alarm looks like."
                             s.test -> "In ${s.secondsLeft} s your contacts get a TEST text, not a real alert. Tap I'm OK to stop."
-                            s.sent -> "Texted ${s.sentTo} contact${if (s.sentTo == 1) "" else "s"} with your location."
+                            s.sent -> CrashAlert.deliveryLine(s, delivery)
                             else -> "Your emergency contacts get a text with your location in ${s.secondsLeft} s."
                         },
                         style = MaterialTheme.typography.bodyLarge,

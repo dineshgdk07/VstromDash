@@ -372,6 +372,7 @@ private fun TransferRoute(onBack: () -> Unit) {
             app.prefs,
             widget,
             BuildConfig.BUILD_TYPE,
+            spoolDir = File(context.cacheDir, "import-scans"),
         )
     }
     val model: TransferViewModel = viewModel(

@@ -92,7 +92,10 @@ data class RideDetail(
     val rupeesPerKm: Double? = null,
     val litresEst: Double? = null,
     val litresFromFills: Boolean = false,
+    /** The track without the first and last 500 m; null when the ride is too short for that. */
     val gpx: String? = null,
+    /** The whole track, start and finish included. */
+    val gpxFull: String? = null,
     val csv: String? = null,
     val shareText: String = "",
     val canSplit: Boolean = false,
@@ -445,10 +448,14 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
         val bike = last?.fuelEconKml
         val litres = FuelEconomics.litresBurnt(entity.km(), tank, bike)
         val story = RideStory.of(input, plots.track)
-        val gpx = if (plots.track.size >= 2) {
+        val gpxFull = if (plots.track.size >= 2) {
             GpxExport.toGpx(entity.name ?: "Ride ${entity.id}", entity.startTs, plots.track)
         } else {
             null
+        }
+        // Shared by default without the first and last 500 m, like cards and videos.
+        val gpx = GpxExport.withoutEnds(plots.track).takeIf { it.size >= 2 }?.let {
+            GpxExport.toGpx(entity.name ?: "Ride ${entity.id}", entity.startTs, it)
         }
         val csv = withContext(Dispatchers.IO) { app.capture.csvForRide(entity.id) }
         val segments = withContext(Dispatchers.IO) { app.capture.segmentsFor(entity.id) }
@@ -505,6 +512,7 @@ class RideViewModel(application: Application) : AndroidViewModel(application) {
             litresEst = litres?.first,
             litresFromFills = litres?.second == true,
             gpx = gpx,
+            gpxFull = gpxFull,
             csv = csv,
             canSplit = canSplit,
             overnight = overnight,

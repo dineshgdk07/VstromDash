@@ -650,7 +650,10 @@ private fun shareActions(detail: RideDetail, context: Context, openCard: () -> U
     if (detail.shareText.isNotBlank()) {
         add(ShareAction("Share recap", "A short text summary", Icons.AutoMirrored.Rounded.Notes) { shareRide(context, detail.shareText, null, detail.row.id) })
         detail.gpx?.let { gpx ->
-            add(ShareAction("Share GPX", "The track, for maps and Strava", Icons.Rounded.Route) { shareRide(context, detail.shareText, gpx, detail.row.id) })
+            add(ShareAction("Share GPX", "The track for maps and Strava, without the first and last 500 m so home stays private", Icons.Rounded.Route) { shareRide(context, detail.shareText, gpx, detail.row.id) })
+        }
+        detail.gpxFull?.let { gpx ->
+            add(ShareAction("Share full GPX", "The whole track, including where you started and finished", Icons.Rounded.Route) { shareRide(context, detail.shareText, gpx, detail.row.id) })
         }
         detail.csv?.let { csv ->
             add(ShareAction("Share CSV", "Raw ride data", Icons.Rounded.TableChart) { shareCsv(context, csv, detail.row.id) })

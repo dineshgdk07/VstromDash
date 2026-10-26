@@ -3,7 +3,7 @@ package dev.gdk.bumblebee.snapshot
 object SnapshotFormat {
     const val MAGIC = "bumblebee-snapshot"
     const val FORMAT = 1
-    const val APP_SCHEMA = 9
+    const val APP_SCHEMA = 10
     const val EXTENSION = "bbpack"
 }
 
@@ -206,10 +206,24 @@ data class SnapshotPrefs(
     val widget: SnapshotWidget,
 )
 
-class SnapshotFile(
+/**
+ * A document scan in a snapshot. Its bytes are read only when used, from wherever they live (the
+ * garage folder on export, a spooled temp file on import), so a pack with many scans never
+ * holds them all in memory at once.
+ */
+class SnapshotFile private constructor(
     val relativePath: String,
-    val bytes: ByteArray,
+    private val load: () -> ByteArray,
 ) {
+    constructor(relativePath: String, bytes: ByteArray) : this(relativePath, { bytes })
+
+    val bytes: ByteArray get() = load()
+
+    companion object {
+        /** A scan read from storage each time it's needed. */
+        fun lazy(relativePath: String, load: () -> ByteArray) = SnapshotFile(relativePath, load)
+    }
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is SnapshotFile) return false

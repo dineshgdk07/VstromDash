@@ -46,6 +46,8 @@ class TransferRepository(
     private val prefs: BikePrefs,
     private val widget: WidgetStore,
     private val buildType: String,
+    /** Where an incoming pack's scans wait until it's applied; null keeps them in memory (tests). */
+    private val spoolDir: java.io.File? = null,
 ) : TransferGateway {
     override suspend fun preview(): PackPreview {
         val captured = archive.capture()
@@ -64,7 +66,9 @@ class TransferRepository(
     }
 
     override suspend fun inspect(input: InputStream): BringIn {
-        return when (val read = readSnapshot(input)) {
+        // A new pack replaces whatever an earlier, abandoned one left behind.
+        spoolDir?.deleteRecursively()
+        return when (val read = readSnapshot(input, spoolDir = spoolDir)) {
             is SnapshotRead.Rejected -> BringIn.Failed(read.message, read.log)
             is SnapshotRead.Ready -> {
                 val here = archive.capture().bundle.copy(prefs = prefs.toSnapshotPrefs(widget.read()))
@@ -82,5 +86,7 @@ class TransferRepository(
             prefs.writeSnapshotPrefs(bundle.prefs)
             widget.write(bundle.prefs.widget)
         }
+        // Kept until it's in, so a failed apply can be tried again.
+        spoolDir?.deleteRecursively()
     }
 }

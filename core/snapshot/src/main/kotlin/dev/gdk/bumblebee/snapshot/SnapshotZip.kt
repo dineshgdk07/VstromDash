@@ -2,6 +2,7 @@ package dev.gdk.bumblebee.snapshot
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.MessageDigest
@@ -48,8 +49,14 @@ fun writeSnapshot(out: OutputStream, bundle: SnapshotBundle, buildType: String, 
     }
 }
 
-fun readSnapshot(input: InputStream, maxUncompressedBytes: Long = MAX_SNAPSHOT_BYTES): SnapshotRead {
+/**
+ * Reads a snapshot. With [spoolDir], document scans are written there as they're read rather than
+ * kept in memory, so a pack with many scans can't run the phone out of memory; the caller clears
+ * the folder once the import is done or abandoned.
+ */
+fun readSnapshot(input: InputStream, maxUncompressedBytes: Long = MAX_SNAPSHOT_BYTES, spoolDir: File? = null): SnapshotRead {
     val entries = linkedMapOf<String, ByteArray>()
+    val spooled = linkedMapOf<String, File>()
     var used = 0L
     try {
         ZipInputStream(input).use { zip ->
@@ -59,16 +66,26 @@ fun readSnapshot(input: InputStream, maxUncompressedBytes: Long = MAX_SNAPSHOT_B
                 if (!allowedZipName(name)) {
                     return SnapshotRead.Rejected("This file is not a Bumblebee snapshot.", listOf(name))
                 }
-                val capped = readAtMost(zip, maxUncompressedBytes - used)
-                    ?: return SnapshotRead.Rejected("This snapshot is too large to import.", listOf(name))
-                used += capped.size
-                entries[name] = capped
+                if (spoolDir != null && name.startsWith("files/")) {
+                    spoolDir.mkdirs()
+                    val file = File(spoolDir, "scan-${spooled.size}")
+                    val size = file.outputStream().use { copyAtMost(zip, it, maxUncompressedBytes - used) }
+                        ?: return SnapshotRead.Rejected("This snapshot is too large to import.", listOf(name))
+                    used += size
+                    spooled[name] = file
+                } else {
+                    val capped = readAtMost(zip, maxUncompressedBytes - used)
+                        ?: return SnapshotRead.Rejected("This snapshot is too large to import.", listOf(name))
+                    used += capped.size
+                    entries[name] = capped
+                }
                 entry = zip.nextEntry
             }
         }
     } catch (error: Exception) {
         return SnapshotRead.Rejected("This file is not a Bumblebee snapshot.", listOf(error.message ?: "zip"))
     }
+    val fileNames = (entries.keys.filter { it.startsWith("files/") } + spooled.keys).toSortedSet()
     val required = SnapshotSections.ORDER.map { "$it.json" } + "prefs.json" + "manifest.json"
     val missing = required.filter { it !in entries }
     if (missing.isNotEmpty()) {
@@ -77,7 +94,17 @@ fun readSnapshot(input: InputStream, maxUncompressedBytes: Long = MAX_SNAPSHOT_B
     val digest = MessageDigest.getInstance("SHA-256")
     SnapshotSections.ORDER.forEach { digest.update(entries.getValue("$it.json")) }
     digest.update(entries.getValue("prefs.json"))
-    entries.keys.filter { it.startsWith("files/") }.sorted().forEach { digest.update(entries.getValue(it)) }
+    for (name in fileNames) {
+        val inMemory = entries[name]
+        if (inMemory != null) digest.update(inMemory) else spooled.getValue(name).inputStream().use { s ->
+            val buf = ByteArray(64 * 1024)
+            while (true) {
+                val n = s.read(buf)
+                if (n < 0) break
+                digest.update(buf, 0, n)
+            }
+        }
+    }
     val sha = digest.digest().joinToString("") { "%02x".format(it) }
     val manifestJson = JSONObject(String(entries.getValue("manifest.json"), Charsets.UTF_8))
     val counts = manifestJson.getJSONObject("counts")
@@ -99,8 +126,10 @@ fun readSnapshot(input: InputStream, maxUncompressedBytes: Long = MAX_SNAPSHOT_B
         is SnapshotVerdict.Rejected -> return SnapshotRead.Rejected(verdict.message, verdict.log)
         SnapshotVerdict.Ok -> Unit
     }
-    val bundle = parseBundle(entries)
-    val named = entries.keys.filter { it.startsWith("files/") }.toSet()
+    val bundle = parseBundle(entries).let { b ->
+        b.copy(files = b.files + spooled.map { (name, file) -> SnapshotFile.lazy(name.removePrefix("files/")) { file.readBytes() } })
+    }
+    val named = fileNames
     val wanted = (bundle.documents.mapNotNull { it.filePath } + bundle.services.mapNotNull { it.filePath })
         .filter { it.isNotBlank() }
     val absent = wanted.filter { it !in named }
@@ -111,6 +140,21 @@ fun readSnapshot(input: InputStream, maxUncompressedBytes: Long = MAX_SNAPSHOT_B
 }
 
 const val MAX_SNAPSHOT_BYTES = 512L * 1024 * 1024
+
+/** Copies at most [max] bytes; returns how many, or null when there were more. */
+private fun copyAtMost(input: InputStream, out: OutputStream, max: Long): Long? {
+    if (max < 0) return null
+    val chunk = ByteArray(64 * 1024)
+    var total = 0L
+    while (true) {
+        val read = input.read(chunk)
+        if (read < 0) break
+        total += read
+        if (total > max) return null
+        out.write(chunk, 0, read)
+    }
+    return total
+}
 
 private fun readAtMost(input: InputStream, max: Long): ByteArray? {
     if (max < 0) return null

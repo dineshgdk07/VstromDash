@@ -335,7 +335,7 @@ private fun packFile(
     }
     val safe = file.name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(48).ifEmpty { "file" }
     val relative = "$folder/${id}_$safe"
-    files += SnapshotFile(relative, file.readBytes())
+    files += SnapshotFile.lazy(relative) { file.readBytes() }
     return "files/$relative"
 }
 

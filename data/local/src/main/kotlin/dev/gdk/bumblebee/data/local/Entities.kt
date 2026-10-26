@@ -92,7 +92,7 @@ data class MaintenancePlanEntity(
 )
 
 /** Raw a537 archive — every frame, verbatim (insights spec B1). */
-@Entity(tableName = "telemetry_samples", indices = [Index("rideId")])
+@Entity(tableName = "telemetry_samples", indices = [Index(value = ["rideId", "ts"]), Index("ts")])
 data class TelemetrySampleEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val rideId: Long,

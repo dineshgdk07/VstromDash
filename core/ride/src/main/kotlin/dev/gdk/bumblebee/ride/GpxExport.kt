@@ -7,6 +7,23 @@ import java.util.TimeZone
 
 object GpxExport {
 
+    /**
+     * The track without its first and last [zoneM] metres, so a shared GPX doesn't lead to the
+     * rider's door (the same rule as share cards and videos). Empty when the ride is too short.
+     */
+    fun withoutEnds(points: List<GpsFix>, zoneM: Double = SharePrivacy.ZONE_M): List<GpsFix> {
+        if (points.size < 2) return emptyList()
+        val cum = DoubleArray(points.size)
+        for (i in 1 until points.size) {
+            val a = points[i - 1]
+            val b = points[i]
+            cum[i] = cum[i - 1] + Geo.haversineMeters(a.lat, a.lng, b.lat, b.lng)
+        }
+        val total = cum.last()
+        if (total < zoneM * 2) return emptyList()
+        return points.filterIndexed { i, _ -> cum[i] in zoneM..(total - zoneM) }
+    }
+
     fun toGpx(name: String, startTs: Long, points: List<GpsFix>): String {
         val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")

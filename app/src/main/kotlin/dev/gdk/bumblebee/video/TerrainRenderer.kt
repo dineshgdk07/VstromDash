@@ -345,6 +345,17 @@ class TerrainRenderer(
 
     private class Strip(val buffer: FloatBuffer, val vertices: Int)
 
+    /**
+     * One buffer reused for every ribbon and sprite batch, grown when a frame needs more: each is
+     * uploaded to the GPU straight away, so nothing needs its own, and no frame allocates.
+     */
+    private var scratch: FloatBuffer = floatBuffer(64 * 1024)
+
+    private fun scratch(floats: Int): FloatBuffer {
+        if (scratch.capacity() < floats) scratch = floatBuffer(maxOf(floats, scratch.capacity() * 2))
+        return scratch.apply { clear() }
+    }
+
     /** The trail's colour stops as sRGB floats for the shader, or null for the accent trail. */
     private val rampStops: FloatArray? = TrailRamp.stops(cfg.trailColor)?.takeIf { plan.trail != null }?.let { stops ->
         FloatArray(stops.size * 3) { i -> ((stops[i / 3] shr (16 - 8 * (i % 3))) and 255) / 255f }
@@ -368,7 +379,7 @@ class TerrainRenderer(
             i += stride
         }
         idx += to
-        val buf = floatBuffer(idx.size * 2 * 7)
+        val buf = scratch(idx.size * 2 * 7)
         val values = trailValues
         var count = 0
         for ((k, pi) in idx.withIndex()) {
@@ -611,7 +622,7 @@ class TerrainRenderer(
         // Sprites stay visible over nearby ground but hide behind ridges.
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         GLES30.glDepthMask(false)
-        val buf = floatBuffer(sprites.size * 6 * 10)
+        val buf = scratch(sprites.size * 6 * 10)
         val corners = listOf(-1f to -1f, 1f to -1f, 1f to 1f, -1f to -1f, 1f to 1f, -1f to 1f)
         for (s in sprites) for ((cx, cy) in corners) {
             buf.put(s[0]).put(s[1]).put(s[2]).put(cx).put(cy).put(s[3]).put(s[4]).put(s[5]).put(s[6]).put(s[7])

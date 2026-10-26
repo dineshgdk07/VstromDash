@@ -5,6 +5,22 @@ All notable changes to Bumblebee. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+### Fixed
+- **Crash texts are followed until they go out.** Each text now reports back from the phone
+  network; with no signal it's retried for about 25 minutes, and the alarm shows how many got
+  through, which are still being tried, or which couldn't be sent, instead of saying "texted"
+  as soon as the text was queued.
+- **Big backups import without running out of memory:** document scans in an incoming pack are
+  kept on storage, not in memory, and exports read scans one at a time.
+
+### Changed
+- **Shared GPX leaves out the first and last 500 m,** like share cards and videos, so a track
+  doesn't lead to your door. "Share full GPX" still gives the whole track.
+- **Faster as rides pile up:** the last odometer reading and each ride's bike data no longer
+  scan every sample ever recorded (database upgrade 9 → 10, data kept).
+- Release builds no longer write routine Bluetooth details to the system log, and the ride
+  video renderer reuses its buffers instead of allocating new ones every frame.
+
 ## [0.2.1] - 2026-10-26
 
 ### Changed

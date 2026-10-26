@@ -167,6 +167,10 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+        <!-- Whether each crash text actually went out, so failures are retried and shown. -->
+        <receiver
+            android:name=".safety.SmsDelivery$SmsSentReceiver"
+            android:exported="false" />
         <receiver
             android:name=".ble.PauseWindowReceiver"
             android:exported="false">

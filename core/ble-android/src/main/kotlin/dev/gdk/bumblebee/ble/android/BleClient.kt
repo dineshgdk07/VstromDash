@@ -89,7 +89,7 @@ class BleClient(private val context: Context) {
             val device: BluetoothDevice? = try {
                 adapter?.getRemoteDevice(mac)
             } catch (e: IllegalArgumentException) {
-                Log.e(tag, "invalid MAC: $mac", e)
+                Log.e(tag, "invalid MAC", e)
                 _state.value = ConnectionState.Failed("invalid MAC: $mac")
                 return@launch
             }

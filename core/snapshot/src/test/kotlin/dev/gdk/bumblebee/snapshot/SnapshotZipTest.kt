@@ -232,3 +232,37 @@ private fun stripNewRideKeys(zipBytes: ByteArray): ByteArray {
     }
     return out.toByteArray()
 }
+
+class SnapshotSpoolTest {
+    @Test fun `scans spool to disk and read back the same`() {
+        val dir = java.nio.file.Files.createTempDirectory("spool").toFile()
+        try {
+            val scan = ByteArray(200_000) { (it % 251).toByte() }
+            val bundle = sample(scan)
+            val out = java.io.ByteArrayOutputStream()
+            writeSnapshot(out, bundle, "debug", 1L)
+            val read = readSnapshot(java.io.ByteArrayInputStream(out.toByteArray()), spoolDir = dir) as SnapshotRead.Ready
+            val file = read.bundle.files.single()
+            org.junit.Assert.assertEquals("rc.pdf", file.relativePath)
+            org.junit.Assert.assertArrayEquals(scan, file.bytes)
+            // On disk, not in the parsed entries.
+            org.junit.Assert.assertEquals(1, dir.listFiles()!!.size)
+            org.junit.Assert.assertEquals(scan.size.toLong(), dir.listFiles()!!.single().length())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test fun `a spooled pack over the cap is refused`() {
+        val dir = java.nio.file.Files.createTempDirectory("spool").toFile()
+        try {
+            val bundle = sample(ByteArray(50_000))
+            val out = java.io.ByteArrayOutputStream()
+            writeSnapshot(out, bundle, "debug", 1L)
+            val read = readSnapshot(java.io.ByteArrayInputStream(out.toByteArray()), maxUncompressedBytes = 10_000, spoolDir = dir)
+            org.junit.Assert.assertTrue(read is SnapshotRead.Rejected)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+}

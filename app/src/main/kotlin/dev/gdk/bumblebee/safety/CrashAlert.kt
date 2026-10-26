@@ -15,7 +15,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
-import android.telephony.SmsManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import dev.gdk.bumblebee.DashApp
@@ -76,6 +75,8 @@ object CrashAlert {
     fun start(context: Context, speedBeforeKmh: Int, lat: Double?, lng: Double?, test: Boolean = false) {
         if (_state.value != null) return
         val ctx = context.applicationContext
+        // Each text's real outcome refreshes the alarm notification.
+        SmsDelivery.onChange = { if (_state.value?.sent == true) notifyAlarm(ctx) }
         appContext = ctx
         speedBefore = speedBeforeKmh
         this.lat = lat
@@ -168,16 +169,21 @@ object CrashAlert {
             followUp -> "Update: ${app.prefs.riderName} is OK. Please ignore the earlier crash alert."
             else -> alert
         }
-        val sms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ctx.getSystemService(SmsManager::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            SmsManager.getDefault()
-        } ?: return 0
-        // Longer than one SMS once a location and notes are in, so always send in parts.
-        val parts = sms.divideMessage(body)
-        return numbers.count { number ->
-            runCatching { sms.sendMultipartTextMessage(number, null, parts, null, null) }.isSuccess
+        // Sent in parts (a location and notes make it longer than one SMS), and followed until
+        // the network takes each one, retrying where there's no signal.
+        return SmsDelivery.send(ctx, numbers, body)
+    }
+
+    /** What the alarm says about the texts: confirmed, still trying, or failed. */
+    fun deliveryLine(s: CrashAlertState, d: SmsDelivery.Status? = SmsDelivery.status.value): String {
+        val who = { n: Int -> "$n contact${if (n == 1) "" else "s"}" }
+        val what = if (s.test) "a TEST text" else "your location"
+        return when {
+            d == null || d.total == 0 -> "Texted ${who(s.sentTo)} with $what."
+            d.sent == d.total -> "Texted ${who(d.sent)} with $what."
+            d.failed > 0 && d.done -> "Sent to ${d.sent} of ${d.total}. Couldn't reach ${who(d.failed)}: ${d.reason ?: "the phone couldn't send it"}. Call for help if you can."
+            d.retrying > 0 -> "Sent to ${d.sent} of ${d.total}. Still trying ${who(d.total - d.sent)} (${d.reason ?: "waiting for the network"})."
+            else -> "Sending to ${who(d.total)}…"
         }
     }
 
@@ -226,7 +232,8 @@ object CrashAlert {
             .addAction(0, "I'm OK", ok)
         if (s.sent) {
             builder.setContentTitle("Help alerted")
-                .setContentText("Texted ${s.sentTo} contact${if (s.sentTo == 1) "" else "s"} with your location. Tap I'm OK to tell them you're fine.")
+                .setContentText(deliveryLine(s) + " Tap I'm OK to tell them you're fine.")
+                .setStyle(NotificationCompat.BigTextStyle().bigText(deliveryLine(s) + " Tap I'm OK to tell them you're fine."))
         } else {
             builder.setContentTitle("Possible crash. Are you OK?")
                 .setContentText(s.problem ?: "Emergency contacts will be texted in ${s.secondsLeft} s unless you tap I'm OK.")
