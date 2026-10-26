@@ -56,6 +56,7 @@ class VideoOverlay(
             Shot.COLD -> cue.moment?.let { teaser(it, cue.progress) }
             Shot.INTRO -> if (cfg.titleCard) intro(cue.progress)
             Shot.RIDE, Shot.HOLD -> {
+                if (plan.labels.isNotEmpty()) placeLabels(t)
                 // The HUD fades in over the first half second of the ride.
                 val since = t - plan.timeline.rideStartS
                 hud(cue, (since / 0.5).coerceIn(0.0, 1.0).toFloat())
@@ -69,6 +70,49 @@ class VideoOverlay(
         }
         flash(t)
         return bitmap
+    }
+
+    /**
+     * Towns along the route, pinned where the road passes them: a short stalk up from the ground
+     * and the name on a dark tab. Shown only while in view, near enough to read, and not behind a
+     * ridge, fading in and out at the frame's edges.
+     */
+    private fun placeLabels(t: Double) {
+        val pose = plan.camera(t)
+        val vm = ViewMath(pose, width.toDouble() / height, 5.0, 1e7)
+        val reach = plan.director.radius * 0.9
+        for (l in plan.labels) {
+            val dist = (l.anchor - pose.eye).length
+            if (dist > reach * 1.4) continue
+            val p = vm.project(l.anchor, width, height) ?: continue
+            val x = p[0].toFloat()
+            val y = p[1].toFloat()
+            val edge = minOf(x, width - x, y - 140 * u, height - 360 * u - y) / (90 * u)
+            var a = edge.coerceIn(0f, 1f) * (1 - ((dist - reach) / (reach * 0.4)).coerceIn(0.0, 1.0)).toFloat()
+            if (a <= 0.02f || !plan.canSee(pose.eye, l.anchor + Vec3.UP * 30.0)) continue
+            a = a.coerceIn(0f, 1f)
+            val stalk = 70 * u
+            stroke.strokeWidth = 3 * u
+            stroke.color = Color.WHITE
+            stroke.alpha = (a * 220).toInt()
+            canvas.drawLine(x, y, x, y - stalk, stroke)
+            fill.color = Color.WHITE
+            fill.alpha = (a * 255).toInt()
+            canvas.drawCircle(x, y, 6 * u, fill)
+            text.typeface = fonts.labelBold
+            text.textSize = 30 * u
+            text.letterSpacing = 0.06f
+            val name = l.name.uppercase(Locale.ENGLISH)
+            val tw = text.measureText(name)
+            text.letterSpacing = 0f
+            val pad = 16 * u
+            val top = y - stalk - 52 * u
+            fill.color = Color.argb((a * 190).toInt(), 12, 12, 14)
+            canvas.drawRoundRect(RectF(x - tw / 2 - pad, top, x + tw / 2 + pad, top + 52 * u), 26 * u, 26 * u, fill)
+            text.textAlign = Paint.Align.CENTER
+            label(name, x, top + 37 * u, 30 * u, Color.WHITE, a, fonts.labelBold, tracking = 0.06f)
+            text.textAlign = Paint.Align.LEFT
+        }
     }
 
     /** A white flash across the cut from the cold open into the title. */
@@ -256,7 +300,7 @@ class VideoOverlay(
             label(l, x + 4 * u, yy + 44 * u, 26 * u, accent, a, fonts.labelBold, tracking = 0.1f)
         }
         label("BUMBLEBEE", left, height - 92 * u, 26 * u, Color.WHITE, a * 0.7f, fonts.labelBold, tracking = 0.25f)
-        label(Terrarium.ATTRIBUTION, left, height - 54 * u, 18 * u, Color.WHITE, a * 0.45f, fonts.label)
+        label(Terrarium.ATTRIBUTION + if (plan.water != null) "  ·  Water © OpenStreetMap contributors" else "", left, height - 54 * u, 18 * u, Color.WHITE, a * 0.45f, fonts.label)
     }
 
     private fun scrimBottom(top: Float, maxAlpha: Int, a: Float) {

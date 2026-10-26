@@ -19,7 +19,7 @@ import kotlin.math.min
  */
 class TerrainRenderer(
     private val plan: RideVideoPlan,
-    private val look: VideoLook,
+    baseLook: VideoLook,
     val width: Int,
     val height: Int,
 ) {
@@ -30,7 +30,10 @@ class TerrainRenderer(
     private val overlayProg = Program(SKY_VS, OVERLAY_FS)
     private val copyProg = Program(SKY_VS, COPY_FS)
 
-    private class MeshBuffers(val vbo: Int, val nbo: Int, val ibo: Int, val count: Int)
+    /** The colours for the frame being drawn; follows the sun through the ride. */
+    private var look: VideoLook = baseLook
+
+    private class MeshBuffers(val vbo: Int, val nbo: Int, val wbo: Int, val ibo: Int, val count: Int)
     private val meshes = mutableListOf<MeshBuffers>()
 
     private val fbo: Int
@@ -50,9 +53,10 @@ class TerrainRenderer(
     init {
         val land = plan.land
         val ex = plan.exaggeration
-        val base = TerrainMesh.build(land.base, ex, surface = land, sink = { x, y -> if (land.detailWeight(x, y) >= 1.0) 25.0 else 0.0 })
+        val water = plan.water?.let { w -> { x: Double, y: Double -> w.at(x, y) } }
+        val base = TerrainMesh.build(land.base, ex, surface = land, sink = { x, y -> if (land.detailWeight(x, y) >= 1.0) 25.0 else 0.0 }, water = water)
         upload(base)
-        land.detail?.let { upload(TerrainMesh.build(it, ex, surface = land)) }
+        land.detail?.let { upload(TerrainMesh.build(it, ex, surface = land, water = water)) }
 
         val ids = IntArray(2)
         GLES30.glGenRenderbuffers(2, ids, 0)
@@ -109,6 +113,8 @@ class TerrainRenderer(
      * video, or null) on top, ending with the result in the default framebuffer.
      */
     fun draw(t: Double, overlay: Bitmap?) {
+        look = plan.lookAt(t, look.accentArgb)
+        time = t.toFloat()
         val cue = plan.timeline.cue(t)
         val pose = plan.camera(t)
         val dist = (pose.target - pose.eye).length
@@ -122,6 +128,7 @@ class TerrainRenderer(
 
         drawSky(vm)
         drawTerrain(vm)
+        drawClouds(vm)
         val (upTo, fade) = trailAt(cue)
         drawRibbons(vm, upTo, fade)
         drawSprites(vm, upTo, cue)
@@ -153,6 +160,67 @@ class TerrainRenderer(
         GLES30.glUniform3fv(p.loc("uHorizon"), 1, look.horizon.floats(), 0)
         GLES30.glUniform3fv(p.loc("uGlow"), 1, look.glow.floats(), 0)
         GLES30.glUniform3fv(p.loc("uHaze"), 1, look.haze.floats(), 0)
+        GLES30.glUniform1f(p.loc("uNight"), look.nightness.toFloat())
+        GLES30.glUniform1f(p.loc("uTime"), time)
+        GLES30.glUniform1f(p.loc("uCloud"), cfg.clouds.toFloat())
+        GLES30.glUniform1f(p.loc("uCloudScale"), cloudScale)
+        GLES30.glUniform1f(p.loc("uCloudAlt"), cloudAlt)
+        GLES30.glUniform2f(p.loc("uWind"), 0.020f, 0.008f)
+    }
+
+    private var time = 0f
+
+    /** Clouds sit well above the highest ground, at a scale that suits the area's size. */
+    private val cloudAlt = (hMax * plan.exaggeration + max(800.0, plan.director.radius * 0.12)).toFloat()
+    private val cloudScale = max(1_500.0, plan.director.radius * 0.35).toFloat()
+
+    /**
+     * A soft cloud layer over the whole area, drawn after the ground and before the trail. It
+     * fades out when the camera is far above it, so the overview and map reveal stay clear; the
+     * shadows on the ground stay.
+     */
+    private fun drawClouds(vm: ViewMath) {
+        if (cfg.clouds <= 0.0) return
+        val above = vm.eye.z - cloudAlt
+        val r = plan.director.radius
+        val fade = (1 - ((above - 0.3 * r) / (0.9 * r)).coerceIn(0.0, 1.0)).toFloat()
+        if (fade <= 0f) return
+        val p = cloudProg
+        p.use()
+        lookUniforms(p)
+        GLES30.glUniformMatrix4fv(p.loc("uViewProj"), 1, false, vm.viewProj, 0)
+        GLES30.glUniform3f(p.loc("uEye"), vm.eye.x.toFloat(), vm.eye.y.toFloat(), vm.eye.z.toFloat())
+        GLES30.glUniform1f(p.loc("uFogDist"), fogDist.toFloat())
+        GLES30.glUniform1f(p.loc("uFade"), fade)
+        val b = plan.land.base
+        GLES30.glUniform4f(p.loc("uArea"), b.x0.toFloat(), b.y0.toFloat(), b.width.toFloat(), b.height.toFloat())
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        GLES30.glDepthFunc(GLES30.GL_LEQUAL)
+        GLES30.glDepthMask(false)
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, cloudVbo)
+        GLES30.glEnableVertexAttribArray(0)
+        GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, 12, 0)
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6)
+        GLES30.glDepthMask(true)
+        GLES30.glDisable(GLES30.GL_BLEND)
+    }
+
+    private val cloudProg = Program(CLOUD_VS, CLOUD_FS)
+    private val cloudVbo: Int = run {
+        val b = plan.land.base
+        val z = cloudAlt
+        val x0 = b.x0.toFloat()
+        val y0 = b.y0.toFloat()
+        val x1 = (b.x0 + b.width).toFloat()
+        val y1 = (b.y0 + b.height).toFloat()
+        val quad = floatArrayOf(x0, y0, z, x1, y0, z, x1, y1, z, x0, y0, z, x1, y1, z, x0, y1, z)
+        val id = IntArray(1)
+        GLES30.glGenBuffers(1, id, 0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, id[0])
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, quad.size * 4, floatBuffer(quad), GLES30.GL_STATIC_DRAW)
+        id[0]
     }
 
     private fun cameraUniforms(p: Program, vm: ViewMath) {
@@ -188,6 +256,7 @@ class TerrainRenderer(
         GLES30.glUniform1fv(p.loc("uStopT"), stops.size, FloatArray(stops.size) { stops[it].first.toFloat() }, 0)
         GLES30.glUniform3fv(p.loc("uStopC"), stops.size, stops.flatMap { it.second.floats().toList() }.toFloatArray(), 0)
         GLES30.glUniform3fv(p.loc("uRock"), 1, look.rock.floats(), 0)
+        GLES30.glUniform3fv(p.loc("uWater"), 1, look.water.floats(), 0)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         GLES30.glDepthFunc(GLES30.GL_LESS)
         for (m in meshes) {
@@ -197,10 +266,14 @@ class TerrainRenderer(
             GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, m.nbo)
             GLES30.glEnableVertexAttribArray(1)
             GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, 12, 0)
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, m.wbo)
+            GLES30.glEnableVertexAttribArray(2)
+            GLES30.glVertexAttribPointer(2, 1, GLES30.GL_FLOAT, false, 4, 0)
             GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, m.ibo)
             GLES30.glDrawElements(GLES30.GL_TRIANGLES, m.count, GLES30.GL_UNSIGNED_INT, 0)
         }
         GLES30.glDisableVertexAttribArray(1)
+        GLES30.glDisableVertexAttribArray(2)
     }
 
     /**
@@ -415,17 +488,19 @@ class TerrainRenderer(
     }
 
     private fun upload(mesh: TerrainMesh) {
-        val b = IntArray(3)
-        GLES30.glGenBuffers(3, b, 0)
+        val b = IntArray(4)
+        GLES30.glGenBuffers(4, b, 0)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, b[0])
         GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, mesh.positions.size * 4, floatBuffer(mesh.positions), GLES30.GL_STATIC_DRAW)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, b[1])
         GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, mesh.normals.size * 4, floatBuffer(mesh.normals), GLES30.GL_STATIC_DRAW)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, b[3])
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, mesh.water.size * 4, floatBuffer(mesh.water), GLES30.GL_STATIC_DRAW)
         GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, b[2])
         val ib = ByteBuffer.allocateDirect(mesh.indices.size * 4).order(ByteOrder.nativeOrder()).asIntBuffer()
         ib.put(mesh.indices).position(0)
         GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, mesh.indices.size * 4, ib, GLES30.GL_STATIC_DRAW)
-        meshes += MeshBuffers(b[0], b[1], b[2], mesh.indices.size)
+        meshes += MeshBuffers(b[0], b[1], b[3], b[2], mesh.indices.size)
     }
 
     /**
@@ -433,7 +508,9 @@ class TerrainRenderer(
      * uEye before projecting. Ribbons and sprites are built eye-relative on the CPU.
      */
     fun release() {
-        meshes.forEach { GLES30.glDeleteBuffers(3, intArrayOf(it.vbo, it.nbo, it.ibo), 0) }
+        meshes.forEach { GLES30.glDeleteBuffers(4, intArrayOf(it.vbo, it.nbo, it.wbo, it.ibo), 0) }
+        GLES30.glDeleteBuffers(1, intArrayOf(cloudVbo), 0)
+        cloudProg.release()
         GLES30.glDeleteBuffers(2, intArrayOf(ribbonVbo, spriteVbo), 0)
         GLES30.glDeleteTextures(1, intArrayOf(overlayTex), 0)
         GLES30.glDeleteFramebuffers(2, intArrayOf(fbo, resolveFbo), 0)
@@ -494,6 +571,40 @@ class TerrainRenderer(
             uniform vec3 uHorizon;
             uniform vec3 uGlow;
             uniform vec3 uHaze;
+            uniform float uNight;
+            uniform float uTime;
+            uniform float uCloud;
+            uniform float uCloudScale;
+            uniform float uCloudAlt;
+            uniform vec2 uWind;
+            float hash12(vec2 p) {
+                vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+                p3 += dot(p3, p3.yzx + 33.33);
+                return fract((p3.x + p3.y) * p3.z);
+            }
+            float vnoise(vec2 p) {
+                vec2 i = floor(p);
+                vec2 f = fract(p);
+                vec2 u = f * f * (3.0 - 2.0 * f);
+                return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x), mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
+            }
+            float fbm(vec2 p) {
+                float s = 0.0;
+                float a = 0.5;
+                for (int i = 0; i < 5; i++) {
+                    s += a * vnoise(p);
+                    p = p * 2.03 + vec2(17.1, 9.2);
+                    a *= 0.5;
+                }
+                return s;
+            }
+            // Cloud cover at a point in the cloud layer: drifting noise, thinned to the chosen cover.
+            float cloudDensity(vec2 xy) {
+                if (uCloud <= 0.0) return 0.0;
+                float v = fbm(xy / uCloudScale + uWind * uTime);
+                float th = 1.0 - uCloud * 0.85;
+                return smoothstep(th - 0.08, th + 0.18, v);
+            }
             vec3 skyColor(vec3 ray) {
                 float up = clamp(ray.z, -1.0, 1.0);
                 vec3 c = mix(uZenith, uHorizon, exp(-max(up, 0.0) * 5.0));
@@ -525,23 +636,33 @@ class TerrainRenderer(
             void main() {
                 vec2 ndc = vUv * 2.0 - 1.0;
                 vec3 ray = normalize(uForward + uRight * ndc.x * uTan.x + uUp * ndc.y * uTan.y);
-                outColor = vec4(toSrgb(skyColor(ray)), 1.0);
+                vec3 c = skyColor(ray);
+                // Stars come out as night falls, fading toward the horizon haze.
+                if (uNight > 0.0) {
+                    vec2 sp = vec2(atan(ray.y, ray.x) * 140.0, ray.z * 220.0);
+                    float star = step(0.9965, hash12(floor(sp))) * smoothstep(0.02, 0.25, ray.z);
+                    c += vec3(0.9, 0.92, 1.0) * star * uNight;
+                }
+                outColor = vec4(toSrgb(c), 1.0);
             }
         """
 
         const val TERRAIN_VS = """#version 300 es
             layout(location = 0) in vec3 aPos;
             layout(location = 1) in vec3 aNormal;
+            layout(location = 2) in float aWater;
             uniform mat4 uViewProj;
             uniform vec3 uEye;
             out vec3 vWorld;
             out vec3 vRel;
             out vec3 vNormal;
+            out float vWater;
             void main() {
                 vec3 rel = aPos - uEye;
                 vWorld = aPos;
                 vRel = rel;
                 vNormal = aNormal;
+                vWater = aWater;
                 gl_Position = uViewProj * vec4(rel, 1.0);
             }
         """
@@ -551,7 +672,9 @@ class TerrainRenderer(
             in vec3 vWorld;
             in vec3 vRel;
             in vec3 vNormal;
+            in float vWater;
             out vec4 outColor;
+            uniform vec3 uWater;
             uniform float uExag;
             uniform vec2 uHeights;
             uniform float uFogDist;
@@ -584,7 +707,21 @@ class TerrainRenderer(
                 float f = fract(h / 100.0);
                 float lineM = min(f, 1.0 - f) * 100.0;
                 float widthM = 1.2 + dist / 2500.0;
-                if (lineM < widthM) c *= 1.0 - 0.22 * uContours * (1.0 - lineM / widthM) * exp(-dist / 30000.0);
+                if (lineM < widthM) c *= 1.0 - 0.22 * uContours * (1.0 - vWater) * (1.0 - lineM / widthM) * exp(-dist / 30000.0);
+                vec3 ray = normalize(vRel);
+                // Water: a rippled surface reflecting the sky, with the sun's glint on it.
+                if (vWater > 0.02) {
+                    vec2 wp = vWorld.xy / 35.0 + vec2(uTime * 0.6, uTime * 0.4);
+                    vec3 wn = normalize(vec3((vnoise(wp) - 0.5) * 0.25, (vnoise(wp + 31.7) - 0.5) * 0.25, 1.0));
+                    vec3 refl = reflect(ray, wn);
+                    float fres = 0.04 + 0.96 * pow(1.0 - max(dot(-ray, wn), 0.0), 5.0);
+                    vec3 wc = mix(uWater * (uAmbient * 0.8 + uSun * 0.25 * max(uLight.z, 0.0)), skyColor(refl), fres);
+                    wc += uSun * pow(max(dot(refl, uLight), 0.0), 120.0) * 1.5;
+                    c = mix(c, wc, clamp(vWater, 0.0, 1.0));
+                }
+                // Shadows of the clouds overhead, cast along the light.
+                vec2 sxy = vWorld.xy + uLight.xy / max(uLight.z, 0.2) * (uCloudAlt - vWorld.z);
+                c *= 1.0 - 0.5 * cloudDensity(sxy) * (1.0 - uNight);
                 float valley = exp(-(h - uHeights.x) / 220.0) * 0.16 * (1.0 - exp(-dist / 5000.0));
                 float fog = 1.0 - exp(-pow(dist / uFogDist, 1.6));
                 c = mix(c, uHaze, clamp(fog * 0.9 + valley, 0.0, 0.95));
@@ -592,10 +729,48 @@ class TerrainRenderer(
                 vec2 a = (vWorld.xy - uArea.xy) / uArea.zw;
                 float edge = min(min(a.x, 1.0 - a.x), min(a.y, 1.0 - a.y));
                 float e = clamp(1.0 - edge / 0.12, 0.0, 1.0);
-                vec3 ray = normalize(vRel);
                 vec3 sky = mix(uHorizon, uHaze, 0.5) + uGlow * 0.4 * pow(max(dot(ray, uLight), 0.0), 6.0);
                 c = mix(c, sky, e * e);
                 outColor = vec4(toSrgb(c), 1.0);
+            }
+        """
+
+        const val CLOUD_VS = """#version 300 es
+            layout(location = 0) in vec3 aPos;
+            uniform mat4 uViewProj;
+            uniform vec3 uEye;
+            out vec3 vWorld;
+            out vec3 vRel;
+            void main() {
+                vWorld = aPos;
+                vRel = aPos - uEye;
+                gl_Position = uViewProj * vec4(vRel, 1.0);
+            }
+        """
+
+        const val CLOUD_FS = """#version 300 es
+            precision highp float;
+            in vec3 vWorld;
+            in vec3 vRel;
+            out vec4 outColor;
+            uniform float uFogDist;
+            uniform float uFade;
+            uniform vec4 uArea;
+            $COMMON
+            void main() {
+                float dens = cloudDensity(vWorld.xy);
+                if (dens < 0.01) discard;
+                vec3 ray = normalize(vRel);
+                vec3 lit = uAmbient * 1.4 + uSun * 0.75;
+                // Thicker cloud toward the light shades this side.
+                float self = cloudDensity(vWorld.xy + uLight.xy * uCloudScale * 0.15);
+                vec3 col = mix(lit, lit * 0.55, self * 0.6) + uGlow * 0.35 * pow(max(dot(ray, uLight), 0.0), 4.0);
+                float dist = length(vRel);
+                float fog = 1.0 - exp(-pow(dist / uFogDist, 1.6));
+                col = mix(col, uHaze, fog * 0.8);
+                vec2 a = (vWorld.xy - uArea.xy) / uArea.zw;
+                float edge = clamp(min(min(a.x, 1.0 - a.x), min(a.y, 1.0 - a.y)) / 0.15, 0.0, 1.0);
+                outColor = vec4(toSrgb(col), dens * 0.85 * uFade * edge * (1.0 - fog * 0.5) * (1.0 - 0.7 * uNight));
             }
         """
 

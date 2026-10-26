@@ -23,19 +23,29 @@ data class Lin(val r: Double, val g: Double, val b: Double) {
  * through golden low sun to a moonlit night palette. The ground palette runs from lowland green to
  * high grass and rock by height. The renderer's shaders and the preview harness both use these.
  */
-class VideoLook(sun: Sun, accentArgb: Int) {
-    val night = sun.isNight
+class VideoLook(sun: Sun, val accentArgb: Int) {
+    /** 0 in daylight, rising through dusk to 1 at night, so the palette never jumps. */
+    val nightness: Double = smoothstep(-1.0, -9.0, sun.elevationDeg)
+    val night: Boolean get() = nightness > 0.5
     private val golden = ((16 - sun.elevationDeg) / 16).coerceIn(0.0, 1.0)
+    private val n = nightness
 
-    /** Direction toward the light: the sun, or a high moon-like light at night. */
-    val lightDir: Vec3 = if (night) Sun(sun.azimuthDeg + 180, 35.0).direction else sun.direction
+    /** Direction toward the light: the sun, easing up to a high moon-like light as night falls. */
+    val lightDir: Vec3 = Vec3.lerp(
+        sun.direction.let { if (it.z < 0.02) Vec3(it.x, it.y, 0.02).normalized() else it },
+        Sun(sun.azimuthDeg, 35.0).direction,
+        n,
+    ).normalized()
 
-    val sunColor: Lin = if (night) Lin(0.32, 0.40, 0.62) else Lin(1.0, 0.96, 0.90).mix(Lin(1.0, 0.70, 0.42), golden) * 1.55
-    val ambient: Lin = if (night) Lin(0.05, 0.07, 0.12) else Lin(0.20, 0.25, 0.34).mix(Lin(0.22, 0.20, 0.30), golden)
-    val zenith: Lin = if (night) Lin.hex(0x070B18) else Lin.hex(0x2A5A9A).mix(Lin.hex(0x24345E), golden)
-    val horizon: Lin = if (night) Lin.hex(0x1A2238) else Lin.hex(0xBFD6EA).mix(Lin.hex(0xF4B48A), golden)
-    val glow: Lin = if (night) Lin(0.0, 0.0, 0.0) else Lin(1.0, 0.85, 0.6).mix(Lin(1.0, 0.62, 0.32), golden)
-    val haze: Lin = if (night) Lin.hex(0x141B2C) else Lin.hex(0xA9BFD4).mix(Lin.hex(0xE0A888), golden)
+    val sunColor: Lin = (Lin(1.0, 0.96, 0.90).mix(Lin(1.0, 0.70, 0.42), golden) * 1.55).mix(Lin(0.32, 0.40, 0.62), n)
+    val ambient: Lin = Lin(0.20, 0.25, 0.34).mix(Lin(0.22, 0.20, 0.30), golden).mix(Lin(0.05, 0.07, 0.12), n)
+    val zenith: Lin = Lin.hex(0x2A5A9A).mix(Lin.hex(0x24345E), golden).mix(Lin.hex(0x070B18), n)
+    val horizon: Lin = Lin.hex(0xBFD6EA).mix(Lin.hex(0xF4B48A), golden).mix(Lin.hex(0x1A2238), n)
+    val glow: Lin = Lin(1.0, 0.85, 0.6).mix(Lin(1.0, 0.62, 0.32), golden).mix(Lin(0.0, 0.0, 0.0), n)
+    val haze: Lin = Lin.hex(0xA9BFD4).mix(Lin.hex(0xE0A888), golden).mix(Lin.hex(0x141B2C), n)
+
+    /** Water: sky-tinted by day, near black with the sky's glow at night. */
+    val water: Lin = Lin.hex(0x2F5F7A).mix(Lin.hex(0x2A3550), golden).mix(Lin.hex(0x070C16), n)
 
     /** Ground colour stops by relative height 0..1. */
     val groundStops: List<Pair<Double, Lin>> = listOf(
@@ -51,7 +61,7 @@ class VideoLook(sun: Sun, accentArgb: Int) {
     val accent: Lin = Lin.hex(accentArgb and 0xFFFFFF)
 
     /** Glow strength of the path and marker; stronger at night when they light the scene. */
-    val pathGlow: Double = if (night) 1.6 else 1.0
+    val pathGlow: Double = 1.0 + 0.6 * n
 
     fun ground(t: Double, slope: Double): Lin {
         val i = groundStops.indexOfLast { it.first <= t }.coerceIn(0, groundStops.size - 2)
@@ -59,5 +69,12 @@ class VideoLook(sun: Sun, accentArgb: Int) {
         val (b, cb) = groundStops[i + 1]
         val c = ca.mix(cb, ((t - a) / (b - a)).coerceIn(0.0, 1.0))
         return c.mix(rock, ((slope - 0.40) * 1.6).coerceIn(0.0, 0.6))
+    }
+
+    private companion object {
+        fun smoothstep(a: Double, b: Double, x: Double): Double {
+            val t = ((x - a) / (b - a)).coerceIn(0.0, 1.0)
+            return t * t * (3 - 2 * t)
+        }
     }
 }

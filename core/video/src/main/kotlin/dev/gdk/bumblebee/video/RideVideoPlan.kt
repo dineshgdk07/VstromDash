@@ -12,6 +12,12 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+/** A named place near the route, from a reverse geocode. */
+data class PlaceMark(val lat: Double, val lng: Double, val name: String)
+
+/** A town pinned in 3D at [anchor], where the route passes it at [distanceM]. */
+data class PlaceLabel(val name: String, val distanceM: Double, val anchor: Vec3)
+
 /** Everything about a ride the video needs, gathered by the app. */
 data class RideVideoInput(
     val track: List<GpsFix>,
@@ -25,6 +31,8 @@ data class RideVideoInput(
     val movingSec: Int,
     val zone: ZoneId = ZoneId.systemDefault(),
     val showPlaces: Boolean = true,
+    /** Towns along the route, for 3D labels. */
+    val places: List<PlaceMark> = emptyList(),
 )
 
 /**
@@ -40,12 +48,17 @@ class RideVideoPlan private constructor(
     val path: RoutePath,
     val timeline: VideoTimeline,
     val director: CameraDirector,
+    /** The sun at the ride's start. */
     val sun: Sun,
     val length: LengthRange,
     /** True when no elevation could be fetched and the terrain is flat. */
     val flat: Boolean,
     /** Named acts of the ride; empty when it was all one thing or chapters are off. */
     val chapters: List<Chapter>,
+    /** Lakes and sea, or null when water is off or none was found. */
+    val water: WaterLayer?,
+    /** Towns pinned along the route; empty when labels are off. */
+    val labels: List<PlaceLabel>,
     private val alongTs: LongArray,
     private val alongD: DoubleArray,
     private val speedKmh: DoubleArray,
@@ -60,7 +73,43 @@ class RideVideoPlan private constructor(
 
     fun timeOf(frame: Int): Double = frame.toDouble() / fps
 
-    fun camera(t: Double): CameraPose = director.shot(timeline, t)
+    private val sunLat = input.track.first().lat
+    private val sunLng = input.track.first().lng
+
+    /**
+     * The sun at video time [t]: where it was when the rider was at that point of the ride, so a
+     * ride into the evening darkens as it goes. Fixed at the start time when time of day is off.
+     */
+    fun sunAt(t: Double): Sun {
+        if (!config.timeOfDay || alongTs.isEmpty()) return sun
+        val cue = timeline.cue(t)
+        val ts = when (cue.shot) {
+            Shot.INTRO -> alongTs.first()
+            Shot.FINISH -> alongTs.last()
+            else -> alongTs[indexOf(cue.distanceM)]
+        }
+        return SunPosition.at(ts, sunLat, sunLng)
+    }
+
+    /** True when no ridge stands between [eye] and [p] (both in the scene's exaggerated metres). */
+    fun canSee(eye: Vec3, p: Vec3): Boolean {
+        for (i in 1 until 32) {
+            val q = Vec3.lerp(eye, p, i / 32.0)
+            if (land.heightAt(q.x, q.y) * exaggeration > q.z + 5) return false
+        }
+        return true
+    }
+
+    /** The colours at video time [t]. */
+    fun lookAt(t: Double, accentArgb: Int) = VideoLook(sunAt(t), accentArgb)
+
+    @Volatile private var lastCamera: Pair<Double, CameraPose>? = null
+
+    /** The camera at [t]; the renderer and overlay ask for the same frame, so the last is kept. */
+    fun camera(t: Double): CameraPose {
+        lastCamera?.let { (lt, pose) -> if (lt == t) return pose }
+        return director.shot(timeline, t).also { lastCamera = t to it }
+    }
 
     /** True height in metres on the route at [d]. */
     fun altitudeAt(d: Double): Double = path.at(d).let { land.heightAt(it.x, it.y) }
@@ -161,6 +210,34 @@ class RideVideoPlan private constructor(
         const val GAP_MS = 30_000L
         const val GAP_M = 200.0
 
+        /**
+         * Pins each place where the route passes closest to it, as long as that's within 3 km and
+         * not in the hidden first or last stretch (the route is already trimmed). One label per
+         * name, and none closer than 8% of the route to another.
+         */
+        fun labels(places: List<PlaceMark>, path: RoutePath, land: Elevation): List<PlaceLabel> {
+            val frame = land.frame
+            val out = mutableListOf<PlaceLabel>()
+            for (p in places.distinctBy { it.name }) {
+                val at = Vec3(frame.x(p.lng), frame.y(p.lat), 0.0)
+                var best = -1
+                var bestD = Double.MAX_VALUE
+                for (i in path.points.indices step 4) {
+                    val d = (path.points[i] - at).flatLength
+                    if (d < bestD) {
+                        bestD = d
+                        best = i
+                    }
+                }
+                if (best < 0 || bestD > 3_000) continue
+                val along = path.along[best]
+                if (out.any { abs(it.distanceM - along) < path.length * 0.08 }) continue
+                val ground = path.points[best]
+                out += PlaceLabel(p.name, along, Vec3(ground.x, ground.y, ground.z))
+            }
+            return out.sortedBy { it.distanceM }
+        }
+
         /** Shortest trimmed route worth a video. */
         const val MIN_ROUTE_M = 800.0
 
@@ -174,6 +251,8 @@ class RideVideoPlan private constructor(
             input: RideVideoInput,
             config: VideoConfig,
             tile: (z: Int, x: Int, y: Int) -> IntArray?,
+            /** OpenStreetMap map tiles, for lakes and rivers; null to use the elevation alone. */
+            mapTile: ((z: Int, x: Int, y: Int) -> IntArray?)? = null,
         ): RideVideoPlan? {
             val fixes = input.track.filter { (it.accuracyM ?: 0f) <= 50f }
             if (fixes.size < 2) return null
@@ -274,6 +353,8 @@ class RideVideoPlan private constructor(
             val sun = SunPosition.at(input.startTs, first.lat, first.lng)
             return RideVideoPlan(
                 input, config, land, ex, path, timeline, director, sun, length, flat, chapters,
+                if (config.water && !flat) WaterLayer(land, mapTile).takeIf { it.any } else null,
+                if (config.placeLabels) labels(input.places, path, land) else emptyList(),
                 alongTs, alongD, speeds, trimStart,
             )
         }

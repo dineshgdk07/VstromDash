@@ -86,7 +86,7 @@ class VideoExportService : Service() {
             val tiles = DemTiles(app)
             val plan = withContext(Dispatchers.IO) {
                 val input = RideVideoSource.load(app, rideId) ?: error("This ride has no GPS track to fly over.")
-                RideVideoPlan.build(input, config, tiles::tile) ?: error("The ride is too short for a video once the start and end are hidden.")
+                RideVideoPlan.build(input, config, tiles::tile, MapTileSource(app)::tile) ?: error("The ride is too short for a video once the start and end are hidden.")
             }
             DevLog.d("video", "plan ${"%.1f".format(plan.routeKm)} km, ${plan.totalS.toInt()} s, ${plan.timeline.moments.size} moments, flat=${plan.flat}, exag=${"%.2f".format(plan.exaggeration)}")
             if (plan.flat) step(rideId, "No terrain data (offline?): rendering flat", null)

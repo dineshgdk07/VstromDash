@@ -7,7 +7,15 @@ package dev.gdk.bumblebee.video
  * the grid's points instead (so a detail mesh blends into the base at its edge), less [sink]
  * metres (so the base sits just under a detail mesh laid over it).
  */
-class TerrainMesh(val positions: FloatArray, val normals: FloatArray, val indices: IntArray, val cols: Int, val rows: Int) {
+class TerrainMesh(
+    val positions: FloatArray,
+    val normals: FloatArray,
+    val indices: IntArray,
+    val cols: Int,
+    val rows: Int,
+    /** Per vertex, 1 for water and 0 for land; all zero when water is off. */
+    val water: FloatArray = FloatArray(positions.size / 3),
+) {
     val vertexCount get() = positions.size / 3
 
     companion object {
@@ -17,12 +25,14 @@ class TerrainMesh(val positions: FloatArray, val normals: FloatArray, val indice
             lod: Int = 1,
             surface: Elevation? = null,
             sink: (x: Double, y: Double) -> Double = { _, _ -> 0.0 },
+            water: ((x: Double, y: Double) -> Double)? = null,
         ): TerrainMesh {
             val step = lod.coerceAtLeast(1)
             val cols = (grid.cols - 1) / step + 1
             val rows = (grid.rows - 1) / step + 1
             val pos = FloatArray(cols * rows * 3)
             val nrm = FloatArray(cols * rows * 3)
+            val wet = FloatArray(cols * rows)
             val d = grid.cell * step
             fun hAt(gc: Int, gr: Int): Double {
                 val c = gc.coerceIn(0, grid.cols - 1)
@@ -45,6 +55,7 @@ class TerrainMesh(val positions: FloatArray, val normals: FloatArray, val indice
                 nrm[i] = n.x.toFloat()
                 nrm[i + 1] = n.y.toFloat()
                 nrm[i + 2] = n.z.toFloat()
+                if (water != null) wet[r * cols + c] = water(pos[i].toDouble(), pos[i + 1].toDouble()).toFloat()
             }
             val idx = IntArray((cols - 1) * (rows - 1) * 6)
             var k = 0
@@ -56,7 +67,7 @@ class TerrainMesh(val positions: FloatArray, val normals: FloatArray, val indice
                 idx[k++] = a; idx[k++] = b; idx[k++] = f
                 idx[k++] = a; idx[k++] = f; idx[k++] = e
             }
-            return TerrainMesh(pos, nrm, idx, cols, rows)
+            return TerrainMesh(pos, nrm, idx, cols, rows, wet)
         }
     }
 }

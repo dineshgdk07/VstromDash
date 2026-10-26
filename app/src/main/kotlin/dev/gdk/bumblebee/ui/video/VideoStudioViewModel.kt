@@ -53,6 +53,14 @@ class VideoStudioViewModel(app: Application, private val rideId: Long) : Android
     private val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val tiles = DemTiles(app)
     private val tileMemory = ConcurrentHashMap<Long, IntArray>()
+    private val maps = dev.gdk.bumblebee.video.MapTileSource(app)
+    private val mapMemory = ConcurrentHashMap<Long, IntArray>()
+
+    private fun mapTile(z: Int, x: Int, y: Int): IntArray? {
+        val key = (z.toLong() shl 48) or (x.toLong() shl 24) or y.toLong()
+        mapMemory[key]?.let { return it }
+        return maps.tile(z, x, y)?.also { mapMemory[key] = it }
+    }
     private var input: RideVideoInput? = null
     private var rebuild: Job? = null
 
@@ -104,7 +112,7 @@ class VideoStudioViewModel(app: Application, private val rideId: Long) : Android
         val inp = input ?: return
         _ui.update { it.copy(preparing = true) }
         val config = _ui.value.config
-        val plan = withContext(Dispatchers.Default) { runCatching { RideVideoPlan.build(inp, config, ::tile) }.getOrNull() }
+        val plan = withContext(Dispatchers.Default) { runCatching { RideVideoPlan.build(inp, config, ::tile, ::mapTile) }.getOrNull() }
         if (plan == null) {
             _ui.update { it.copy(preparing = false, plan = null, blocked = "The ride is too short for a video once the first and last 500 m are hidden.") }
             return

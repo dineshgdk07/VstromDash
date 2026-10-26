@@ -37,8 +37,37 @@ object RideVideoSource {
             startTs = ride.startTs,
             movingSec = ride.movingSec,
             zone = zone,
+            places = placesAlong(app, track),
         )
     }
+
+    /**
+     * Town names along the route from the phone's geocoder: about a dozen evenly spaced samples
+     * between the hidden first and last stretches, keeping each change of name. Offline or
+     * without a geocoder this is simply empty.
+     */
+    private suspend fun placesAlong(app: DashApp, track: List<dev.gdk.bumblebee.ride.GpsFix>): List<PlaceMark> {
+        val namer = dev.gdk.bumblebee.ui.share.PlaceNamer.android(app)
+        val cum = DoubleArray(track.size)
+        for (i in 1 until track.size) {
+            cum[i] = cum[i - 1] + dev.gdk.bumblebee.ride.Geo.haversineMeters(track[i - 1].lat, track[i - 1].lng, track[i].lat, track[i].lng)
+        }
+        val total = cum.last()
+        val margin = dev.gdk.bumblebee.ride.SharePrivacy.ZONE_M + 300
+        if (total < margin * 2 + 1_000) return emptyList()
+        val out = mutableListOf<PlaceMark>()
+        var j = 0
+        for (k in 0 until SAMPLES) {
+            val want = margin + (total - margin * 2) * k / (SAMPLES - 1)
+            while (j < cum.lastIndex && cum[j] < want) j++
+            val fix = track[j]
+            val name = namer.locality(fix.lat, fix.lng) ?: continue
+            if (out.lastOrNull()?.name != name) out += PlaceMark(fix.lat, fix.lng, name)
+        }
+        return out
+    }
+
+    private const val SAMPLES = 12
 
     fun fonts(context: Context) = VideoFonts(
         display = context.resources.getFont(R.font.anton_regular),

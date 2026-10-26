@@ -245,7 +245,7 @@ Roadmap, each item landing with its own Studio control:
 | --- | --- |
 | A (built) | Studio, presets, live preview, render and result screens; title, story and overlay toggles; camera distance, hill height, haze, contours, trail width, glow, vignette, grain |
 | B (built) | Cold-open hook with a flash cut, chapters with title cards (climb, descent, twisties, open road, after the break), map-reveal finale, a shot per moment type, banking into turns, rising over hairpins |
-| C | Time of day moving through the ride (stars and moon at night), clouds with ground shadows, lakes with shimmer, place names in 3D |
+| C (built) | Light that follows the ride's clock with a smooth day-to-night palette and stars, drifting clouds with ground shadows, lakes, reservoirs and rivers from OpenStreetMap (plus sea from the elevation) with reflections and sun glint, towns pinned in 3D along the route |
 | D | The rider's bike as the marker in its paint colour, a cluster-style HUD, ride tags (number, weather, sunrise), ride photos as postcards |
 | E | Kinetic type, speed- or climb-coloured trail, milestone bursts, music with fades and beat-synced cuts |
 

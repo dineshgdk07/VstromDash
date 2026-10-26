@@ -237,6 +237,19 @@ private fun Setup(ui: StudioUi, failed: String?, vm: VideoStudioViewModel) {
                 Toggle("Contour lines", config.contours) { v -> vm.update { it.copy(contours = v) } }
             }
 
+            SectionCard(header = { SectionLabel(text = "World") }) {
+                Toggle("Light follows the ride's clock", config.timeOfDay) { v -> vm.update { it.copy(timeOfDay = v) } }
+                Tune("Clouds", config.clouds, 0.0..1.0, closer = "Clear", further = "Overcast") { v -> vm.update { it.copy(clouds = v) } }
+                Toggle("Lakes and sea", config.water) { v -> vm.update { it.copy(water = v) } }
+                if (config.water && ui.plan != null && ui.plan.water == null && !ui.plan.flat) {
+                    Text("No water found around this route.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
+                Toggle("Town names along the way", config.placeLabels) { v -> vm.update { it.copy(placeLabels = v) } }
+                ui.plan?.labels?.takeIf { it.isNotEmpty() && config.placeLabels }?.let { labels ->
+                    Text(labels.joinToString("  ·  ") { it.name }, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
+            }
+
             SectionCard(header = { SectionLabel(text = "Trail and finish") }) {
                 Tune("Trail width", config.pathWidth, 0.5..2.5, closer = "Fine", further = "Bold") { v -> vm.update { it.copy(pathWidth = v) } }
                 Tune("Glow", config.glow, 0.0..2.0, closer = "None", further = "Bright") { v -> vm.update { it.copy(glow = v) } }
@@ -244,7 +257,7 @@ private fun Setup(ui: StudioUi, failed: String?, vm: VideoStudioViewModel) {
                 Toggle("Film grain", config.grain) { v -> vm.update { it.copy(grain = v) } }
             }
             Text(
-                "More is coming to the Studio: time-of-day changes, clouds, place labels, your bike as the marker, a cluster-style HUD, ride photos and music.",
+                "More is coming to the Studio: your bike as the marker, a cluster-style HUD, ride tags, ride photos, kinetic type and music.",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 modifier = Modifier.padding(bottom = 8.dp),

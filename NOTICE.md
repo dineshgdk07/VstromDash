@@ -33,6 +33,10 @@ SRTM, GMTED2010, ETOPO1, NED and other public sources; see the
 [attribution list](https://github.com/tilezen/joerd/blob/master/docs/attribution.md). Each video's
 closing card credits them.
 
+Lakes, reservoirs and rivers in ride videos are read from OpenStreetMap's standard map tiles
+(© OpenStreetMap contributors, ODbL), the same tiles the app's maps use; videos that show water
+credit them on the closing card.
+
 ## Fonts (`app/src/main/res/font`)
 
 | Font | Licence | Source |

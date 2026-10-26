@@ -53,6 +53,15 @@ data class VideoConfig(
     /** Haze toward the horizon, × the default. */
     val haze: Double = 1.0,
     val contours: Boolean = true,
+    // World
+    /** Light follows the ride's own clock: a sunset ride gets darker as it goes. */
+    val timeOfDay: Boolean = true,
+    /** Cloud cover, 0 (clear) to 1 (overcast); clouds drift and cast shadows. */
+    val clouds: Double = 0.3,
+    /** Lakes, reservoirs and sea found in the terrain, with reflections. */
+    val water: Boolean = true,
+    /** Towns along the route, pinned in 3D as they come into view. */
+    val placeLabels: Boolean = true,
     val vignette: Boolean = true,
     val grain: Boolean = true,
 ) {
@@ -62,6 +71,7 @@ data class VideoConfig(
         cameraDistance = cameraDistance.coerceIn(0.5, 2.0),
         exaggeration = exaggeration?.coerceIn(1.0, 4.0),
         bank = bank.coerceIn(0.0, 1.0),
+        clouds = clouds.coerceIn(0.0, 1.0),
         pathWidth = pathWidth.coerceIn(0.5, 2.5),
         glow = glow.coerceIn(0.0, 2.0),
         haze = haze.coerceIn(0.2, 2.0),
@@ -71,12 +81,12 @@ data class VideoConfig(
     fun withPreset(p: VideoPreset): VideoConfig {
         val base = when (p) {
             VideoPreset.CINEMATIC, VideoPreset.CUSTOM -> VideoConfig()
-            VideoPreset.ADVENTURE -> VideoConfig(cameraDistance = 0.8, exaggeration = 2.4, pathWidth = 1.3, glow = 1.5, haze = 0.8, bank = 1.0)
-            VideoPreset.DATA -> VideoConfig(cameraDistance = 1.2, haze = 0.5, pathWidth = 1.1, glow = 0.8, grain = false)
+            VideoPreset.ADVENTURE -> VideoConfig(cameraDistance = 0.8, exaggeration = 2.4, pathWidth = 1.3, glow = 1.5, haze = 0.8, bank = 1.0, clouds = 0.45)
+            VideoPreset.DATA -> VideoConfig(cameraDistance = 1.2, haze = 0.5, pathWidth = 1.1, glow = 0.8, grain = false, clouds = 0.0)
             VideoPreset.MINIMAL -> VideoConfig(
                 hud = false, clock = false, elevationStrip = false, moments = false, places = false,
                 contours = false, grain = false, pathWidth = 0.8, glow = 0.7,
-                coldOpen = false, chapters = false, bank = 0.3,
+                coldOpen = false, chapters = false, bank = 0.3, clouds = 0.0, placeLabels = false,
             )
         }
         return base.copy(preset = p, shape = shape, lengthS = lengthS, title = title)
@@ -107,6 +117,10 @@ data class VideoConfig(
         "glow" to glow,
         "haze" to haze,
         "contours" to contours,
+        "timeOfDay" to timeOfDay,
+        "clouds" to clouds,
+        "water" to water,
+        "placeLabels" to placeLabels,
         "vignette" to vignette,
         "grain" to grain,
     ).joinToString(";") { (k, v) -> "$k=$v" }
@@ -143,6 +157,10 @@ data class VideoConfig(
                 glow = n("glow", d.glow),
                 haze = n("haze", d.haze),
                 contours = b("contours", d.contours),
+                timeOfDay = b("timeOfDay", d.timeOfDay),
+                clouds = n("clouds", d.clouds),
+                water = b("water", d.water),
+                placeLabels = b("placeLabels", d.placeLabels),
                 vignette = b("vignette", d.vignette),
                 grain = b("grain", d.grain),
             ).clamped()
