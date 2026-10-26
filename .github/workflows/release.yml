@@ -71,7 +71,19 @@ jobs:
           cat >> notes.md <<'NOTE'
 
           ---
-          Install: download the APK on your phone and allow installs from your browser or file manager.
+          ### Install
+          1. Download the APK below on your phone.
+          2. Play Store → profile picture → Play Protect → ⚙️ → turn off **Scan apps with Play Protect**.
+             (It blocks any downloaded app that asks for notification access, which Bumblebee needs to
+             read Google Maps' turns for the cluster arrows.)
+          3. Open the APK and install. On Xiaomi/HyperOS, wait out the warning and tap Install anyway.
+          4. Turn Play Protect scanning back on. The app stays installed.
+          5. Android 13+: Settings → Apps → Bumblebee → ⋮ → **Allow restricted settings**, then turn on
+             notification access in the app.
+
+          Updates install over the old version and keep your data. Full guide:
+          https://github.com/dineshgdk07/VstromDash/blob/main/docs/INSTALL.md
+
           Not affiliated with, endorsed or sponsored by Suzuki Motor Corporation.
           NOTE
 

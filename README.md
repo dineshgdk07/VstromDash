@@ -51,8 +51,12 @@ Sensitive permissions and why:
 ## Install
 
 Download the latest APK from [Releases](https://github.com/dineshgdk07/VstromDash/releases) on your
-phone and allow installs from your browser or file manager. Android 8.0 or newer. Updates install
-over the previous version and keep your data.
+phone. Android 8.0 or newer. Updates install over the previous version and keep your data.
+
+Play Protect blocks the install in India because the app asks for notification access (to read
+Google Maps' turns for the cluster arrows). Pause Play Protect scanning while you install, then
+turn it back on; on Android 13+ also allow restricted settings for notification access. The
+[install guide](docs/INSTALL.md) walks through both.
 
 ## Build
 

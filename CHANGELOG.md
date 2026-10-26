@@ -5,10 +5,12 @@ All notable changes to Bumblebee. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-26
+
 ### Added
 - **Ride video (beta):** Share → Share video makes a 3D flyover of the ride on the phone: real
   terrain, light from the ride's time of day, a camera that dives in, chases the route, pauses on
-  highlights and circles the finish, with live stats and a closing card. 9:16, saved to
+  highlights and circles the finish, with live stats and a closing card. 9:16, 16:9 or 1:1, saved to
   Movies/Bumblebee.
 - **Ride Video Studio:** styles, live preview, and settings for story (cold open, chapters, map
   reveal), camera, world (time of day, clouds, water, town names) and you (your bike as the
@@ -24,6 +26,8 @@ All notable changes to Bumblebee. Versions follow [Semantic Versioning](https://
   fades and start point adjustable. The preview plays it in time.
 - **Share card photos:** move and zoom your photo behind the card (drag and pinch, with a thirds
   grid), and reset it with one tap.
+- **Install help:** a step-by-step install guide, and in-app help when Android greys out
+  notification access ("Restricted setting") for a downloaded install.
 
 ## [0.1.0] - 2026-10-25
 

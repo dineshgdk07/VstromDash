@@ -365,8 +365,11 @@ fun GarageSettingsScreen(
                 PermissionRow("Location", locationOn) {
                     context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
                 }
+                var accessHelp by remember { mutableStateOf(false) }
+                if (accessHelp) dev.gdk.bumblebee.ui.components.NotificationAccessHelp(context) { accessHelp = false }
                 PermissionRow("Notification access", notificationsOn) {
-                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                    if (dev.gdk.bumblebee.ui.components.mayRestrictNotificationAccess()) accessHelp = true
+                    else context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                 }
                 PermissionRow("Battery optimisation", batteryFree, last = true) {
                     context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))

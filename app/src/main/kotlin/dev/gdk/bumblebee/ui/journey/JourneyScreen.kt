@@ -145,9 +145,13 @@ fun JourneyScreen(model: JourneyViewModel = viewModel()) {
         onDispose { lifecycle.lifecycle.removeObserver(obs) }
     }
     val notifyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    // On Android 13+ the switch may be greyed out for a downloaded APK; explain first.
+    var accessHelp by remember { mutableStateOf(false) }
+    if (accessHelp) dev.gdk.bumblebee.ui.components.NotificationAccessHelp(context) { accessHelp = false }
     fun enableAccess() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) notifyLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        if (dev.gdk.bumblebee.ui.components.mayRestrictNotificationAccess()) accessHelp = true
+        else context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
     }
     fun go(destination: String) {
         model.heading(destination)
