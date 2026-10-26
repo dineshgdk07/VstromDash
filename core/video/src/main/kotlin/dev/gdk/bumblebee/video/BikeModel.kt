@@ -14,6 +14,7 @@ enum class BikeMaterial(val rgb: Int, val shine: Float, val glow: Float = 0f) {
     RUBBER(0x111214, 0.05f),
     GLASS(0x3A4652, 0.9f),
     HEADLIGHT(0xFFF6DD, 0.3f, 1f),
+    INDICATOR(0xFF9A32, 0.35f, 0.15f),
     TAILLIGHT(0xE0202A, 0.3f, 0.8f),
     JACKET(0x2B2E35, 0.15f),
     PANTS(0x1E2026, 0.1f),
@@ -54,6 +55,12 @@ class BikeModel private constructor(val positions: FloatArray, val normals: Floa
             }
             // Engine and frame block.
             b.prism(listOf(-0.22 to 0.25, 0.30 to 0.22, 0.38 to 0.48, 0.18 to 0.66, -0.20 to 0.62, -0.30 to 0.44), 0.30, BikeMaterial.PLASTIC)
+            // Cylinder head and cooling fins make the engine read as a mechanical assembly.
+            b.prism(listOf(-0.08 to 0.48, 0.20 to 0.48, 0.25 to 0.76, 0.08 to 0.82, -0.08 to 0.72), 0.28, BikeMaterial.METAL)
+            for (z in listOf(0.53, 0.59, 0.65, 0.71)) {
+                b.tube(Vec3(-0.08, -0.17, z), Vec3(0.22, -0.17, z), 0.012, BikeMaterial.BLACK)
+                b.tube(Vec3(-0.08, 0.17, z), Vec3(0.22, 0.17, z), 0.012, BikeMaterial.BLACK)
+            }
             // Sump guard.
             b.prism(listOf(-0.15 to 0.20, 0.30 to 0.20, 0.36 to 0.27, -0.18 to 0.27), 0.22, BikeMaterial.METAL)
             // Exhaust, low on the right then up behind.
@@ -61,15 +68,26 @@ class BikeModel private constructor(val positions: FloatArray, val normals: Floa
             b.tube(Vec3(-0.30, -0.17, 0.42), Vec3(-0.70, -0.18, 0.62), 0.055, BikeMaterial.BLACK)
             // Fuel tank and side panels: the bike's colour.
             b.prism(listOf(-0.12 to 0.70, 0.30 to 0.74, 0.46 to 0.98, 0.16 to 1.06, -0.16 to 0.96), 0.40, BikeMaterial.PAINT, bevel = 0.06)
-            // Fairing and the beak.
-            b.prism(listOf(0.30 to 0.74, 0.62 to 0.84, 0.72 to 1.02, 0.62 to 1.22, 0.42 to 1.18, 0.40 to 0.96), 0.34, BikeMaterial.PAINT, bevel = 0.05)
-            b.prism(listOf(0.62 to 0.80, 0.92 to 0.76, 0.86 to 0.84, 0.66 to 0.90), 0.16, BikeMaterial.PAINT)
+            // Tall, narrow V-Strom-style front fairing with a distinct forward beak.
+            b.prism(listOf(0.24 to 0.76, 0.54 to 0.82, 0.70 to 1.02, 0.62 to 1.24, 0.40 to 1.20, 0.34 to 0.98), 0.38, BikeMaterial.PAINT, bevel = 0.06)
+            b.prism(listOf(0.56 to 0.82, 1.02 to 0.70, 0.91 to 0.79, 0.70 to 0.94), 0.22, BikeMaterial.PAINT, bevel = 0.025)
+            // Dark side panels sharpen the fairing shape and separate it from the tank.
+            b.prism(listOf(0.18 to 0.76, 0.46 to 0.78, 0.53 to 0.91, 0.28 to 0.94), 0.395, BikeMaterial.BLACK, bevel = 0.018)
             // Front mudguard over the wheel.
             b.prism(listOf(0.52 to 0.70, 0.92 to 0.66, 0.96 to 0.70, 0.56 to 0.76), 0.14, BikeMaterial.BLACK)
             // Windscreen, raked back.
             b.prism(listOf(0.58 to 1.20, 0.68 to 1.22, 0.52 to 1.46, 0.46 to 1.44), 0.30, BikeMaterial.GLASS)
-            // Headlight in the fairing nose.
-            b.prism(listOf(0.70 to 0.98, 0.745 to 1.00, 0.735 to 1.10, 0.69 to 1.10), 0.18, BikeMaterial.HEADLIGHT)
+            // Compact stacked LED headlamps on the forward face of the fairing.
+            b.ref = Vec3(0.79, 0.0, 1.06)
+            for (z in listOf(1.015, 1.105)) {
+                val x = 0.805
+                b.quad(Vec3(x, -0.105, z), Vec3(x, 0.105, z), Vec3(x, 0.105, z + 0.055), Vec3(x, -0.105, z + 0.055), BikeMaterial.HEADLIGHT)
+            }
+            // Amber indicators sit outboard of the headlight on short black stalks.
+            for (side in listOf(-1.0, 1.0)) {
+                b.tube(Vec3(0.65, 0.15 * side, 0.91), Vec3(0.64, 0.27 * side, 0.93), 0.012, BikeMaterial.BLACK)
+                b.tube(Vec3(0.64, 0.27 * side, 0.93), Vec3(0.64, 0.31 * side, 0.93), 0.035, BikeMaterial.INDICATOR, sides = 8)
+            }
             // Seat and the tail with its rack and light.
             b.prism(listOf(-0.60 to 0.90, -0.14 to 0.86, 0.10 to 0.95, -0.12 to 1.00, -0.60 to 1.00), 0.30, BikeMaterial.BLACK, bevel = 0.04)
             b.prism(listOf(-0.95 to 0.86, -0.50 to 0.72, -0.20 to 0.74, -0.30 to 0.88, -0.70 to 0.92), 0.26, BikeMaterial.PAINT, bevel = 0.03)
@@ -167,8 +185,8 @@ class BikeModel private constructor(val positions: FloatArray, val normals: Floa
             }
         }
 
-        /** A tube from [a] to [b] with [r] radius, eight-sided, capped. */
-        fun tube(a: Vec3, b: Vec3, r: Double, m: BikeMaterial, sides: Int = 8) {
+        /** A tube from [a] to [b] with [r] radius, faceted and capped. */
+        fun tube(a: Vec3, b: Vec3, r: Double, m: BikeMaterial, sides: Int = 12) {
             val axis = (b - a).normalized()
             val across = if (kotlin.math.abs(axis.z) < 0.9) Vec3.UP else Vec3(1.0, 0.0, 0.0)
             val u = axis.cross(across).normalized()
@@ -187,7 +205,7 @@ class BikeModel private constructor(val positions: FloatArray, val normals: Floa
 
         /** A wheel at [x]: a tyre ring of [r] radius and [width], with a metal hub and spokes. */
         fun wheel(x: Double, r: Double, width: Double) {
-            val seg = 24
+            val seg = 40
             val rimR = r * 0.72
             val half = width / 2
             fun p(rr: Double, t: Double, y: Double) = Vec3(x + cos(t) * rr, y, r + sin(t) * rr)
@@ -202,10 +220,10 @@ class BikeModel private constructor(val positions: FloatArray, val normals: Floa
                 // Rim band.
                 quad(p(rimR, t1, -half * 0.8), p(rimR, t0, -half * 0.8), p(rimR, t0, half * 0.8), p(rimR, t1, half * 0.8), BikeMaterial.BLACK)
             }
-            // Hub and five spokes each side.
+            // Hub and seven spokes each side.
             tube(Vec3(x, -half * 0.9, r), Vec3(x, half * 0.9, r), r * 0.14, BikeMaterial.METAL)
-            for (k in 0 until 5) {
-                val t = 2 * PI * k / 5
+            for (k in 0 until 7) {
+                val t = 2 * PI * k / 7
                 for (y in listOf(-half * 0.5, half * 0.5)) {
                     tube(p(r * 0.12, t, y), p(rimR, t, y), 0.008, BikeMaterial.METAL, sides = 4)
                 }
@@ -237,8 +255,8 @@ class BikeModel private constructor(val positions: FloatArray, val normals: Floa
             val c = Vec3(-0.04, 0.0, 1.74)
             val r = 0.15
             ref = c
-            val lat = 6
-            val lon = 10
+            val lat = 9
+            val lon = 16
             fun s(i: Int, j: Int): Vec3 {
                 val th = PI * i / lat
                 val ph = 2 * PI * j / lon
