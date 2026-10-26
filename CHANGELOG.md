@@ -22,6 +22,8 @@ All notable changes to Bumblebee. Versions follow [Semantic Versioning](https://
   burst of light. Add a song from your phone: the app finds its beat, starts it so the drop hits
   as the camera dives in, lands the cuts on the beat and pulses the trail with it, with volume,
   fades and start point adjustable. The preview plays it in time.
+- **Share card photos:** move and zoom your photo behind the card (drag and pinch, with a thirds
+  grid), and reset it with one tap.
 
 ## [0.1.0] - 2026-10-25
 

@@ -20,7 +20,6 @@ import dev.gdk.bumblebee.ui.sharecard.looks.PosterLook
 import dev.gdk.bumblebee.ui.sharecard.looks.RidePassLook
 import java.io.File
 import java.io.FileOutputStream
-import kotlin.math.max
 
 object ShareCardPainter {
     fun paint(
@@ -29,6 +28,7 @@ object ShareCardPainter {
         photo: Bitmap?,
         tiles: Map<TileId, Bitmap>?,
         sticker: Boolean = false,
+        photoFrame: PhotoFrame = PhotoFrame(),
     ): Bitmap {
         val layout = ShareCardLayout.forShape(model.shape)
         val portrait = layout.height > layout.width
@@ -55,7 +55,7 @@ object ShareCardPainter {
             ShareBackground.OWN -> look.drawOwnBackground(canvas, ctx)
             ShareBackground.MAP -> drawMap(canvas, card, cover, tiles, layout, portrait, look, ctx)
             ShareBackground.PHOTO -> {
-                if (photo != null) drawCover(canvas, photo, layout.width, layout.height)
+                if (photo != null) drawCover(canvas, photo, layout.width, layout.height, photoFrame)
                 else look.drawOwnBackground(canvas, ctx)
                 look.drawScrim(canvas, ctx)
             }
@@ -136,13 +136,9 @@ object ShareCardPainter {
         look.drawScrim(canvas, ctx)
     }
 
-    private fun drawCover(canvas: Canvas, photo: Bitmap, width: Float, height: Float) {
-        val scale = max(width / photo.width, height / photo.height)
-        val dw = photo.width * scale
-        val dh = photo.height * scale
-        val left = (width - dw) / 2f
-        val top = (height - dh) / 2f
-        canvas.drawBitmap(photo, null, RectF(left, top, left + dw, top + dh), Paint(Paint.ANTI_ALIAS_FLAG))
+    private fun drawCover(canvas: Canvas, photo: Bitmap, width: Float, height: Float, frame: PhotoFrame) {
+        val r = frame.rect(photo.width, photo.height, width, height)
+        canvas.drawBitmap(photo, null, RectF(r[0], r[1], r[2], r[3]), Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
     }
 
     private fun sampleSize(width: Int, height: Int, reqW: Int, reqH: Int): Int {

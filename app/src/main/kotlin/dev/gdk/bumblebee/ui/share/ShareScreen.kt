@@ -58,7 +58,17 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import dev.gdk.bumblebee.ui.sharecard.PhotoFrame
+import kotlin.math.roundToInt
+import dev.gdk.bumblebee.ui.sharecard.ShareCardLayout
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
@@ -221,6 +231,7 @@ fun ShareScreen(subject: ShareSubject, onDismiss: () -> Unit) {
                         vm.setPhoto(null)
                         vm.update { it.copy(background = ShareBackground.OWN) }
                     },
+                    onFrame = vm::framePhoto,
                     onAccent = { accent -> vm.update { it.copy(accent = accent) } },
                     onBig = { kind ->
                         statHint = false
@@ -239,7 +250,7 @@ fun ShareScreen(subject: ShareSubject, onDismiss: () -> Unit) {
                         if (!saving) {
                             saving = true
                             scope.launch {
-                                val bmp = withContext(Dispatchers.Default) { render(context, card, ui.photo, tiles.tiles, sticker = false) }
+                                val bmp = withContext(Dispatchers.Default) { render(context, card, ui.photo, tiles.tiles, sticker = false, frame = ui.photoFrame) }
                                 val name = when (subject) {
                                     is ShareSubject.Ride -> "bumblebee-ride-${subject.rideId}.png"
                                     is ShareSubject.Day -> "bumblebee-day-${subject.date}.png"
@@ -257,7 +268,7 @@ fun ShareScreen(subject: ShareSubject, onDismiss: () -> Unit) {
                     onSticker = {
                         vm.commitName()
                         scope.launch {
-                            val bmp = withContext(Dispatchers.Default) { render(context, card, ui.photo, tiles.tiles, sticker = true) }
+                            val bmp = withContext(Dispatchers.Default) { render(context, card, ui.photo, tiles.tiles, sticker = true, frame = ui.photoFrame) }
                             val file = withContext(Dispatchers.IO) { ShareCardPainter.writePng(context, bmp, fileId(subject)) }
                             shareSticker(context, file)
                         }
@@ -265,7 +276,7 @@ fun ShareScreen(subject: ShareSubject, onDismiss: () -> Unit) {
                     onShare = {
                         vm.commitName()
                         scope.launch {
-                            val bmp = withContext(Dispatchers.Default) { render(context, card, ui.photo, tiles.tiles, sticker = false) }
+                            val bmp = withContext(Dispatchers.Default) { render(context, card, ui.photo, tiles.tiles, sticker = false, frame = ui.photoFrame) }
                             val file = withContext(Dispatchers.IO) { ShareCardPainter.writePng(context, bmp, fileId(subject)) }
                             shareCardImage(context, file, card.sentence)
                         }
@@ -318,7 +329,7 @@ private fun PickStep(
     val thumbs by produceState<Map<ShareLook, Bitmap>>(emptyMap(), ui.previews, ui.photo, tiles) {
         value = withContext(Dispatchers.Default) {
             ui.previews.mapValues { (_, model) ->
-                val full = render(context, model, ui.photo, tiles, sticker = false)
+                val full = render(context, model, ui.photo, tiles, sticker = false, frame = ui.photoFrame)
                 // Half size: a grid cell on a phone is about 500 px wide, so a quarter-size thumb looks soft.
                 val w = max(1, full.width / 2)
                 val h = max(1, full.height / 2)
@@ -420,6 +431,7 @@ private fun CustomiseStep(
     onBackground: (ShareBackground) -> Unit,
     onPickPhoto: () -> Unit,
     onClearPhoto: () -> Unit,
+    onFrame: (PhotoFrame) -> Unit,
     onAccent: (ShareAccent) -> Unit,
     onBig: (ShareMetricKind) -> Unit,
     onStat: (ShareMetricKind) -> Unit,
@@ -431,11 +443,17 @@ private fun CustomiseStep(
     onShare: () -> Unit,
 ) {
     val context = LocalContext.current
-    val rendered by produceState<Bitmap?>(null, card, ui.photo, tiles) {
+    val rendered by produceState<Bitmap?>(null, card, ui.photo, ui.photoFrame, tiles) {
         value = withContext(Dispatchers.Default) {
-            render(context, card, ui.photo, tiles, sticker = false)
+            render(context, card, ui.photo, tiles, sticker = false, frame = ui.photoFrame)
         }
     }
+    // Moving and zooming the photo shows just the photo in the card's frame, so it follows the
+    // fingers smoothly; the card is drawn over it again on Done.
+    var adjusting by remember { mutableStateOf(false) }
+    val photo = ui.photo
+    val canAdjust = photo != null && ui.switches.background == ShareBackground.PHOTO
+    val showAdjust = adjusting && canAdjust
     var showSaved by remember { mutableStateOf(false) }
     val pulse = remember { Animatable(1f) }
     LaunchedEffect(saved) {
@@ -469,7 +487,10 @@ private fun CustomiseStep(
                     .background(Surface),
                 contentAlignment = Alignment.Center,
             ) {
-                if (bmp == null) {
+                if (showAdjust && photo != null) {
+                    val layout = ShareCardLayout.forShape(card.shape)
+                    AdjustPhoto(photo, ui.photoFrame, layout.width, layout.height, onFrame)
+                } else if (bmp == null) {
                     Text("Drawing…", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
                 } else {
                     Image(
@@ -526,6 +547,20 @@ private fun CustomiseStep(
                     )
                 }
                 if (ui.photo != null) {
+                    ChunkyButton(
+                        text = if (adjusting) "Done" else "Move and zoom photo",
+                        onClick = { adjusting = !adjusting },
+                        style = if (adjusting) ChunkyStyle.Lime else ChunkyStyle.Outline,
+                        compact = true,
+                    )
+                    if (adjusting) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Drag to move, pinch to zoom.", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1f))
+                            if (ui.photoFrame != PhotoFrame()) {
+                                Text("Reset", style = MaterialTheme.typography.bodySmall, color = Lime, modifier = Modifier.clickable { onFrame(PhotoFrame()) }.padding(8.dp))
+                            }
+                        }
+                    }
                     ChunkyButton(text = "Remove photo", onClick = onClearPhoto, style = ChunkyStyle.Neutral, compact = true)
                 }
             }
@@ -634,13 +669,48 @@ private fun render(
     photo: Bitmap?,
     tiles: Map<TileId, Bitmap>,
     sticker: Boolean,
+    frame: PhotoFrame = PhotoFrame(),
 ): Bitmap = ShareCardPainter.paint(
     context,
     model,
     photo.takeIf { model.background == ShareBackground.PHOTO },
     tiles,
     sticker,
+    frame,
 )
+
+/**
+ * The photo alone in the card's frame, moved by dragging and zoomed by pinching, with a
+ * thirds grid to line things up. [cardW]×[cardH] is the card's own size, so the framing matches
+ * the saved image exactly.
+ */
+@Composable
+private fun AdjustPhoto(photo: Bitmap, frame: PhotoFrame, cardW: Float, cardH: Float, onFrame: (PhotoFrame) -> Unit) {
+    val image = remember(photo) { photo.asImageBitmap() }
+    val current by rememberUpdatedState(frame)
+    androidx.compose.foundation.Canvas(
+        Modifier.fillMaxSize().pointerInput(photo, cardW, cardH) {
+            detectTransformGestures { _, pan, zoom, _ ->
+                val k = cardW / size.width
+                onFrame(current.moved(photo.width, photo.height, cardW, cardH, zoom, pan.x * k, pan.y * k))
+            }
+        },
+    ) {
+        val k = size.width / cardW
+        val r = frame.rect(photo.width, photo.height, cardW, cardH)
+        drawImage(
+            image,
+            dstOffset = IntOffset((r[0] * k).roundToInt(), (r[1] * k).roundToInt()),
+            dstSize = IntSize(((r[2] - r[0]) * k).roundToInt(), ((r[3] - r[1]) * k).roundToInt()),
+            filterQuality = FilterQuality.Medium,
+        )
+        val line = Color.White.copy(alpha = 0.35f)
+        for (i in 1..2) {
+            drawLine(line, Offset(size.width * i / 3, 0f), Offset(size.width * i / 3, size.height), 1.dp.toPx())
+            drawLine(line, Offset(0f, size.height * i / 3), Offset(size.width, size.height * i / 3), 1.dp.toPx())
+        }
+    }
+}
 
 private fun tilesComplete(context: Context, model: ShareCardModel, tiles: Map<TileId, Bitmap>): Boolean {
     val cover = ShareCardPainter.mapCover(context, model) ?: return false

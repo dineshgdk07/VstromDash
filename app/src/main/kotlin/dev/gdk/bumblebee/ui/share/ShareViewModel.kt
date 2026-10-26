@@ -42,6 +42,8 @@ data class ShareUi(
     val previews: Map<ShareLook, ShareCardModel> = emptyMap(),
     val selected: ShareLook? = null,
     val photo: Bitmap? = null,
+    /** How the photo is moved and zoomed behind the card. */
+    val photoFrame: dev.gdk.bumblebee.ui.sharecard.PhotoFrame = dev.gdk.bumblebee.ui.sharecard.PhotoFrame(),
     val mapFallback: Boolean = false,
     val canName: Boolean = false,
     val busy: Boolean = true,
@@ -96,7 +98,11 @@ class ShareViewModel(
     }
 
     fun setPhoto(bitmap: Bitmap?) {
-        _ui.value = _ui.value.copy(photo = bitmap)
+        _ui.value = _ui.value.copy(photo = bitmap, photoFrame = dev.gdk.bumblebee.ui.sharecard.PhotoFrame())
+    }
+
+    fun framePhoto(frame: dev.gdk.bumblebee.ui.sharecard.PhotoFrame) {
+        _ui.value = _ui.value.copy(photoFrame = frame)
     }
 
     private fun publish(name: String, switches: ShareSwitches, selected: ShareLook?) {

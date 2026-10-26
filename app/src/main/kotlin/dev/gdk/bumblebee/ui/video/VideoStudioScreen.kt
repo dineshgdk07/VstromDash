@@ -491,9 +491,7 @@ private fun MusicSection(ui: StudioUi, vm: VideoStudioViewModel) {
     SectionCard(header = { SectionLabel(text = "Music") }) {
         Text(
             "Pick a song from your phone. The app finds its beat, starts it so the drop hits as the camera dives in, " +
-                "and times the cuts to the beat. Press play on the preview to hear it.
-
-" +
+                "and times the cuts to the beat. Press play on the preview to hear it.\n\n" +
                 "Use music you have the rights to: Instagram and YouTube may mute or block videos with copyrighted songs.",
             style = MaterialTheme.typography.bodySmall,
             color = TextSecondary,
