@@ -5,6 +5,8 @@ All notable changes to Bumblebee. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-26
+
 ### Fixed
 - **Backups (Transfer) work, and show their progress.** Packing could fail on a missing number
   (an average over a zero-length ride) and leave an empty ".bin" file behind; it now saves a
