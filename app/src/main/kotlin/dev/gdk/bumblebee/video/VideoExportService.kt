@@ -76,8 +76,11 @@ class VideoExportService : Service() {
     private suspend fun export(rideId: Long, settings: VideoSettings) {
         val app = application as DashApp
         val out = File(cacheDir, "share/ride-video-$rideId.mp4")
-        wake = getSystemService(PowerManager::class.java)?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "bumblebee:video")?.apply { acquire(30 * 60_000L) }
         try {
+            // Keeps the CPU going with the screen off; the render still works without it.
+            wake = runCatching {
+                getSystemService(PowerManager::class.java)?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "bumblebee:video")?.apply { acquire(30 * 60_000L) }
+            }.getOrNull()
             step(rideId, "Fetching terrain", null)
             val tiles = DemTiles(app)
             val plan = withContext(Dispatchers.IO) {
