@@ -373,6 +373,7 @@ private fun TransferRoute(onBack: () -> Unit) {
             widget,
             BuildConfig.BUILD_TYPE,
             spoolDir = File(context.cacheDir, "import-scans"),
+            extras = dev.gdk.bumblebee.transfer.AndroidAppExtras(context),
         )
     }
     val model: TransferViewModel = viewModel(
@@ -386,47 +387,60 @@ private fun TransferRoute(onBack: () -> Unit) {
     LaunchedEffect(Unit) {
         model.onPackLoaded(withContext(Dispatchers.IO) { repository.preview() })
     }
+    val events = dev.gdk.bumblebee.transfer.TransferEvents { text, fraction -> model.onStep(text, fraction) }
     LaunchedEffect(model) {
         model.commits.collect { overwrite ->
             val bundle = model.pending ?: return@collect
+            model.onStep(if (overwrite) "Bringing it in, replacing what clashed" else "Bringing it in, keeping what's here", null)
             try {
-                withContext(Dispatchers.IO) { repository.commit(bundle, overwrite) }
-                model.onCommitted()
+                val done = withContext(Dispatchers.IO) { repository.commit(bundle, overwrite, events) }
+                model.onCommitted(done)
             } catch (error: Exception) {
-                model.onCommitFailed(error.message ?: "Import failed.")
+                model.onCommitFailed(error.message ?: error.javaClass.simpleName)
             }
         }
     }
-    val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+    // A zip, so file managers and cloud drives treat it as a normal file rather than ".bin".
+    val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
+            model.onStarted("Packing")
             try {
-                withContext(Dispatchers.IO) {
-                    context.contentResolver.openOutputStream(uri)?.use { repository.writeTo(it) }
+                val bytes = withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use { repository.writeTo(it, events) }
+                        ?: error("Android didn't let the app write there")
                 }
-            } catch (error: Exception) {
-                model.onCommitFailed(error.message ?: "Pack failed.")
+                model.onExported(bytes, displayName(context, uri) ?: "the pack")
+            } catch (error: Throwable) {
+                // Don't leave an empty or half-written file behind.
+                withContext(Dispatchers.IO) { runCatching { android.provider.DocumentsContract.deleteDocument(context.contentResolver, uri) } }
+                model.onExportFailed(error.message ?: error.javaClass.simpleName)
             }
         }
     }
     val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
+            model.onStarted("Bringing in ${displayName(context, uri) ?: "the pack"}")
             try {
+                val size = withContext(Dispatchers.IO) { fileSize(context, uri) }
                 val result = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.use { repository.inspect(it) }
-                } ?: return@launch
+                    context.contentResolver.openInputStream(uri)?.use { raw ->
+                        val counted = ProgressInputStream(raw, size) { model.onRead(it) }
+                        repository.inspect(counted, events)
+                    }
+                } ?: error("Couldn't open that file")
                 when (result) {
                     is BringIn.Ready -> {
                         model.onInspected(result)
-                        withContext(Dispatchers.IO) { repository.commit(result.bundle, false) }
-                        model.onCommitted()
+                        val done = withContext(Dispatchers.IO) { repository.commit(result.bundle, false, events) }
+                        model.onCommitted(done)
                     }
                     is BringIn.Held -> model.onInspected(result)
                     is BringIn.Failed -> model.onInspected(result)
                 }
-            } catch (error: Exception) {
-                model.onCommitFailed(error.message ?: "Import failed.")
+            } catch (error: Throwable) {
+                model.onCommitFailed(error.message ?: error.javaClass.simpleName)
             }
         }
     }
@@ -434,9 +448,40 @@ private fun TransferRoute(onBack: () -> Unit) {
     TransferScreen(
         model = model,
         onBack = onBack,
-        onSave = { save.launch("bumblebee-snapshot-$stamp.bbpack") },
+        onSave = { save.launch("bumblebee-backup-$stamp.zip") },
         onOpen = { open.launch(arrayOf("*/*")) },
     )
+}
+
+private fun displayName(context: android.content.Context, uri: android.net.Uri): String? = runCatching {
+    context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+        if (c.moveToFirst()) c.getString(0) else null
+    }
+}.getOrNull()
+
+private fun fileSize(context: android.content.Context, uri: android.net.Uri): Long = runCatching {
+    context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)?.use { c ->
+        if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else -1L
+    } ?: -1L
+}.getOrDefault(-1L)
+
+/** Reports how much of a file of [size] bytes has been read, a few times a second at most. */
+private class ProgressInputStream(input: java.io.InputStream, private val size: Long, private val onFraction: (Float) -> Unit) : java.io.FilterInputStream(input) {
+    private var count = 0L
+    private var lastReport = 0L
+
+    override fun read(): Int = super.read().also { if (it >= 0) moved(1) }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { if (it > 0) moved(it.toLong()) }
+
+    private fun moved(n: Long) {
+        count += n
+        val now = System.currentTimeMillis()
+        if (size > 0 && now - lastReport > 150) {
+            lastReport = now
+            onFraction((count.toFloat() / size).coerceIn(0f, 1f))
+        }
+    }
 }
 
 @Composable

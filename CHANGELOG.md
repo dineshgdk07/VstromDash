@@ -6,6 +6,16 @@ All notable changes to Bumblebee. Versions follow [Semantic Versioning](https://
 ## [Unreleased]
 
 ### Fixed
+- **Backups (Transfer) work, and show their progress.** Packing could fail on a missing number
+  (an average over a zero-length ride) and leave an empty ".bin" file behind; it now saves a
+  normal .zip, removes the file if anything goes wrong, and says why. Packing and bringing in
+  show the step, a progress bar and a timestamped log, and finish with a summary. A ride still
+  being recorded, or a paper whose scan is gone, is left out and said, instead of blocking the
+  pack. Bringing a pack into a phone that had never saved a garage paper no longer fails.
+- **Backups carry everything:** besides rides, fuel, service, papers and the bike link, a pack
+  now holds all settings (bike profile and SOS message, saved places, share, Studio, advanced and
+  the rest), the ride video photos (moved to the right ride on the other phone) and the music.
+  Navigation API keys stay behind: they're locked to the phone they were entered on.
 - **Crash texts are followed until they go out.** Each text now reports back from the phone
   network; with no signal it's retried for about 25 minutes, and the alarm shows how many got
   through, which are still being tried, or which couldn't be sent, instead of saying "texted"

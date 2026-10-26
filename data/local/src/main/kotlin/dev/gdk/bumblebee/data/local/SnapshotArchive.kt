@@ -71,8 +71,14 @@ class SnapshotArchive(
         )
     }
 
-    suspend fun apply(bundle: SnapshotBundle, overwriteClashes: Boolean) {
+    /**
+     * Brings [bundle] in, reporting each step to [onStep]. Returns the incoming ride ids mapped to
+     * the ids they have here, for anything else keyed by ride (ride video photos).
+     */
+    suspend fun apply(bundle: SnapshotBundle, overwriteClashes: Boolean, onStep: (String) -> Unit = {}): Map<Long, Long> {
+        if (!garageRoot.isDirectory) garageRoot.mkdirs()
         if (!garageRoot.isDirectory) throw IOException("garage root is not a directory")
+        onStep("Comparing with what's on this phone")
         val here = capture().bundle
         val plan = planApply(bundle, here, overwriteClashes)
         val session = File(garageRoot.parentFile, "snapshot-stage/${UUID.randomUUID()}")
@@ -80,19 +86,26 @@ class SnapshotArchive(
         val created = mutableListOf<File>()
         var committed = false
         try {
+            onStep("Copying garage paper scans")
             val staged = stageFiles(bundle, plan, session, created)
             val retire = mutableListOf<File>()
-            db.withTransaction {
+            val rideMap = db.withTransaction {
+                onStep("Adding ${bundle.rides.size} rides")
                 val rideIds = applyRides(bundle, here, plan)
+                onStep("Adding tracks and bike data")
                 applyChildren(bundle, plan, rideIds.sourceToLocal)
                 rewriteMerged(rideIds)
                 rewriteKeptFuel(rideIds.replacedLocal)
+                onStep("Adding ${bundle.fuel.size} fuel log entries")
                 applyFuel(bundle, plan, rideIds.sourceToLocal)
+                onStep("Adding service log, plans and papers")
                 val planIds = applyPlans(bundle, plan)
                 applyDocuments(bundle, plan, staged, retire)
                 applyServices(bundle, plan, staged, retire, planIds)
+                onStep("Adding daily totals and calibration")
                 applyRollups(bundle, plan)
                 applyCalibration(bundle, plan)
+                rideIds.sourceToLocal
             }
             committed = true
             retire.forEach { previous ->
@@ -101,6 +114,7 @@ class SnapshotArchive(
                 }
             }
             session.deleteRecursively()
+            return rideMap
         } catch (error: Exception) {
             if (!committed) created.forEach { file -> if (file.exists()) file.delete() }
             session.deleteRecursively()

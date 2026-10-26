@@ -246,7 +246,26 @@ data class SnapshotBundle(
     val plans: List<SnapshotPlan> = emptyList(),
     val prefs: SnapshotPrefs,
     val files: List<SnapshotFile> = emptyList(),
+    /** Every other setting the app keeps, store by store; empty in packs made before it existed. */
+    val settings: SnapshotSettings = SnapshotSettings(),
 )
+
+/**
+ * The app's settings stores (bike profile, saved places, share and video choices and so on), key
+ * by key. Values are String, Boolean, Int, Long, Float or a set of strings, as Android keeps them.
+ */
+data class SnapshotSettings(val stores: Map<String, Map<String, Any>> = emptyMap()) {
+    val keyCount: Int get() = stores.values.sumOf { it.size }
+}
+
+/** How an export or import is going: a [step] in words, and how far through it is if known. */
+fun interface SnapshotProgress {
+    fun report(step: String, done: Long, total: Long)
+
+    companion object {
+        val NONE = SnapshotProgress { _, _, _ -> }
+    }
+}
 
 data class SnapshotManifest(
     val magic: String,

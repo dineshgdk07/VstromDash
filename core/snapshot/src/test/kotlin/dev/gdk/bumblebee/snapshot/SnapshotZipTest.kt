@@ -210,6 +210,8 @@ private fun stripNewRideKeys(zipBytes: ByteArray): ByteArray {
     val ride = rides.getJSONObject(0)
     listOf("startPlace", "endPlace", "weatherTempC", "weatherCode", "climbM").forEach { ride.remove(it) }
     entries["rides.json"] = rides.toString().toByteArray(Charsets.UTF_8)
+    // Packs from before settings were added have no settings file.
+    entries.remove("settings.json")
     val digest = MessageDigest.getInstance("SHA-256")
     listOf(
         "rides", "ride_segments", "telemetry_samples", "track_points", "fuel_events",
@@ -264,5 +266,33 @@ class SnapshotSpoolTest {
         } finally {
             dir.deleteRecursively()
         }
+    }
+}
+
+class SnapshotSettingsTest {
+    @Test fun `settings round trip with their types, and progress is reported`() {
+        val settings = SnapshotSettings(
+            mapOf(
+                "bumblebee_bike" to mapOf("variant" to "YELLOW", "accent" to 7, "plate" to "KA01", "since" to 1_700_000_000_000L, "tank" to 12.5f, "on" to true),
+                "bumblebee_journey" to mapOf("places" to setOf("Home", "Work")),
+            ),
+        )
+        val bundle = sample("x".toByteArray()).copy(settings = settings)
+        val steps = mutableListOf<String>()
+        val out = ByteArrayOutputStream()
+        writeSnapshot(out, bundle, "debug", 1L) { step, _, _ -> steps += step }
+        val read = readSnapshot(ByteArrayInputStream(out.toByteArray())) { step, _, _ -> steps += step } as SnapshotRead.Ready
+        assertEquals(settings, read.bundle.settings)
+        assertTrue(steps.any { it.startsWith("Packing rides") })
+        assertTrue(steps.any { it == "Checking the checksum" })
+    }
+
+    @Test fun `a NaN average doesn't break the export`() {
+        val bundle = sample("x".toByteArray()).let { it.copy(rides = listOf(it.rides.single().copy(avgMovingSpeedKmh = Double.NaN, gpsDistanceM = Double.POSITIVE_INFINITY))) }
+        val out = ByteArrayOutputStream()
+        writeSnapshot(out, bundle, "debug", 1L)
+        val ride = (readSnapshot(ByteArrayInputStream(out.toByteArray())) as SnapshotRead.Ready).bundle.rides.single()
+        assertEquals(0.0, ride.avgMovingSpeedKmh, 0.0)
+        assertEquals(0.0, ride.gpsDistanceM, 0.0)
     }
 }

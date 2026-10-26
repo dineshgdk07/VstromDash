@@ -15,9 +15,18 @@ sealed class SnapshotRead {
     data class Rejected(val message: String, val log: List<String>) : SnapshotRead()
 }
 
-fun writeSnapshot(out: OutputStream, bundle: SnapshotBundle, buildType: String, exportedAt: Long) {
+fun writeSnapshot(
+    out: OutputStream,
+    bundle: SnapshotBundle,
+    buildType: String,
+    exportedAt: Long,
+    progress: SnapshotProgress = SnapshotProgress.NONE,
+) {
     val digest = MessageDigest.getInstance("SHA-256")
     val seen = mutableSetOf<String>()
+    val files = bundle.files.sortedBy { it.relativePath }
+    var done = 0L
+    val total = (SnapshotSections.ORDER.size + 2 + files.size).toLong()
     ZipOutputStream(out).use { zip ->
         fun put(name: String, bytes: ByteArray) {
             if (!seen.add(name)) error("duplicate scan $name")
@@ -27,12 +36,20 @@ fun writeSnapshot(out: OutputStream, bundle: SnapshotBundle, buildType: String, 
             zip.closeEntry()
         }
         for (section in SnapshotSections.ORDER) {
+            progress.report("Packing ${SECTION_WORDS[section] ?: section}", done, total)
             put("$section.json", sectionJson(section, bundle).toByteArray(Charsets.UTF_8))
+            done++
         }
+        progress.report("Packing settings", done, total)
         put("prefs.json", bundle.prefs.toJson().toString().toByteArray(Charsets.UTF_8))
-        bundle.files.sortedBy { it.relativePath }.forEach { file ->
+        put("settings.json", bundle.settings.toJson().toString().toByteArray(Charsets.UTF_8))
+        done += 2
+        files.forEachIndexed { i, file ->
+            progress.report("Packing files ${i + 1} of ${files.size}", done, total)
             put("files/${file.relativePath}", file.bytes)
+            done++
         }
+        progress.report("Finishing", done, total)
         val sha = digest.digest().joinToString("") { "%02x".format(it) }
         val counts = sectionCounts(bundle) + (SnapshotSections.PREFS to 1)
         val manifest = JSONObject()
@@ -54,7 +71,12 @@ fun writeSnapshot(out: OutputStream, bundle: SnapshotBundle, buildType: String, 
  * kept in memory, so a pack with many scans can't run the phone out of memory; the caller clears
  * the folder once the import is done or abandoned.
  */
-fun readSnapshot(input: InputStream, maxUncompressedBytes: Long = MAX_SNAPSHOT_BYTES, spoolDir: File? = null): SnapshotRead {
+fun readSnapshot(
+    input: InputStream,
+    maxUncompressedBytes: Long = MAX_SNAPSHOT_BYTES,
+    spoolDir: File? = null,
+    progress: SnapshotProgress = SnapshotProgress.NONE,
+): SnapshotRead {
     val entries = linkedMapOf<String, ByteArray>()
     val spooled = linkedMapOf<String, File>()
     var used = 0L
@@ -66,6 +88,7 @@ fun readSnapshot(input: InputStream, maxUncompressedBytes: Long = MAX_SNAPSHOT_B
                 if (!allowedZipName(name)) {
                     return SnapshotRead.Rejected("This file is not a Bumblebee snapshot.", listOf(name))
                 }
+                progress.report("Reading ${name.removePrefix("files/")}", used, -1)
                 if (spoolDir != null && name.startsWith("files/")) {
                     spoolDir.mkdirs()
                     val file = File(spoolDir, "scan-${spooled.size}")
@@ -91,9 +114,11 @@ fun readSnapshot(input: InputStream, maxUncompressedBytes: Long = MAX_SNAPSHOT_B
     if (missing.isNotEmpty()) {
         return SnapshotRead.Rejected("This file is not a Bumblebee snapshot.", missing)
     }
+    progress.report("Checking the checksum", 0, 1)
     val digest = MessageDigest.getInstance("SHA-256")
     SnapshotSections.ORDER.forEach { digest.update(entries.getValue("$it.json")) }
     digest.update(entries.getValue("prefs.json"))
+    entries["settings.json"]?.let { digest.update(it) }
     for (name in fileNames) {
         val inMemory = entries[name]
         if (inMemory != null) digest.update(inMemory) else spooled.getValue(name).inputStream().use { s ->
@@ -121,6 +146,7 @@ fun readSnapshot(input: InputStream, maxUncompressedBytes: Long = MAX_SNAPSHOT_B
     if (manifest.sha256 != sha) {
         return SnapshotRead.Rejected("The file is damaged. The checksum does not match.", emptyList())
     }
+    progress.report("Checking counts and version", 0, 1)
     val actual = sectionCountsFrom(entries) + (SnapshotSections.PREFS to 1)
     when (val verdict = inspectManifest(manifest, sha, actual)) {
         is SnapshotVerdict.Rejected -> return SnapshotRead.Rejected(verdict.message, verdict.log)
@@ -173,7 +199,7 @@ private fun readAtMost(input: InputStream, max: Long): ByteArray? {
 
 private fun allowedZipName(name: String): Boolean {
     if (name.startsWith("/") || name.contains('\\') || name.split('/').any { it == ".." }) return false
-    if (name == "manifest.json" || name == "prefs.json") return true
+    if (name == "manifest.json" || name == "prefs.json" || name == "settings.json") return true
     if (name.endsWith(".json") && name.removeSuffix(".json") in SnapshotSections.ORDER) return true
     return name.startsWith("files/") && name.removePrefix("files/").isNotEmpty()
 }
@@ -231,12 +257,85 @@ private fun parseBundle(entries: Map<String, ByteArray>): SnapshotBundle {
         plans = array(SnapshotSections.PLANS).objects().map { it.toPlan() },
         prefs = JSONObject(String(entries.getValue("prefs.json"), Charsets.UTF_8)).toPrefs(),
         files = files,
+        settings = entries["settings.json"]?.let { JSONObject(String(it, Charsets.UTF_8)).toSettings() } ?: SnapshotSettings(),
     )
 }
 
+/** Each value tagged with its type, so an Int comes back an Int and not a Long. */
+private fun SnapshotSettings.toJson(): JSONObject {
+    val out = JSONObject()
+    for ((store, values) in stores.toSortedMap()) {
+        val o = JSONObject()
+        for ((key, value) in values.toSortedMap()) {
+            val (t, v) = when (value) {
+                is String -> "s" to value
+                is Boolean -> "b" to value
+                is Int -> "i" to value
+                is Long -> "l" to value
+                is Float -> if (value.isFinite()) "f" to value.toDouble() else continue
+                is Set<*> -> "ss" to JSONArray(value.filterIsInstance<String>().sorted())
+                else -> continue
+            }
+            o.put(key, JSONObject().put("t", t).put("v", v))
+        }
+        out.put(store, o)
+    }
+    return out
+}
+
+private fun JSONObject.toSettings(): SnapshotSettings {
+    val stores = mutableMapOf<String, Map<String, Any>>()
+    for (store in keys()) {
+        val o = getJSONObject(store)
+        val values = mutableMapOf<String, Any>()
+        for (key in o.keys()) {
+            val e = o.getJSONObject(key)
+            values[key] = when (e.getString("t")) {
+                "s" -> e.getString("v")
+                "b" -> e.getBoolean("v")
+                "i" -> e.getInt("v")
+                "l" -> e.getLong("v")
+                "f" -> e.getDouble("v").toFloat()
+                "ss" -> e.getJSONArray("v").let { a -> (0 until a.length()).map { a.getString(it) }.toSet() }
+                else -> continue
+            }
+        }
+        stores[store] = values
+    }
+    return SnapshotSettings(stores)
+}
+
+/** Plain words for each section, for progress. */
+private val SECTION_WORDS = mapOf(
+    SnapshotSections.RIDES to "rides",
+    SnapshotSections.SEGMENTS to "ride segments",
+    SnapshotSections.TELEMETRY to "bike data",
+    SnapshotSections.TRACKS to "GPS tracks",
+    SnapshotSections.FUEL to "fuel log",
+    SnapshotSections.ROLLUPS to "daily totals",
+    SnapshotSections.CALIBRATION to "calibration",
+    SnapshotSections.SERVICE to "service log",
+    SnapshotSections.DOCUMENTS to "garage papers",
+    SnapshotSections.PLANS to "maintenance plans",
+)
+
 private fun JSONArray.objects(): List<JSONObject> = (0 until length()).map { getJSONObject(it) }
 
-private fun JSONObject.putNullable(key: String, value: Any?) = put(key, value ?: JSONObject.NULL)
+private fun JSONObject.putNullable(key: String, value: Any?) = put(key, finite(value) ?: JSONObject.NULL)
+
+/**
+ * A number JSON can hold: NaN and infinity (an average over a zero-length ride, say) would make
+ * the whole export fail, so they're written as null and read back as nothing or 0.
+ */
+private fun finite(value: Any?): Any? = when (value) {
+    is Double -> value.takeIf { it.isFinite() }
+    is Float -> value.takeIf { it.isFinite() }
+    else -> value
+}
+
+private fun JSONObject.putNum(key: String, value: Double) = put(key, finite(value) ?: JSONObject.NULL)
+
+private fun JSONObject.num(key: String): Double = if (isNull(key)) 0.0 else getDouble(key)
 
 private fun JSONObject.str(key: String): String? = if (isNull(key)) null else getString(key)
 
@@ -254,11 +353,11 @@ private fun SnapshotRide.toJson() = JSONObject()
     .putNullable("endTs", endTs)
     .putNullable("odoStartKm", odoStartKm)
     .putNullable("odoEndKm", odoEndKm)
-    .put("gpsDistanceM", gpsDistanceM)
+    .putNum("gpsDistanceM", gpsDistanceM)
     .put("movingSec", movingSec)
     .put("idleSec", idleSec)
     .put("maxSpeedKmh", maxSpeedKmh)
-    .put("avgMovingSpeedKmh", avgMovingSpeedKmh)
+    .putNum("avgMovingSpeedKmh", avgMovingSpeedKmh)
     .putNullable("fuelBarsStart", fuelBarsStart)
     .putNullable("fuelBarsEnd", fuelBarsEnd)
     .putNullable("speedHistogramJson", speedHistogramJson)
@@ -283,11 +382,11 @@ private fun JSONObject.toRide() = SnapshotRide(
     endTs = longOrNull("endTs"),
     odoStartKm = intOrNull("odoStartKm"),
     odoEndKm = intOrNull("odoEndKm"),
-    gpsDistanceM = getDouble("gpsDistanceM"),
+    gpsDistanceM = num("gpsDistanceM"),
     movingSec = getInt("movingSec"),
     idleSec = getInt("idleSec"),
     maxSpeedKmh = getInt("maxSpeedKmh"),
-    avgMovingSpeedKmh = getDouble("avgMovingSpeedKmh"),
+    avgMovingSpeedKmh = num("avgMovingSpeedKmh"),
     fuelBarsStart = intOrNull("fuelBarsStart"),
     fuelBarsEnd = intOrNull("fuelBarsEnd"),
     speedHistogramJson = str("speedHistogramJson"),
@@ -330,8 +429,8 @@ private fun SnapshotTelemetry.toJson() = JSONObject()
     .put("ts", ts)
     .put("speedKmh", speedKmh)
     .put("odometerKm", odometerKm)
-    .put("tripAKm", tripAKm)
-    .put("tripBKm", tripBKm)
+    .putNum("tripAKm", tripAKm)
+    .putNum("tripBKm", tripBKm)
     .putNullable("fuelBars", fuelBars)
     .putNullable("fuelEconKml", fuelEconKml)
 
@@ -341,8 +440,8 @@ private fun JSONObject.toTelemetry() = SnapshotTelemetry(
     ts = getLong("ts"),
     speedKmh = getInt("speedKmh"),
     odometerKm = getInt("odometerKm"),
-    tripAKm = getDouble("tripAKm"),
-    tripBKm = getDouble("tripBKm"),
+    tripAKm = num("tripAKm"),
+    tripBKm = num("tripBKm"),
     fuelBars = intOrNull("fuelBars"),
     fuelEconKml = dblOrNull("fuelEconKml"),
 )
@@ -351,8 +450,8 @@ private fun SnapshotTrack.toJson() = JSONObject()
     .put("id", id)
     .put("rideId", rideId)
     .put("ts", ts)
-    .put("lat", lat)
-    .put("lng", lng)
+    .putNum("lat", lat)
+    .putNum("lng", lng)
     .putNullable("altitudeM", altitudeM)
     .putNullable("bearingDeg", bearingDeg)
     .putNullable("speedMps", speedMps)
@@ -362,8 +461,8 @@ private fun JSONObject.toTrack() = SnapshotTrack(
     id = getLong("id"),
     rideId = getLong("rideId"),
     ts = getLong("ts"),
-    lat = getDouble("lat"),
-    lng = getDouble("lng"),
+    lat = num("lat"),
+    lng = num("lng"),
     altitudeM = dblOrNull("altitudeM"),
     bearingDeg = fltOrNull("bearingDeg"),
     speedMps = fltOrNull("speedMps"),
@@ -413,7 +512,7 @@ private fun JSONObject.toFuel() = SnapshotFuel(
 
 private fun SnapshotRollup.toJson() = JSONObject()
     .put("date", date)
-    .put("km", km)
+    .putNum("km", km)
     .put("rides", rides)
     .put("movingSec", movingSec)
     .put("maxSpeedKmh", maxSpeedKmh)
@@ -421,7 +520,7 @@ private fun SnapshotRollup.toJson() = JSONObject()
 
 private fun JSONObject.toRollup() = SnapshotRollup(
     date = getString("date"),
-    km = getDouble("km"),
+    km = num("km"),
     rides = getInt("rides"),
     movingSec = getInt("movingSec"),
     maxSpeedKmh = getInt("maxSpeedKmh"),
@@ -512,7 +611,7 @@ private fun SnapshotPrefs.toJson() = JSONObject()
     .put("insuranceExpiry", insuranceExpiry)
     .put("pucExpiry", pucExpiry)
     .put("mapsNavToCluster", mapsNavToCluster)
-    .put("tankCapacityL", tankCapacityL.toDouble())
+    .putNum("tankCapacityL", tankCapacityL.toDouble())
     .put("remindersEnabled", remindersEnabled)
     .put("remindDays", remindDays)
     .put("remindKm", remindKm)
@@ -531,8 +630,8 @@ private fun SnapshotWidget.toJson() = JSONObject()
     .putNullable("rangeKm", rangeKm)
     .putNullable("serviceDueKm", serviceDueKm)
     .put("alert", alert)
-    .put("todayKm", todayKm)
-    .put("lastRideKm", lastRideKm)
+    .putNum("todayKm", todayKm)
+    .putNum("lastRideKm", lastRideKm)
     .put("lastRideLabel", lastRideLabel)
     .put("linked", linked)
     .put("open", open)
@@ -547,7 +646,7 @@ private fun JSONObject.toPrefs() = SnapshotPrefs(
     insuranceExpiry = getString("insuranceExpiry"),
     pucExpiry = getString("pucExpiry"),
     mapsNavToCluster = getBoolean("mapsNavToCluster"),
-    tankCapacityL = getDouble("tankCapacityL").toFloat(),
+    tankCapacityL = num("tankCapacityL").toFloat(),
     remindersEnabled = getBoolean("remindersEnabled"),
     remindDays = getInt("remindDays"),
     remindKm = getInt("remindKm"),
@@ -567,8 +666,8 @@ private fun JSONObject.toWidget() = SnapshotWidget(
     rangeKm = intOrNull("rangeKm"),
     serviceDueKm = intOrNull("serviceDueKm"),
     alert = getString("alert"),
-    todayKm = getDouble("todayKm"),
-    lastRideKm = getDouble("lastRideKm"),
+    todayKm = num("todayKm"),
+    lastRideKm = num("lastRideKm"),
     lastRideLabel = getString("lastRideLabel"),
     linked = getBoolean("linked"),
     open = getString("open"),

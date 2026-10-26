@@ -3,6 +3,9 @@ package dev.gdk.bumblebee.ui.transfer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.LinearProgressIndicator
+import dev.gdk.bumblebee.ui.theme.SurfaceSunken
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -51,6 +54,7 @@ fun TransferScreen(
         onOverwrite = model::chooseOverwrite,
         onKeep = model::chooseKeep,
         onToggleLog = model::toggleLog,
+        onReset = model::reset,
     )
 }
 
@@ -63,8 +67,10 @@ private fun TransferBody(
     onOverwrite: () -> Unit,
     onKeep: () -> Unit,
     onToggleLog: () -> Unit,
+    onReset: () -> Unit = {},
 ) {
     val done = ui.rows.count { it.state == CheckState.DONE }
+    val working = ui.phase == TransferPhase.WORKING
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -104,6 +110,21 @@ private fun TransferBody(
         if (ui.phase == TransferPhase.BRING_IN && ui.rows.isNotEmpty()) {
             ProgressPill(progress = done / ui.rows.size.toFloat(), current = done, total = ui.rows.size)
         }
+        // While it works: the step, a bar (moving on its own when it can't tell how far), and %.
+        if (ui.step != null && ui.phase != TransferPhase.PACK) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth()) {
+                    Text(ui.step, style = MaterialTheme.typography.titleMedium, color = TextPrimary, modifier = Modifier.weight(1f))
+                    ui.progress?.let { Text("${(it * 100).toInt()}%", style = MaterialTheme.typography.titleMedium, color = Lime) }
+                }
+                if (working && ui.progress == null) {
+                    LinearProgressIndicator(color = Lime, trackColor = SurfaceSunken, modifier = Modifier.fillMaxWidth())
+                } else {
+                    LinearProgressIndicator(progress = { ui.progress ?: 0f }, color = if (ui.phase == TransferPhase.HELD) Danger else Lime, trackColor = SurfaceSunken, modifier = Modifier.fillMaxWidth())
+                }
+                if (working) Text("Keep this screen open until it finishes.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            }
+        }
         if (ui.rows.isNotEmpty()) {
             SectionCard {
                 ui.rows.forEach { row ->
@@ -117,11 +138,21 @@ private fun TransferBody(
                 }
             }
         }
-        if (ui.canSave) {
-            ChunkyButton(text = "Choose where to save", onClick = onSave, style = ChunkyStyle.Lime)
+        if (ui.canSave && !working) {
+            ChunkyButton(text = if (ui.phase == TransferPhase.PACK) "Pack and choose where to save" else "Pack again", onClick = onSave, style = ChunkyStyle.Lime)
         }
         if (ui.phase == TransferPhase.PACK) {
-            ChunkyButton(text = "Choose a file", onClick = onOpen, style = ChunkyStyle.Outline)
+            ChunkyButton(text = "Bring in a pack file", onClick = onOpen, style = ChunkyStyle.Outline)
+            Text(
+                "A pack holds your rides, fuel log, garage papers and scans, settings, ride video photos and music. " +
+                    "Navigation API keys stay on this phone (they're locked to it): enter them again on the other one.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+        }
+        if (ui.phase == TransferPhase.DONE || (ui.phase == TransferPhase.HELD && !ui.canOverwrite)) {
+            ChunkyButton(text = "Back to Transfer", onClick = onReset, style = ChunkyStyle.Outline)
         }
         if (ui.canOverwrite) {
             ChunkyButton(text = ui.overwriteLabel, onClick = onOverwrite, style = ChunkyStyle.Lime)
@@ -129,12 +160,22 @@ private fun TransferBody(
         if (ui.canKeep) {
             ChunkyButton(text = "Keep what's here", onClick = onKeep, style = ChunkyStyle.Outline)
         }
-        if (ui.log.isNotEmpty()) {
-            TextButton(onClick = onToggleLog) { Text("Log") }
+        if (ui.lines.isNotEmpty() || ui.log.isNotEmpty()) {
+            TextButton(onClick = onToggleLog) { Text(if (ui.logOpen) "Hide log" else "Show log") }
             if (ui.logOpen) {
                 SectionCard {
-                    ui.log.forEach { line ->
-                        Text(line, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    ui.lines.forEach { line ->
+                        val color = when (line.tone) {
+                            CheckState.FAILED -> Danger
+                            CheckState.WARNING -> Warning
+                            else -> TextSecondary
+                        }
+                        Text("${line.time}  ${line.text}", style = MaterialTheme.typography.bodySmall, color = color)
+                    }
+                    if (ui.lines.isEmpty()) {
+                        ui.log.forEach { line ->
+                            Text(line, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                        }
                     }
                 }
             }

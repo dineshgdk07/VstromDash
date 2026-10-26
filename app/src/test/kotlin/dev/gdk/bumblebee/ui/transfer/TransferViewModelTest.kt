@@ -8,6 +8,7 @@ import dev.gdk.bumblebee.snapshot.SnapshotRide
 import dev.gdk.bumblebee.snapshot.SnapshotWidget
 import dev.gdk.bumblebee.transfer.BringIn
 import dev.gdk.bumblebee.transfer.PackPreview
+import dev.gdk.bumblebee.transfer.TransferEvents
 import dev.gdk.bumblebee.transfer.TransferGateway
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -22,9 +23,9 @@ class TransferViewModelTest {
 
     private val fake = object : TransferGateway {
         override suspend fun preview() = error("unused")
-        override suspend fun writeTo(out: OutputStream) = Unit
-        override suspend fun inspect(input: InputStream) = error("unused")
-        override suspend fun commit(bundle: SnapshotBundle, overwriteClashes: Boolean) = Unit
+        override suspend fun writeTo(out: OutputStream, events: TransferEvents) = 0L
+        override suspend fun inspect(input: InputStream, events: TransferEvents) = error("unused")
+        override suspend fun commit(bundle: SnapshotBundle, overwriteClashes: Boolean, events: TransferEvents) = emptyList<String>()
     }
 
     @Test
@@ -35,19 +36,46 @@ class TransferViewModelTest {
         assertEquals("PACK THE BIKE", ui.shout)
         assertTrue(ui.canSave)
         assertEquals(
-            listOf("Rides and tracks", "Fuel log", "Daily rollups", "Service and plans", "Garage papers", "Paired bike"),
+            listOf("Rides and tracks", "Fuel log", "Daily rollups", "Service and plans", "Garage papers", "Settings", "Ride video photos", "Music", "Paired bike"),
             ui.rows.map { it.title },
         )
         assertEquals("yes", ui.rows.last().detail)
     }
 
     @Test
-    fun `an open ride disables save`() {
+    fun `a note about what's left out doesn't stop the pack`() {
         val model = TransferViewModel(fake)
-        model.onPackLoaded(preview(issues = listOf(PackIssue("Finish or discard the open ride before packing.", "ACTIVE"))))
+        model.onPackLoaded(preview(issues = listOf(PackIssue("The ride being recorded now isn't included.", "ACTIVE"))))
         val ui = model.ui.value
-        assertFalse(ui.canSave)
-        assertEquals("Finish or discard the open ride before packing.", ui.message)
+        assertTrue(ui.canSave)
+        assertEquals("The ride being recorded now isn't included.", ui.message)
+    }
+
+    @Test
+    fun `packing shows each step in the log and ends with the size`() {
+        val model = TransferViewModel(fake)
+        model.onStarted("Packing")
+        model.onStep("Packing rides", 0.1f)
+        model.onStep("Packing rides", 0.2f)
+        model.onStep("Packing GPS tracks", 0.4f)
+        val working = model.ui.value
+        assertEquals(TransferPhase.WORKING, working.phase)
+        assertEquals(0.4f, working.progress)
+        assertEquals(listOf("Packing", "Packing rides", "Packing GPS tracks"), working.lines.map { it.text })
+        model.onExported(2_500_000, "bumblebee-backup.zip")
+        assertEquals(TransferPhase.DONE, model.ui.value.phase)
+        assertEquals("2.4 MB", model.ui.value.headline)
+    }
+
+    @Test
+    fun `a failed pack says so and can be tried again`() {
+        val model = TransferViewModel(fake)
+        model.onStarted("Packing")
+        model.onExportFailed("disk full")
+        val ui = model.ui.value
+        assertEquals("NOT SAVED", ui.shout)
+        assertTrue(ui.canSave)
+        assertEquals(CheckState.FAILED, ui.lines.last().tone)
     }
 
     @Test
@@ -83,13 +111,15 @@ class TransferViewModelTest {
     }
 
     @Test
-    fun `a ready file waits on the data rows until commit finishes`() {
+    fun `a ready file is brought in and the summary is listed`() {
         val model = TransferViewModel(fake)
+        model.onStarted("Bringing in")
         model.onInspected(BringIn.Ready(bundle()))
-        assertEquals(CheckState.WAITING, model.ui.value.rows[4].state)
-        model.onCommitted()
-        assertEquals(CheckState.DONE, model.ui.value.rows[4].state)
-        assertEquals(CheckState.DONE, model.ui.value.rows.last().state)
+        assertEquals(TransferPhase.WORKING, model.ui.value.phase)
+        model.onCommitted(listOf("Rides: 1 brought in"))
+        assertEquals(TransferPhase.DONE, model.ui.value.phase)
+        assertEquals("Rides: 1 brought in", model.ui.value.rows.single().title)
+        assertEquals("All done", model.ui.value.lines.last().text)
     }
 
     private fun preview(issues: List<PackIssue>, mac: String? = null) = PackPreview(

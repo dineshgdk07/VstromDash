@@ -47,18 +47,20 @@ class TransferRepositoryTest {
     }
 
     @Test
-    fun `an open ride blocks the write`() = runTest {
+    fun `an open ride is left out of the pack, which still saves`() = runTest {
         val repo = repo()
-        repo.db.rideDao().insert(RideEntity(startTs = 1L, rideState = RIDE_ACTIVE))
+        repo.db.rideDao().insert(RideEntity(startTs = 1L, endTs = 2L, gpsDistanceM = 1000.0))
+        repo.db.rideDao().insert(RideEntity(startTs = 5L, rideState = RIDE_ACTIVE))
+        val preview = repo.repository.preview()
+        assertTrue(preview.issues.single().message.startsWith("The ride being recorded now isn't included"))
         val out = ByteArrayOutputStream()
-        var message = ""
-        try {
-            repo.repository.writeTo(out)
-        } catch (error: IllegalStateException) {
-            message = error.message ?: ""
-        }
-        assertEquals("Finish or discard the open ride before packing.", message)
-        assertEquals(0, out.size())
+        val steps = mutableListOf<String>()
+        val bytes = repo.repository.writeTo(out) { step, _ -> steps += step }
+        assertEquals(out.size().toLong(), bytes)
+        assertTrue(bytes > 0)
+        assertTrue(steps.any { it.startsWith("Packing rides") })
+        val read = dev.gdk.bumblebee.snapshot.readSnapshot(ByteArrayInputStream(out.toByteArray())) as dev.gdk.bumblebee.snapshot.SnapshotRead.Ready
+        assertEquals(listOf(1L), read.bundle.rides.map { it.startTs })
         repo.db.close()
     }
 
