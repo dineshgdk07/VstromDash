@@ -318,25 +318,42 @@ class TerrainRenderer(
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         val accent = look.accent.floats()
-        val glow = (look.pathGlow * cfg.glow).toFloat()
+        // Each beat of the music lifts the glow and swells the line a little.
+        val beat = plan.beatPulse(time.toDouble())
+        val glow = (look.pathGlow * cfg.glow * (1 + 0.9 * beat)).toFloat()
+        val swell = 1 + 0.18 * beat
         // Still to ride.
+        GLES30.glUniform1i(p.loc("uRamp"), 0)
         if (split < path.points.lastIndex) {
             strip(vm, split, path.points.lastIndex, 3.5 * scale, pxToWorld)?.let {
                 drawStrip(it, floatArrayOf(1f, 1f, 1f), 0.38f, 1.4f)
             }
         }
         if (split > 0) {
-            if (glow > 0f) strip(vm, 0, split, 34.0 * scale, pxToWorld)?.let { drawStrip(it, accent, (0.30f * glow).coerceAtMost(0.8f) * fade, 3.0f) }
-            strip(vm, 0, split, 13.0 * scale, pxToWorld)?.let { drawStrip(it, accent, 0.85f * fade, 1.6f) }
-            strip(vm, 0, split, 4.0 * scale, pxToWorld)?.let { drawStrip(it, floatArrayOf(1f, 0.98f, 0.88f), fade, 0.8f) }
+            val ramp = rampStops
+            if (ramp != null) {
+                GLES30.glUniform1i(p.loc("uRamp"), 1)
+                GLES30.glUniform3fv(p.loc("uStops"), ramp.size / 3, ramp, 0)
+            }
+            if (glow > 0f) strip(vm, 0, split, 34.0 * scale * swell, pxToWorld)?.let { drawStrip(it, accent, (0.30f * glow).coerceAtMost(0.9f) * fade, 3.0f, white = 0f) }
+            strip(vm, 0, split, 13.0 * scale * swell, pxToWorld)?.let { drawStrip(it, accent, 0.85f * fade, 1.6f, white = 0f) }
+            strip(vm, 0, split, 4.0 * scale, pxToWorld)?.let { drawStrip(it, floatArrayOf(1f, 0.98f, 0.88f), fade, 0.8f, white = 0.6f) }
+            GLES30.glUniform1i(p.loc("uRamp"), 0)
         }
         GLES30.glDepthMask(true)
     }
 
     private class Strip(val buffer: FloatBuffer, val vertices: Int)
 
+    /** The trail's colour stops as sRGB floats for the shader, or null for the accent trail. */
+    private val rampStops: FloatArray? = TrailRamp.stops(cfg.trailColor)?.takeIf { plan.trail != null }?.let { stops ->
+        FloatArray(stops.size * 3) { i -> ((stops[i / 3] shr (16 - 8 * (i % 3))) and 255) / 255f }
+    }
+    private val trailValues: FloatArray? = plan.trail?.values
+
     /**
-     * Vertices (x, y, z eye-relative; side -1..1; along metres; gap flag) for points [from]..[to],
+     * Vertices (x, y, z eye-relative; side -1..1; along metres; gap flag; trail colour value) for
+     * points [from]..[to],
      * thinned to at most [MAX_RIBBON_POINTS] and lifted a little so they sit on the ground.
      */
     private fun strip(vm: ViewMath, from: Int, to: Int, widthPx: Double, pxToWorld: Double): Strip? {
@@ -351,7 +368,8 @@ class TerrainRenderer(
             i += stride
         }
         idx += to
-        val buf = floatBuffer(idx.size * 2 * 6)
+        val buf = floatBuffer(idx.size * 2 * 7)
+        val values = trailValues
         var count = 0
         for ((k, pi) in idx.withIndex()) {
             val pt = path.points[pi]
@@ -370,6 +388,7 @@ class TerrainRenderer(
                 val v = lifted + side * (half * s)
                 buf.put(v.x.toFloat()).put(v.y.toFloat()).put(v.z.toFloat())
                 buf.put(s.toFloat()).put(path.along[pi].toFloat()).put(gap)
+                buf.put(values?.getOrNull(pi) ?: 0.5f)
                 count++
             }
         }
@@ -377,19 +396,23 @@ class TerrainRenderer(
         return Strip(buf, count)
     }
 
-    private fun drawStrip(s: Strip, color: FloatArray, alpha: Float, falloff: Float) {
+    private fun drawStrip(s: Strip, color: FloatArray, alpha: Float, falloff: Float, white: Float = 0f) {
         val p = ribbonProg
+        GLES30.glUniform1f(p.loc("uWhite"), white)
         GLES30.glUniform3fv(p.loc("uColor"), 1, color, 0)
         GLES30.glUniform1f(p.loc("uAlpha"), alpha)
         GLES30.glUniform1f(p.loc("uFalloff"), falloff)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, ribbonVbo)
-        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, s.vertices * 6 * 4, s.buffer, GLES30.GL_STREAM_DRAW)
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, s.vertices * 7 * 4, s.buffer, GLES30.GL_STREAM_DRAW)
         GLES30.glEnableVertexAttribArray(0)
-        GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, 24, 0)
+        GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, 28, 0)
         GLES30.glEnableVertexAttribArray(1)
-        GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, 24, 12)
+        GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, 28, 12)
+        GLES30.glEnableVertexAttribArray(2)
+        GLES30.glVertexAttribPointer(2, 1, GLES30.GL_FLOAT, false, 28, 24)
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, s.vertices)
         GLES30.glDisableVertexAttribArray(1)
+        GLES30.glDisableVertexAttribArray(2)
     }
 
     /** The comet head at the rider, and a small pin at each moment already passed or held. */
@@ -509,6 +532,37 @@ class TerrainRenderer(
         GLES30.glDisableVertexAttribArray(2)
     }
 
+    /**
+     * At each milestone, a ring of sparks flies out from the rider and fades, around a quick
+     * flash: accent and white, sized in pixels like the other sprites.
+     */
+    private fun milestoneBursts(vm: ViewMath, sprites: MutableList<FloatArray>, accent: FloatArray, scale: Double) {
+        val t = time.toDouble()
+        for ((k, tm) in plan.milestoneTimes.withIndex()) {
+            val dt = t - tm
+            if (dt < 0 || dt > BURST_S) continue
+            val p = dt / BURST_S
+            val ease = 1 - (1 - p) * (1 - p) * (1 - p)
+            val centre = plan.path.at(plan.milestones[k].distanceM)
+            val rel = centre - vm.eye
+            val depth = max(rel.dot(vm.forward), 1.0)
+            val pxToWorld = 2.0 * vm.tanHalfFov / height * depth
+            if (p < 0.4) {
+                val a = (1 - p / 0.4).toFloat()
+                sprites += floatArrayOf(rel.x.toFloat(), rel.y.toFloat(), rel.z.toFloat(), (520 * scale).toFloat(), 1f, 1f, 1f, 0.8f * a)
+            }
+            val fadeOut = ((1 - p) * (1 - p)).toFloat()
+            for (i in 0 until SPARKS) {
+                val ang = 2 * Math.PI * i / SPARKS + k * 0.7
+                val jitter = 0.75 + 0.25 * kotlin.math.sin(i * 12.9898 + k)
+                val r = (40 + 380 * ease * jitter) * scale * pxToWorld
+                val pos = rel + vm.right * (kotlin.math.cos(ang) * r) + vm.up * (kotlin.math.sin(ang) * r)
+                val c = if (i % 3 == 0) floatArrayOf(1f, 1f, 1f) else accent
+                sprites += floatArrayOf(pos.x.toFloat(), pos.y.toFloat(), pos.z.toFloat(), (34 * (1 - 0.5 * p) * scale).toFloat(), c[0], c[1], c[2], fadeOut)
+            }
+        }
+    }
+
     private fun drawSprites(vm: ViewMath, upTo: Double, cue: Cue) {
         val scale = height / 1920.0
         val sprites = ArrayList<FloatArray>()
@@ -525,6 +579,13 @@ class TerrainRenderer(
             Shot.FINISH -> !cfg.mapReveal || cue.progress < 0.40 || revealing
             else -> true
         }
+        val beat = plan.beatPulse(time.toDouble())
+        // On the beat, a soft flash of the accent under the bike.
+        if (bikeShown(cue) && beat > 0.05) {
+            val at = plan.bikeFrame(upTo).position - vm.eye
+            sprites += floatArrayOf(at.x.toFloat(), at.y.toFloat(), at.z.toFloat(), (260 * scale * cfg.markerSize).toFloat(), accent[0], accent[1], accent[2], (0.55 * beat).toFloat())
+        }
+        milestoneBursts(vm, sprites, accent, scale)
         // The 3D bike's headlight glows as dusk falls.
         if (bikeShown(cue) && look.nightness > 0.15) {
             val frame = plan.bikeFrame(upTo)
@@ -535,7 +596,7 @@ class TerrainRenderer(
         }
         if (headShown && !bikeShown(cue)) {
             val head = plan.path.at(upTo) - vm.eye
-            val pulse = 1.0 + 0.08 * kotlin.math.sin(cue.progress * 40)
+            val pulse = 1.0 + 0.08 * kotlin.math.sin(cue.progress * 40) + 0.35 * beat
             sprites += floatArrayOf(head.x.toFloat(), head.y.toFloat(), head.z.toFloat(), ((if (cfg.marker == MarkerStyle.BIKE_PHOTO) 55 else 110) * scale * pulse * look.pathGlow * (0.6 + 0.4 * cfg.glow) * cfg.pathWidth.coerceIn(0.8, 1.5)).toFloat(), accent[0], accent[1], accent[2], 1f)
         }
         if (sprites.isEmpty()) return
@@ -865,6 +926,10 @@ class TerrainRenderer(
             }
         """
 
+        /** How long a milestone burst lasts, and how many sparks fly. */
+        const val BURST_S = 1.1
+        const val SPARKS = 22
+
         const val BIKE_VS = """#version 300 es
             layout(location = 0) in vec3 aPos;
             layout(location = 1) in vec3 aNormal;
@@ -975,10 +1040,13 @@ class TerrainRenderer(
         const val RIBBON_VS = """#version 300 es
             layout(location = 0) in vec3 aPos;
             layout(location = 1) in vec3 aInfo;
+            layout(location = 2) in float aValue;
             uniform mat4 uViewProj;
             out vec3 vInfo;
+            out float vValue;
             void main() {
                 vInfo = aInfo;
+                vValue = aValue;
                 gl_Position = uViewProj * vec4(aPos, 1.0);
             }
         """
@@ -986,16 +1054,27 @@ class TerrainRenderer(
         const val RIBBON_FS = """#version 300 es
             precision highp float;
             in vec3 vInfo;
+            in float vValue;
             out vec4 outColor;
             uniform vec3 uColor;
             uniform float uAlpha;
             uniform float uFalloff;
+            // Colour by speed or climb: six sRGB stops, blended toward white by uWhite.
+            uniform int uRamp;
+            uniform vec3 uStops[6];
+            uniform float uWhite;
+            vec3 ramp(float v) {
+                float f = clamp(v, 0.0, 1.0) * 5.0;
+                int i = int(min(floor(f), 4.0));
+                return mix(uStops[i], uStops[i + 1], f - float(i));
+            }
             void main() {
                 // GPS gaps are dashed: 40 m on, 40 m off.
                 if (vInfo.z > 0.5 && fract(vInfo.y / 80.0) > 0.5) discard;
                 float s = abs(vInfo.x);
                 float a = uAlpha * exp(-s * s * uFalloff * uFalloff) * smoothstep(1.0, 0.85, s);
-                outColor = vec4(pow(uColor, vec3(1.0 / 2.2)), a);
+                vec3 c = uRamp == 1 ? mix(ramp(vValue), vec3(1.0), uWhite) : pow(uColor, vec3(1.0 / 2.2));
+                outColor = vec4(c, a);
             }
         """
 

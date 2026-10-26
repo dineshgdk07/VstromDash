@@ -21,13 +21,15 @@ sealed interface VideoProgress {
         val fraction: Float get() = if (of == 0) 0f else frame.toFloat() / of
     }
     data object Saving : VideoProgress
+    data object Music : VideoProgress
 }
 
 /**
  * Renders a [RideVideoPlan] to an MP4: each frame is drawn by [TerrainRenderer] with the
  * [VideoOverlay] on top and handed to [VideoEncoder]. GL needs one thread for its whole life, so
  * the work runs on a private single thread. Cancelling the calling coroutine stops between frames
- * and deletes the partial file.
+ * and deletes the partial file. With a soundtrack, the frames go to a silent file first and the
+ * music is then mixed in.
  */
 class RideVideoExporter(private val context: Context) {
     private val power = context.getSystemService(PowerManager::class.java)
@@ -39,17 +41,40 @@ class RideVideoExporter(private val context: Context) {
         accent: Int,
         out: File,
         assets: VideoAssets = VideoAssets(),
+        /** The soundtrack file for [RideVideoPlan.music]; null for a silent video. */
+        music: File? = null,
         onProgress: (VideoProgress) -> Unit,
-    ) {
+    ): String? {
+        val cue = plan.music
+        val silent = if (cue != null && music != null) File(out.parentFile, out.nameWithoutExtension + ".silent.mp4") else out
         val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "ride-video-gl") }
         val gl = executor.asCoroutineDispatcher()
         try {
-            withContext(gl) { renderOnGlThread(plan, look, fonts, accent, out, assets, onProgress) }
+            withContext(gl) { renderOnGlThread(plan, look, fonts, accent, silent, assets, onProgress) }
         } catch (e: Throwable) {
+            silent.delete()
             out.delete()
             throw e
         } finally {
             gl.close()
+        }
+        if (silent == out || cue == null || music == null) return null
+        onProgress(VideoProgress.Music)
+        return try {
+            coroutineContext.ensureActive()
+            out.delete()
+            MusicMixer.mux(silent, music, cue, out)
+            null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            out.delete()
+            throw e
+        } catch (e: Throwable) {
+            // The video is still good without the music: keep it and say why.
+            out.delete()
+            silent.copyTo(out, overwrite = true)
+            "Couldn't add the music (${e.message ?: e.javaClass.simpleName}), so the video is silent."
+        } finally {
+            silent.delete()
         }
     }
 

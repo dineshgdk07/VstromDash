@@ -45,6 +45,10 @@ data class StudioUi(
     /** The ride's full length, for placing photos by hand. */
     val rideLengthM: Double = 0.0,
     val importing: Boolean = false,
+    /** The rider's soundtrack, if they've chosen one. */
+    val music: dev.gdk.bumblebee.video.MusicTrack? = null,
+    /** Copying in a track and finding its beat. */
+    val musicBusy: Boolean = false,
 )
 
 /**
@@ -68,6 +72,8 @@ class VideoStudioViewModel(app: Application, private val rideId: Long) : Android
     }
     private var input: RideVideoInput? = null
     private val photoStore = dev.gdk.bumblebee.video.VideoPhotoStore(app)
+    private val musicStore = dev.gdk.bumblebee.video.MusicStore(app)
+    private var player: android.media.MediaPlayer? = null
     private val pictureCache = ConcurrentHashMap<String, android.graphics.Bitmap>()
     private var bikePicture: Pair<Int, android.graphics.Bitmap>? = null
     private var rebuild: Job? = null
@@ -87,7 +93,7 @@ class VideoStudioViewModel(app: Application, private val rideId: Long) : Android
                     val b = inp.track[i]
                     total += dev.gdk.bumblebee.ride.Geo.haversineMeters(a.lat, a.lng, b.lat, b.lng)
                 }
-                _ui.update { it.copy(rideLengthM = total) }
+                _ui.update { it.copy(rideLengthM = total, music = inp.music) }
             }
             if (input == null) {
                 _ui.update { it.copy(preparing = false, blocked = "This ride has no GPS track to fly over.") }
@@ -207,6 +213,77 @@ class VideoStudioViewModel(app: Application, private val rideId: Long) : Android
         input = inp.copy(photos = withContext(Dispatchers.IO) { photoStore.list(rideId) })
         rebuild?.cancel()
         rebuildNow()
+    }
+
+    /** Copies in a track the rider picked and finds its beat; it then plays under every video. */
+    fun pickMusic(uri: android.net.Uri) {
+        viewModelScope.launch {
+            _ui.update { it.copy(musicBusy = true, message = null) }
+            val result = withContext(Dispatchers.IO) { runCatching { musicStore.import(uri) } }
+            releasePlayer()
+            val track = result.getOrNull()
+            _ui.update {
+                it.copy(
+                    musicBusy = false,
+                    music = track ?: it.music,
+                    message = result.exceptionOrNull()?.let { e -> "Couldn't use that track: ${e.message ?: e.javaClass.simpleName}" },
+                )
+            }
+            if (track != null) {
+                input = input?.copy(music = track)
+                // A new song: back to the automatic start (this rebuilds the plan).
+                updateKeepingPreset { it.copy(music = true, musicStartS = null) }
+            }
+        }
+    }
+
+    fun removeMusic() {
+        releasePlayer()
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { musicStore.remove() }
+            _ui.update { it.copy(music = null) }
+            input = input?.copy(music = null)
+            rebuild?.cancel()
+            rebuildNow()
+        }
+    }
+
+    /** Plays the soundtrack under the preview from video time [t], as the export will have it. */
+    fun playMusic(t: Double) {
+        val cue = _ui.value.plan?.music ?: return
+        val file = musicStore.file() ?: return
+        val p = player ?: runCatching {
+            android.media.MediaPlayer().apply {
+                setDataSource(file.path)
+                prepare()
+            }
+        }.getOrNull()?.also { player = it } ?: return
+        p.seekTo(((cue.offsetS + t) * 1000).toInt())
+        cue.gain(t).toFloat().let { p.setVolume(it, it) }
+        if (t < cue.endS) p.start() else if (p.isPlaying) p.pause()
+    }
+
+    /** Follows the preview's clock: the fades, and stopping where the track runs out. */
+    fun musicAt(t: Double) {
+        val cue = _ui.value.plan?.music ?: return
+        val p = player ?: return
+        if (!p.isPlaying) return
+        cue.gain(t).toFloat().let { p.setVolume(it, it) }
+        if (t >= cue.endS) p.pause()
+    }
+
+    fun stopMusic() {
+        player?.takeIf { it.isPlaying }?.pause()
+    }
+
+    private fun releasePlayer() {
+        player?.release()
+        player = null
+    }
+
+    override fun onCleared() {
+        releasePlayer()
+        super.onCleared()
     }
 
     fun render() {

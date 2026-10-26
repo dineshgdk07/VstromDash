@@ -81,6 +81,27 @@ data class VideoConfig(
     val placeLabels: Boolean = true,
     val vignette: Boolean = true,
     val grain: Boolean = true,
+    // Motion
+    /** What colours the ridden trail. */
+    val trailColor: TrailColor = TrailColor.SPEED,
+    /** A small key to the trail's colours, top left. */
+    val trailLegend: Boolean = true,
+    /** Titles that type themselves on letter by letter, and numbers that count up. */
+    val kineticType: Boolean = true,
+    /** A burst of light and a big number at each round distance or height. */
+    val milestones: Boolean = true,
+    // Music
+    /** Play the rider's chosen track, when there is one. */
+    val music: Boolean = true,
+    val musicVolume: Double = 0.9,
+    /** Where in the track to start, in seconds; null to start so the drop lands as the ride begins. */
+    val musicStartS: Double? = null,
+    /** Fade in and out, seconds. */
+    val musicFadeS: Double = 1.5,
+    /** Cuts land on the beat: the cold open, the title and the dive-in are timed to whole beats. */
+    val beatSync: Boolean = true,
+    /** How much the trail and marker pulse on each beat, 0 (not at all) to 1. */
+    val beatPulse: Double = 0.6,
 ) {
     fun clamped(): VideoConfig = copy(
         lengthS = lengthS?.coerceIn(5, VideoLength.MAX_S),
@@ -93,6 +114,10 @@ data class VideoConfig(
         pathWidth = pathWidth.coerceIn(0.5, 2.5),
         glow = glow.coerceIn(0.0, 2.0),
         haze = haze.coerceIn(0.2, 2.0),
+        musicVolume = musicVolume.coerceIn(0.0, 1.0),
+        musicStartS = musicStartS?.coerceIn(0.0, 3600.0),
+        musicFadeS = musicFadeS.coerceIn(0.0, 5.0),
+        beatPulse = beatPulse.coerceIn(0.0, 1.0),
     )
 
     /** Applies a preset's look and story choices, keeping size, length and title. */
@@ -100,15 +125,20 @@ data class VideoConfig(
         val base = when (p) {
             VideoPreset.CINEMATIC, VideoPreset.CUSTOM -> VideoConfig()
             VideoPreset.ADVENTURE -> VideoConfig(cameraDistance = 0.8, exaggeration = 2.4, pathWidth = 1.3, glow = 1.5, haze = 0.8, bank = 1.0, clouds = 0.45)
-            VideoPreset.DATA -> VideoConfig(cameraDistance = 1.2, haze = 0.5, pathWidth = 1.1, glow = 0.8, grain = false, clouds = 0.0, hudStyle = HudStyle.CLUSTER)
+            VideoPreset.DATA -> VideoConfig(cameraDistance = 1.2, haze = 0.5, pathWidth = 1.1, glow = 0.8, grain = false, clouds = 0.0, hudStyle = HudStyle.CLUSTER, trailColor = TrailColor.CLIMB)
             VideoPreset.MINIMAL -> VideoConfig(
                 hud = false, clock = false, elevationStrip = false, moments = false, places = false,
                 contours = false, grain = false, pathWidth = 0.8, glow = 0.7,
                 coldOpen = false, chapters = false, bank = 0.3, clouds = 0.0, placeLabels = false,
                 tags = false, marker = MarkerStyle.DOT,
+                trailColor = TrailColor.ACCENT, trailLegend = false, milestones = false, beatPulse = 0.0,
             )
         }
-        return base.copy(preset = p, shape = shape, lengthS = lengthS, title = title)
+        // Music is the rider's own, not part of a look.
+        return base.copy(
+            preset = p, shape = shape, lengthS = lengthS, title = title,
+            music = music, musicVolume = musicVolume, musicStartS = musicStartS, musicFadeS = musicFadeS, beatSync = beatSync,
+        )
     }
 
     /** A plain key=value form for storing and passing between components. */
@@ -148,6 +178,16 @@ data class VideoConfig(
         "placeLabels" to placeLabels,
         "vignette" to vignette,
         "grain" to grain,
+        "trailColor" to trailColor.name,
+        "trailLegend" to trailLegend,
+        "kinetic" to kineticType,
+        "milestones" to milestones,
+        "music" to music,
+        "musicVolume" to musicVolume,
+        "musicStart" to (musicStartS?.toString() ?: ""),
+        "musicFade" to musicFadeS,
+        "beatSync" to beatSync,
+        "beatPulse" to beatPulse,
     ).joinToString(";") { (k, v) -> "$k=$v" }
 
     companion object {
@@ -194,6 +234,16 @@ data class VideoConfig(
                 placeLabels = b("placeLabels", d.placeLabels),
                 vignette = b("vignette", d.vignette),
                 grain = b("grain", d.grain),
+                trailColor = m["trailColor"]?.let { v -> TrailColor.entries.firstOrNull { it.name == v } } ?: d.trailColor,
+                trailLegend = b("trailLegend", d.trailLegend),
+                kineticType = b("kinetic", d.kineticType),
+                milestones = b("milestones", d.milestones),
+                music = b("music", d.music),
+                musicVolume = n("musicVolume", d.musicVolume),
+                musicStartS = m["musicStart"]?.toDoubleOrNull(),
+                musicFadeS = n("musicFade", d.musicFadeS),
+                beatSync = b("beatSync", d.beatSync),
+                beatPulse = n("beatPulse", d.beatPulse),
             ).clamped()
         }
     }
