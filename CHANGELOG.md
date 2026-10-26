@@ -5,6 +5,12 @@ All notable changes to Bumblebee. Versions follow [Semantic Versioning](https://
 
 ## [Unreleased]
 
+### Added
+- **Ride video (beta):** Share → Share video makes a 3D flyover of the ride on the phone: real
+  terrain, light from the ride's time of day, a camera that dives in, chases the route, pauses on
+  highlights and circles the finish, with live stats and a closing card. 9:16, saved to
+  Movies/Bumblebee.
+
 ## [0.1.0] - 2026-10-25
 
 First public beta.

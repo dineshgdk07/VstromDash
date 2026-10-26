@@ -92,3 +92,24 @@ class CameraDirectorTest {
         assertTrue(halfFov > 0)
     }
 }
+
+class ViewMathTest {
+    @Test fun `matrix and projection agree`() {
+        val pose = CameraPose(Vec3(100.0, -2000.0, 900.0), Vec3(300.0, 500.0, 200.0), 50.0)
+        val vm = ViewMath(pose, 9.0 / 16, 5.0, 100_000.0)
+        val p = Vec3(400.0, 300.0, 250.0)
+        val c = vm.clip(p - vm.eye)
+        val ndcX = c[0] / c[3]
+        val ndcY = c[1] / c[3]
+        val ndcZ = c[2] / c[3]
+        val s = vm.project(p, 1080, 1920)!!
+        org.junit.Assert.assertEquals((ndcX + 1) / 2 * 1080, s[0], 1e-3)
+        org.junit.Assert.assertEquals((1 - ndcY) / 2 * 1920, s[1], 1e-3)
+        assertTrue(ndcZ > -1 && ndcZ < 1)
+        // The target is dead centre.
+        val t = vm.project(pose.target, 1080, 1920)!!
+        org.junit.Assert.assertEquals(540.0, t[0], 1e-6)
+        org.junit.Assert.assertEquals(960.0, t[1], 1e-6)
+        assertTrue(vm.project(pose.eye - (pose.target - pose.eye), 1080, 1920) == null)
+    }
+}

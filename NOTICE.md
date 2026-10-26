@@ -25,6 +25,14 @@ All rights remain with Suzuki. They will be replaced with original artwork if re
 "Suzuki", "V-Strom", "Suzuki Ride Connect" and the Suzuki "S" logo are trademarks of Suzuki Motor
 Corporation. This project is not affiliated with, endorsed or sponsored by Suzuki.
 
+## Terrain data (ride videos)
+
+Ride videos use elevation from [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/)
+(Mapzen's Terrarium tiles), fetched at export time and cached on the phone. They are built from
+SRTM, GMTED2010, ETOPO1, NED and other public sources; see the
+[attribution list](https://github.com/tilezen/joerd/blob/master/docs/attribution.md). Each video's
+closing card credits them.
+
 ## Fonts (`app/src/main/res/font`)
 
 | Font | Licence | Source |

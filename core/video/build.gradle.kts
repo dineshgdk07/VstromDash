@@ -9,5 +9,6 @@ kotlin {
     jvmToolchain(17)
 }
 dependencies {
+    implementation(project(":core:ride"))
     testImplementation(libs.junit)
 }

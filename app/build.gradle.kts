@@ -93,6 +93,7 @@ dependencies {
     implementation(project(":core:ble"))
     implementation(project(":core:ble-android"))
     implementation(project(":core:nav"))
+    implementation(project(":core:video"))
     implementation(project(":data:local"))
     implementation(project(":core:snapshot"))
     implementation(libs.androidx.lifecycle.service)
