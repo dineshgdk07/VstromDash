@@ -92,15 +92,20 @@ class VideoExportService : Service() {
             if (plan.flat) step(rideId, "No terrain data (offline?): rendering flat", null)
             val look = VideoLook(plan.sun, Accent.color.toArgb())
             val started = System.currentTimeMillis()
-            RideVideoExporter(app).render(plan, look, RideVideoSource.fonts(app), Accent.color.toArgb(), out) { p ->
-                when (p) {
-                    is VideoProgress.Rendering -> {
-                        val elapsed = (System.currentTimeMillis() - started) / 1000.0
-                        val left = if (p.fraction > 0.03f) (elapsed / p.fraction * (1 - p.fraction)).toInt() else null
-                        scope.launch { step(rideId, "Rendering", p.fraction, left) }
+            val assets = withContext(Dispatchers.IO) { RideVideoSource.assets(app, plan, rideId) }
+            try {
+                RideVideoExporter(app).render(plan, look, RideVideoSource.fonts(app), Accent.color.toArgb(), out, assets) { p ->
+                    when (p) {
+                        is VideoProgress.Rendering -> {
+                            val elapsed = (System.currentTimeMillis() - started) / 1000.0
+                            val left = if (p.fraction > 0.03f) (elapsed / p.fraction * (1 - p.fraction)).toInt() else null
+                            scope.launch { step(rideId, "Rendering", p.fraction, left) }
+                        }
+                        else -> {}
                     }
-                    else -> {}
                 }
+            } finally {
+                assets.release()
             }
             DevLog.d("video", "rendered ${plan.frameCount} frames in ${(System.currentTimeMillis() - started) / 1000} s, ${out.length() / 1024} KB")
             val uri = FileProvider.getUriForFile(this, "$packageName.share", out)

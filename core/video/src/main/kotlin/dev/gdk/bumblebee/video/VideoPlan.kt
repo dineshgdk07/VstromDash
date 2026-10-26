@@ -50,10 +50,11 @@ object VideoLength {
     }
 }
 
-enum class MomentKind(val rank: Int) { HIGHEST(0), CLIMB(1), TOP_SPEED(2), STOP(3), REFUEL(4), LOWEST(5) }
+/** Kinds of highlight, most important first. The rider's own photos come before everything. */
+enum class MomentKind(val rank: Int) { PHOTO(-1), HIGHEST(0), CLIMB(1), TOP_SPEED(2), STOP(3), REFUEL(4), LOWEST(5) }
 
 /** Something worth pausing on, at [distanceM] along the trimmed route. */
-data class VideoMoment(val kind: MomentKind, val distanceM: Double, val title: String, val value: String)
+data class VideoMoment(val kind: MomentKind, val distanceM: Double, val title: String, val value: String, val photoId: String? = null)
 
 /** One point of the trimmed ride: distance along it, and what was recorded there. */
 data class TrackSample(val distanceM: Double, val altitudeM: Double?, val speedKmh: Double?)

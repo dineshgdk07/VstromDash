@@ -38,12 +38,13 @@ class RideVideoExporter(private val context: Context) {
         fonts: VideoFonts,
         accent: Int,
         out: File,
+        assets: VideoAssets = VideoAssets(),
         onProgress: (VideoProgress) -> Unit,
     ) {
         val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "ride-video-gl") }
         val gl = executor.asCoroutineDispatcher()
         try {
-            withContext(gl) { renderOnGlThread(plan, look, fonts, accent, out, onProgress) }
+            withContext(gl) { renderOnGlThread(plan, look, fonts, accent, out, assets, onProgress) }
         } catch (e: Throwable) {
             out.delete()
             throw e
@@ -58,6 +59,7 @@ class RideVideoExporter(private val context: Context) {
         fonts: VideoFonts,
         accent: Int,
         out: File,
+        assets: VideoAssets,
         onProgress: (VideoProgress) -> Unit,
     ) {
         val shape = plan.shape
@@ -73,7 +75,7 @@ class RideVideoExporter(private val context: Context) {
             }
             encoder.makeCurrent()
             renderer = TerrainRenderer(plan, look, encoder.width, encoder.height)
-            overlay = VideoOverlay(plan, fonts, accent)
+            overlay = VideoOverlay(plan, fonts, accent, assets = assets)
             val scaledOverlay = encoder.width != overlay.width
             val frames = plan.frameCount
             for (i in 0 until frames) {

@@ -67,7 +67,16 @@ import dev.gdk.bumblebee.ui.theme.ShapeMd
 import dev.gdk.bumblebee.ui.theme.SurfaceSunken
 import dev.gdk.bumblebee.ui.theme.TextPrimary
 import dev.gdk.bumblebee.ui.theme.TextSecondary
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.asImageBitmap
+import dev.gdk.bumblebee.video.HudStyle
+import dev.gdk.bumblebee.video.MarkerStyle
+import dev.gdk.bumblebee.video.PhotoSpot
 import dev.gdk.bumblebee.video.PreviewRenderer
+import dev.gdk.bumblebee.video.VideoPhotoStore
 import dev.gdk.bumblebee.video.RideVideoSource
 import dev.gdk.bumblebee.video.VideoExportState
 import dev.gdk.bumblebee.video.VideoPreset
@@ -208,6 +217,8 @@ private fun Setup(ui: StudioUi, failed: String?, vm: VideoStudioViewModel) {
                 Toggle("Pause on highlights", config.moments) { v -> vm.update { it.copy(moments = v) } }
                 Toggle("Map reveal: redraw the route from above at the end", config.mapReveal) { v -> vm.update { it.copy(mapReveal = v) } }
                 Toggle("Stats card at the end", config.finishCard) { v -> vm.update { it.copy(finishCard = v) } }
+                Toggle("Ride tags: ride number, weather, sunrise or sunset", config.tags) { v -> vm.update { it.copy(tags = v) } }
+                ui.plan?.tagsLine?.let { Text("This ride: $it", style = MaterialTheme.typography.bodySmall, color = TextSecondary) }
                 ui.plan?.chapters?.takeIf { it.isNotEmpty() && config.chapters }?.let { chapters ->
                     Text(
                         "This ride: " + chapters.joinToString("  ·  ") { it.title },
@@ -217,7 +228,28 @@ private fun Setup(ui: StudioUi, failed: String?, vm: VideoStudioViewModel) {
                 }
             }
 
+            SectionCard(header = { SectionLabel(text = "You and your bike") }) {
+                ChipRow(MarkerStyle.entries.toList(), config.marker, { it.label }) { m -> vm.update { it.copy(marker = m) } }
+                Text(
+                    if (config.marker == MarkerStyle.BIKE) "Your bike, in its paint, rides the route and turns with the road." else "A glowing dot in your accent colour leads the trail.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Tune("Marker size", config.markerSize, 0.5..2.0, closer = "Small", further = "Large") { v -> vm.update { it.copy(markerSize = v) } }
+            }
+
+            PhotosSection(ui, vm)
+
             SectionCard(header = { SectionLabel(text = "Overlays") }) {
+                Text("Readouts style", style = MaterialTheme.typography.bodyMedium, color = TextPrimary, modifier = Modifier.padding(top = 12.dp))
+                ChipRow(HudStyle.entries.toList(), config.hudStyle, { it.label }) { h -> vm.update { it.copy(hudStyle = h) } }
+                Text(
+                    if (config.hudStyle == HudStyle.CLUSTER) "A dash styled on your bike's display: big speed, fuel bars, odometer and altitude." else "Clean numbers for distance, speed and height.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
                 Toggle("Speed, distance and height", config.hud) { v -> vm.update { it.copy(hud = v) } }
                 Toggle("Time of day", config.clock) { v -> vm.update { it.copy(clock = v) } }
                 Toggle("Elevation strip", config.elevationStrip) { v -> vm.update { it.copy(elevationStrip = v) } }
@@ -257,7 +289,7 @@ private fun Setup(ui: StudioUi, failed: String?, vm: VideoStudioViewModel) {
                 Toggle("Film grain", config.grain) { v -> vm.update { it.copy(grain = v) } }
             }
             Text(
-                "More is coming to the Studio: your bike as the marker, a cluster-style HUD, ride tags, ride photos, kinetic type and music.",
+                "More is coming to the Studio: kinetic type, a speed-coloured trail, milestone bursts and music.",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 modifier = Modifier.padding(bottom = 8.dp),
@@ -300,10 +332,11 @@ private fun Preview(ui: StudioUi, time: Double) {
                 view.value?.onResume()
                 onDispose { view.value?.onPause() }
             }
-            LaunchedEffect(ui.plan, ui.look, time) {
+            LaunchedEffect(ui.plan, ui.look, ui.assets, time) {
                 renderer.plan = ui.plan
                 renderer.look = ui.look
                 renderer.accent = Accent.color.toArgb()
+                renderer.assets = ui.assets
                 renderer.time = time
                 view.value?.requestRender()
             }
@@ -389,6 +422,111 @@ private fun Result(
             }
             Box(Modifier.padding(top = 10.dp)) { ChunkyButton(text = "Change the style", onClick = { onAgain(null) }, style = ChunkyStyle.Outline, compact = true) }
         }
+    }
+}
+
+/**
+ * The rider's photos from this ride. Each is placed by its location, else by its time, else by
+ * hand, and the list says which, so nothing lands in the wrong spot silently.
+ */
+@Composable
+private fun PhotosSection(ui: StudioUi, vm: VideoStudioViewModel) {
+    val config = ui.config
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(VideoPhotoStore.MAX_PHOTOS)) { uris ->
+        vm.addPhotos(uris)
+    }
+    SectionCard(header = { SectionLabel(text = "Photos from the ride") }) {
+        Text(
+            "Add photos you took on this ride and they appear as postcards where you took them.\n\n" +
+                "How each one is placed:\n" +
+                "1. By location: if your camera saved where the photo was taken, and it's within 500 m of your route.\n" +
+                "2. By time: otherwise, the time it was taken is matched to your ride's clock.\n" +
+                "3. By you: if neither works, slide it to the right spot.\n\n" +
+                "Photos in the first and last 500 m stay out, so your home isn't shown.",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+        Toggle("Show photos in the video", config.photos) { v -> vm.update { it.copy(photos = v) } }
+        val spots = ui.plan?.photoSpots.orEmpty()
+        Box(Modifier.padding(top = 4.dp)) {
+            ChunkyButton(
+                text = when {
+                    ui.importing -> "Adding…"
+                    spots.isEmpty() -> "Add photos"
+                    else -> "Add more photos"
+                },
+                onClick = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                style = ChunkyStyle.Outline,
+                compact = true,
+                enabled = !ui.importing && spots.size < VideoPhotoStore.MAX_PHOTOS,
+            )
+        }
+        spots.forEach { spot -> PhotoRow(spot, ui, vm) }
+    }
+}
+
+@Composable
+private fun PhotoRow(spot: PhotoSpot, ui: StudioUi, vm: VideoStudioViewModel) {
+    val photo = spot.photo
+    val thumb by produceState<android.graphics.Bitmap?>(null, photo.id) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { vm.thumbnail(photo.id) }
+    }
+    val total = ui.rideLengthM.coerceAtLeast(1.0)
+    val atM = when (spot) {
+        is PhotoSpot.Placed -> spot.rideM
+        is PhotoSpot.Hidden -> spot.rideM
+        is PhotoSpot.Unplaced -> null
+    }
+    var slider by remember(photo.id, atM) { mutableStateOf(((atM ?: total / 2) / total).toFloat()) }
+    var caption by remember(photo.id) { mutableStateOf(photo.caption.orEmpty()) }
+    Column(Modifier.fillMaxWidth().padding(top = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(64.dp).clip(ShapeMd).background(SurfaceSunken)) {
+                thumb?.let { androidx.compose.foundation.Image(it.asImageBitmap(), contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+            }
+            Column(Modifier.weight(1f)) {
+                val (status, tone) = when (spot) {
+                    is PhotoSpot.Placed -> "${spot.how.label} · ${"%.1f".format(Locale.ENGLISH, spot.rideM / 1000)} km" to
+                        if (ui.plan?.photoShown(photo.id) == false && ui.config.photos) "Left out: too close to another highlight. Make the video longer or move it." else null
+                    is PhotoSpot.Hidden -> "In the hidden first or last 500 m" to "Left out to keep your start and finish private. Move it if it was taken elsewhere."
+                    is PhotoSpot.Unplaced -> "Can't place it: ${spot.reason}" to "Slide it to where you took it."
+                }
+                Text(status, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                tone?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = TextSecondary) }
+            }
+            Text("Remove", style = MaterialTheme.typography.bodySmall, color = Lime, modifier = Modifier.clickable { vm.removePhoto(photo.id) }.padding(8.dp))
+        }
+        Slider(
+            value = slider,
+            onValueChange = { slider = it },
+            onValueChangeFinished = { vm.placePhoto(photo.id, slider * total) },
+            colors = sliderColors(),
+        )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Place at ${"%.1f".format(Locale.ENGLISH, slider * total / 1000)} km", style = MaterialTheme.typography.bodySmall, color = TextSecondary, modifier = Modifier.weight(1f))
+            if (photo.manualM != null) {
+                Text("Back to automatic", style = MaterialTheme.typography.bodySmall, color = Lime, modifier = Modifier.clickable { vm.placePhoto(photo.id, null) }.padding(6.dp))
+            }
+        }
+        TextField(
+            value = caption,
+            onValueChange = {
+                caption = it.take(40)
+                vm.captionPhoto(photo.id, caption)
+            },
+            label = { Text("Caption (optional)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = SurfaceSunken,
+                unfocusedContainerColor = SurfaceSunken,
+                focusedTextColor = TextPrimary,
+                unfocusedTextColor = TextPrimary,
+                focusedIndicatorColor = Lime,
+                cursorColor = Lime,
+            ),
+        )
     }
 }
 

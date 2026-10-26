@@ -16,6 +16,7 @@ class PreviewRenderer(private val fonts: VideoFonts) : GLSurfaceView.Renderer {
     @Volatile var look: VideoLook? = null
     @Volatile var accent: Int = 0
     @Volatile var time: Double = 0.0
+    @Volatile var assets: VideoAssets = VideoAssets()
 
     /** Called on the GL thread if building the scene fails, so the screen can say so. */
     var onError: (Throwable) -> Unit = {}
@@ -23,6 +24,7 @@ class PreviewRenderer(private val fonts: VideoFonts) : GLSurfaceView.Renderer {
     private var width = 0
     private var height = 0
     private var built: RideVideoPlan? = null
+    private var builtAssets: VideoAssets? = null
     private var builtW = 0
     private var builtH = 0
     private var renderer: TerrainRenderer? = null
@@ -50,11 +52,15 @@ class PreviewRenderer(private val fonts: VideoFonts) : GLSurfaceView.Renderer {
             return
         }
         try {
+            val a = assets
             if (p !== built || width != builtW || height != builtH) {
                 renderer?.release()
-                overlay?.release()
                 renderer = TerrainRenderer(p, l, width, height)
-                overlay = VideoOverlay(p, fonts, accent, width, height)
+            }
+            if (p !== built || width != builtW || height != builtH || a !== builtAssets) {
+                overlay?.release()
+                overlay = VideoOverlay(p, fonts, accent, width, height, a)
+                builtAssets = a
                 built = p
                 builtW = width
                 builtH = height

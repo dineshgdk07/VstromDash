@@ -13,8 +13,16 @@ import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
 
-/** The share-card fonts: tall numbers and titles, and labels. */
-class VideoFonts(val display: Typeface, val label: Typeface, val labelBold: Typeface)
+/** The share-card fonts: tall numbers and titles, labels, and a monospace for the dash. */
+class VideoFonts(val display: Typeface, val label: Typeface, val labelBold: Typeface, val mono: Typeface = labelBold)
+
+/** Pictures the overlay draws: the rider's bike (facing right) and their photos by id. */
+class VideoAssets(val bike: Bitmap? = null, val photos: Map<String, Bitmap> = emptyMap()) {
+    fun release() {
+        bike?.recycle()
+        photos.values.forEach { it.recycle() }
+    }
+}
 
 /**
  * Paints the text layer of each frame into one reused bitmap: the title in the intro, the HUD and
@@ -28,6 +36,7 @@ class VideoOverlay(
     /** Defaults to the video's size; the Studio preview draws smaller. */
     val width: Int = plan.shape.width,
     val height: Int = plan.shape.height,
+    private val assets: VideoAssets = VideoAssets(),
 ) {
     private val cfg = plan.config
     val bitmap: Bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -52,6 +61,7 @@ class VideoOverlay(
     fun draw(t: Double): Bitmap {
         bitmap.eraseColor(Color.TRANSPARENT)
         val cue = plan.timeline.cue(t)
+        if (markerShown(cue)) bikeMarker(t, cue)
         when (cue.shot) {
             Shot.COLD -> cue.moment?.let { teaser(it, cue.progress) }
             Shot.INTRO -> if (cfg.titleCard) intro(cue.progress)
@@ -60,7 +70,7 @@ class VideoOverlay(
                 // The HUD fades in over the first half second of the ride.
                 val since = t - plan.timeline.rideStartS
                 hud(cue, (since / 0.5).coerceIn(0.0, 1.0).toFloat())
-                if (cfg.moments) cue.moment?.let { if (cue.shot == Shot.HOLD) momentCard(it, cue.progress) }
+                if (cfg.moments) cue.moment?.let { if (cue.shot == Shot.HOLD) highlight(it, cue.progress) }
                 if (cue.shot == Shot.RIDE) chapterCard(t)
             }
             Shot.FINISH -> {
@@ -128,10 +138,95 @@ class VideoOverlay(
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), fill)
     }
 
-    /** The cold open: the best moment's card, big, with a hint of what's coming. */
+    /** A moment's card, or the rider's photo as a postcard when the moment is a photo. */
+    private fun highlight(m: VideoMoment, p: Double, alphaOverride: Float? = null) {
+        val photo = m.photoId?.let { assets.photos[it] }
+        if (photo != null) postcard(m, photo, p, alphaOverride) else momentCard(m, p, alphaOverride)
+    }
+
+    /**
+     * A photo as a postcard: a white-bordered print, tilted a few degrees (always the same way for
+     * the same photo), that drops in, holds, and lifts away; the caption is written on the border.
+     */
+    private fun postcard(m: VideoMoment, photo: Bitmap, p: Double, alphaOverride: Float?) {
+        val inOut = min(p, 1 - p)
+        val a = alphaOverride ?: (inOut / 0.16).coerceIn(0.0, 1.0).toFloat()
+        if (a <= 0f) return
+        val maxW = (if (wide) width * 0.42f else width * 0.74f)
+        val maxH = height * (if (wide) 0.62f else 0.44f)
+        val scale = min(maxW / photo.width, maxH / photo.height)
+        val pw = photo.width * scale
+        val ph = photo.height * scale
+        val border = 18 * u
+        val bottom = 74 * u
+        val cw = pw + border * 2
+        val ch = ph + border + bottom
+        val cx = width / 2f
+        val cy = height * (if (wide) 0.45f else 0.38f) + (1 - a) * 60 * u
+        val tilt = ((m.photoId.hashCode() % 7) - 3) * 1.2f
+        canvas.save()
+        canvas.translate(cx, cy)
+        canvas.rotate(tilt)
+        val s = 0.92f + 0.08f * a
+        canvas.scale(s, s)
+        // Shadow, then the print.
+        fill.color = Color.argb((a * 110).toInt(), 0, 0, 0)
+        canvas.drawRoundRect(RectF(-cw / 2 + 8 * u, -ch / 2 + 14 * u, cw / 2 + 8 * u, ch / 2 + 14 * u), 10 * u, 10 * u, fill)
+        fill.color = Color.argb((a * 255).toInt(), 250, 248, 242)
+        canvas.drawRoundRect(RectF(-cw / 2, -ch / 2, cw / 2, ch / 2), 6 * u, 6 * u, fill)
+        val img = Paint(Paint.FILTER_BITMAP_FLAG).apply { alpha = (a * 255).toInt() }
+        canvas.drawBitmap(photo, null, RectF(-cw / 2 + border, -ch / 2 + border, -cw / 2 + border + pw, -ch / 2 + border + ph), img)
+        text.textAlign = Paint.Align.CENTER
+        text.typeface = fonts.labelBold
+        text.textSize = 32 * u
+        text.letterSpacing = 0.04f
+        text.color = Color.rgb(40, 40, 44)
+        text.alpha = (a * 255).toInt()
+        text.clearShadowLayer()
+        canvas.drawText(m.title, 0f, ch / 2 - bottom / 2 + 11 * u, text)
+        text.textAlign = Paint.Align.LEFT
+        text.letterSpacing = 0f
+        canvas.restore()
+    }
+
+    /** When the rider's marker is on screen, matching the renderer's head of the trail. */
+    private fun markerShown(cue: Cue): Boolean = cfg.marker == MarkerStyle.BIKE && assets.bike != null && when (cue.shot) {
+        Shot.INTRO -> cue.progress > 0.55
+        Shot.FINISH -> cue.progress < 0.40
+        else -> true
+    }
+
+    /**
+     * The rider's own bike riding the route: its photo at the head of the trail, turned to face the
+     * way the road goes on screen, on a soft shadow, hidden when a ridge is in the way.
+     */
+    private fun bikeMarker(t: Double, cue: Cue) {
+        val bike = assets.bike ?: return
+        val pose = plan.camera(t)
+        val vm = ViewMath(pose, width.toDouble() / height, 2.0, 1e7)
+        val d = cue.distanceM
+        val at = plan.path.at(d)
+        val p = vm.project(at, width, height) ?: return
+        if (!plan.canSee(pose.eye, at + Vec3.UP * 10.0)) return
+        val ahead = vm.project(plan.path.at(kotlin.math.min(plan.path.length, d + 40)), width, height)
+        val behind = vm.project(plan.path.at(kotlin.math.max(0.0, d - 40)), width, height)
+        val faceLeft = if (ahead != null && behind != null) ahead[0] < behind[0] else false
+        val w = (190 * u * cfg.markerSize).toFloat()
+        val h = w * bike.height / bike.width
+        val x = p[0].toFloat()
+        val y = p[1].toFloat() - 4 * u
+        fill.color = Color.argb(90, 0, 0, 0)
+        canvas.drawOval(RectF(x - w * 0.42f, y - h * 0.06f, x + w * 0.42f, y + h * 0.08f), fill)
+        canvas.save()
+        if (faceLeft) canvas.scale(-1f, 1f, x, y)
+        canvas.drawBitmap(bike, null, RectF(x - w / 2, y - h, x + w / 2, y), Paint(Paint.FILTER_BITMAP_FLAG))
+        canvas.restore()
+    }
+
+    /** The cold open: the best moment's card (or photo), big, with a hint of what's coming. */
     private fun teaser(m: VideoMoment, p: Double) {
         val a = (min(p, 1 - p) / 0.15).coerceIn(0.0, 1.0).toFloat()
-        momentCard(m, 0.5, alphaOverride = a)
+        highlight(m, 0.5, alphaOverride = a)
         label("TODAY'S RIDE", 56 * u, height - 120 * u, 28 * u, Color.WHITE, a * 0.8f, fonts.labelBold, tracking = 0.25f)
     }
 
@@ -176,6 +271,10 @@ class VideoOverlay(
         label(plan.title.uppercase(Locale.ENGLISH), left, y, titleSize, Color.WHITE, a, fonts.display)
         y -= titleSize * 1.05f
         label(plan.dateLine.uppercase(Locale.ENGLISH), left, y, 28 * u, accent, a, fonts.labelBold, tracking = 0.08f)
+        plan.tagsLine?.let { tags ->
+            y -= 48 * u
+            label(tags.uppercase(Locale.ENGLISH), left, y, fitSize(tags.uppercase(Locale.ENGLISH), fonts.labelBold, 24 * u, width - left * 2), Color.WHITE, a * 0.75f, fonts.labelBold, tracking = 0.08f)
+        }
     }
 
     private fun hud(cue: Cue, a: Float) {
@@ -185,9 +284,11 @@ class VideoOverlay(
         val d = cue.distanceM
         val stripH = if (cfg.elevationStrip) 40 * u else 0f
         val bottom = height - 54 * u
-        scrimBottom(height - (if (cfg.hud) 330 else 140) * u, 185, a)
+        scrimBottom(height - (if (!cfg.hud) 140 else if (cfg.hudStyle == HudStyle.CLUSTER) 400 else 330) * u, 185, a)
         val left = 56 * u
-        if (cfg.hud) {
+        if (cfg.hud && cfg.hudStyle == HudStyle.CLUSTER) {
+            clusterPanel(d, left, bottom - stripH - (if (cfg.elevationStrip) 24 else 0) * u, a)
+        } else if (cfg.hud) {
             val cols = listOf(
                 String.format(Locale.ENGLISH, "%.1f", plan.odoKm(d)) to "KM",
                 plan.speedAt(d).toString() to "KM/H",
@@ -202,6 +303,49 @@ class VideoOverlay(
             }
         }
         if (cfg.elevationStrip) elevationStrip(left, bottom - stripH, width - left * 2, stripH, d, a)
+    }
+
+    /**
+     * A dash styled on the bike's own LCD: dark glass with a hairline, a big monospace speed, the
+     * fuel gauge's six bars (when the ride has gauge readings), odometer and altitude.
+     */
+    private fun clusterPanel(d: Double, left: Float, bottom: Float, a: Float) {
+        val panelH = 210 * u
+        val top = bottom - panelH
+        val right = width - left
+        val rect = RectF(left - 12 * u, top, right + 12 * u, bottom)
+        fill.color = Color.argb((a * 200).toInt(), 8, 9, 12)
+        canvas.drawRoundRect(rect, 28 * u, 28 * u, fill)
+        stroke.strokeWidth = 2 * u
+        stroke.color = accent
+        stroke.alpha = (a * 160).toInt()
+        canvas.drawRoundRect(rect, 28 * u, 28 * u, stroke)
+        // Speed, the hero.
+        val speed = plan.speedAt(d).toString()
+        label(speed, left + 18 * u, bottom - 56 * u, 132 * u, Color.WHITE, a, fonts.mono)
+        text.typeface = fonts.mono
+        text.textSize = 132 * u
+        val sw = text.measureText(speed)
+        label("km/h", left + 26 * u + sw, bottom - 60 * u, 30 * u, Color.WHITE, a * 0.7f, fonts.mono)
+        val colX = left + (right - left) * 0.52f
+        // Fuel bars, filled from the left like the gauge.
+        val bars = plan.fuelAt(d)
+        if (bars != null) {
+            label("E", colX, top + 66 * u, 24 * u, Color.WHITE, a * 0.6f, fonts.mono)
+            val bx = colX + 30 * u
+            val bw = (right - bx - 40 * u) / 6
+            for (i in 0 until 6) {
+                val on = i < bars
+                fill.color = if (on) accent else Color.WHITE
+                fill.alpha = (a * if (on) 255 else 40).toInt()
+                canvas.drawRoundRect(RectF(bx + i * bw + 3 * u, top + 36 * u, bx + (i + 1) * bw - 3 * u, top + 70 * u), 4 * u, 4 * u, fill)
+            }
+            label("F", right - 28 * u, top + 66 * u, 24 * u, Color.WHITE, a * 0.6f, fonts.mono)
+        }
+        label("ODO", colX, top + 122 * u, 22 * u, accent, a, fonts.mono)
+        label(String.format(Locale.ENGLISH, "%.1f km", plan.odoKm(d)), colX + 70 * u, top + 122 * u, 34 * u, Color.WHITE, a, fonts.mono)
+        label("ALT", colX, top + 172 * u, 22 * u, accent, a, fonts.mono)
+        label(String.format(Locale.ENGLISH, "%,d m", plan.altitudeAt(d).toInt()), colX + 70 * u, top + 172 * u, 34 * u, Color.WHITE, a, fonts.mono)
     }
 
     /** Time of day, top right, small. */
@@ -291,6 +435,10 @@ class VideoOverlay(
         label(title, left, y, ts, Color.WHITE, a, fonts.display)
         y += 40 * u
         plan.placesLine?.let { label(it, left, y, 30 * u, Color.WHITE, a * 0.8f, fonts.label) }
+        plan.tagsLine?.let { tags ->
+            y += 44 * u
+            label(tags.uppercase(Locale.ENGLISH), left, y, fitSize(tags.uppercase(Locale.ENGLISH), fonts.labelBold, 24 * u, width - left * 2), accent, a, fonts.labelBold, tracking = 0.08f)
+        }
         y += 150 * u
         val colW = (width - left * 2) / 2
         stats.forEachIndexed { i, (v, l) ->
@@ -328,6 +476,7 @@ class VideoOverlay(
         return if (w <= width) max else max * width / w
     }
 
+    /** Frees the overlay's own bitmap; [VideoAssets] belong to whoever made them. */
     fun release() = bitmap.recycle()
 
     private companion object {

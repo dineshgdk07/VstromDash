@@ -1,5 +1,11 @@
 package dev.gdk.bumblebee.video
 
+/** What rides the route: a glowing dot, or the rider's own bike in its paint. */
+enum class MarkerStyle(val label: String) { DOT("Glow dot"), BIKE("My bike") }
+
+/** How the live readouts look: clean numbers, or panels styled on the bike's own dash. */
+enum class HudStyle(val label: String) { CLASSIC("Classic"), CLUSTER("Cluster") }
+
 /** A named starting point in the Studio; any change after picking one makes it [CUSTOM]. */
 enum class VideoPreset(val label: String, val blurb: String) {
     CINEMATIC("Cinematic", "Balanced: real light, soft glow, the full story"),
@@ -36,6 +42,15 @@ data class VideoConfig(
     val hud: Boolean = true,
     val clock: Boolean = true,
     val elevationStrip: Boolean = true,
+    val hudStyle: HudStyle = HudStyle.CLASSIC,
+    /** Ride number, weather and sunrise/sunset on the title and closing cards. */
+    val tags: Boolean = true,
+    // Personal
+    val marker: MarkerStyle = MarkerStyle.BIKE,
+    /** Marker size, × the default. */
+    val markerSize: Double = 1.0,
+    /** The rider's own photos from the ride, as postcards where they were taken. */
+    val photos: Boolean = true,
     // Camera
     /** Chase height and distance, × the automatic value. */
     val cameraDistance: Double = 1.0,
@@ -72,6 +87,7 @@ data class VideoConfig(
         exaggeration = exaggeration?.coerceIn(1.0, 4.0),
         bank = bank.coerceIn(0.0, 1.0),
         clouds = clouds.coerceIn(0.0, 1.0),
+        markerSize = markerSize.coerceIn(0.5, 2.0),
         pathWidth = pathWidth.coerceIn(0.5, 2.5),
         glow = glow.coerceIn(0.0, 2.0),
         haze = haze.coerceIn(0.2, 2.0),
@@ -82,11 +98,12 @@ data class VideoConfig(
         val base = when (p) {
             VideoPreset.CINEMATIC, VideoPreset.CUSTOM -> VideoConfig()
             VideoPreset.ADVENTURE -> VideoConfig(cameraDistance = 0.8, exaggeration = 2.4, pathWidth = 1.3, glow = 1.5, haze = 0.8, bank = 1.0, clouds = 0.45)
-            VideoPreset.DATA -> VideoConfig(cameraDistance = 1.2, haze = 0.5, pathWidth = 1.1, glow = 0.8, grain = false, clouds = 0.0)
+            VideoPreset.DATA -> VideoConfig(cameraDistance = 1.2, haze = 0.5, pathWidth = 1.1, glow = 0.8, grain = false, clouds = 0.0, hudStyle = HudStyle.CLUSTER)
             VideoPreset.MINIMAL -> VideoConfig(
                 hud = false, clock = false, elevationStrip = false, moments = false, places = false,
                 contours = false, grain = false, pathWidth = 0.8, glow = 0.7,
                 coldOpen = false, chapters = false, bank = 0.3, clouds = 0.0, placeLabels = false,
+                tags = false, marker = MarkerStyle.DOT,
             )
         }
         return base.copy(preset = p, shape = shape, lengthS = lengthS, title = title)
@@ -111,6 +128,11 @@ data class VideoConfig(
         "hud" to hud,
         "clock" to clock,
         "strip" to elevationStrip,
+        "hudStyle" to hudStyle.name,
+        "tags" to tags,
+        "marker" to marker.name,
+        "markerSize" to markerSize,
+        "photos" to photos,
         "camera" to cameraDistance,
         "exag" to (exaggeration?.toString() ?: ""),
         "pathWidth" to pathWidth,
@@ -151,6 +173,11 @@ data class VideoConfig(
                 hud = b("hud", d.hud),
                 clock = b("clock", d.clock),
                 elevationStrip = b("strip", d.elevationStrip),
+                hudStyle = m["hudStyle"]?.let { v -> HudStyle.entries.firstOrNull { it.name == v } } ?: d.hudStyle,
+                tags = b("tags", d.tags),
+                marker = m["marker"]?.let { v -> MarkerStyle.entries.firstOrNull { it.name == v } } ?: d.marker,
+                markerSize = n("markerSize", d.markerSize),
+                photos = b("photos", d.photos),
                 cameraDistance = n("camera", d.cameraDistance),
                 exaggeration = m["exag"]?.toDoubleOrNull(),
                 pathWidth = n("pathWidth", d.pathWidth),

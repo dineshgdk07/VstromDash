@@ -40,6 +40,11 @@ data class StudioUi(
     val blocked: String? = null,
     val message: String? = null,
     val savedTo: String? = null,
+    /** The bike and photo pictures for the preview's overlay. */
+    val assets: dev.gdk.bumblebee.video.VideoAssets = dev.gdk.bumblebee.video.VideoAssets(),
+    /** The ride's full length, for placing photos by hand. */
+    val rideLengthM: Double = 0.0,
+    val importing: Boolean = false,
 )
 
 /**
@@ -62,6 +67,9 @@ class VideoStudioViewModel(app: Application, private val rideId: Long) : Android
         return maps.tile(z, x, y)?.also { mapMemory[key] = it }
     }
     private var input: RideVideoInput? = null
+    private val photoStore = dev.gdk.bumblebee.video.VideoPhotoStore(app)
+    private val pictureCache = ConcurrentHashMap<String, android.graphics.Bitmap>()
+    private var bikePicture: Pair<Int, android.graphics.Bitmap>? = null
     private var rebuild: Job? = null
 
     private val _ui = MutableStateFlow(StudioUi(config = VideoConfig.decode(prefs.getString(KEY_CONFIG, null))))
@@ -72,6 +80,15 @@ class VideoStudioViewModel(app: Application, private val rideId: Long) : Android
     init {
         viewModelScope.launch {
             input = withContext(Dispatchers.IO) { RideVideoSource.load(dash, rideId) }
+            input?.let { inp ->
+                var total = 0.0
+                for (i in 1 until inp.track.size) {
+                    val a = inp.track[i - 1]
+                    val b = inp.track[i]
+                    total += dev.gdk.bumblebee.ride.Geo.haversineMeters(a.lat, a.lng, b.lat, b.lng)
+                }
+                _ui.update { it.copy(rideLengthM = total) }
+            }
             if (input == null) {
                 _ui.update { it.copy(preparing = false, blocked = "This ride has no GPS track to fly over.") }
             } else {
@@ -117,15 +134,78 @@ class VideoStudioViewModel(app: Application, private val rideId: Long) : Android
             _ui.update { it.copy(preparing = false, plan = null, blocked = "The ride is too short for a video once the first and last 500 m are hidden.") }
             return
         }
+        val assets = withContext(Dispatchers.IO) { assetsFor(plan) }
         _ui.update {
             it.copy(
                 preparing = false,
                 plan = plan,
+                assets = assets,
                 look = VideoLook(plan.sun, Accent.color.toArgb()),
                 blocked = null,
                 message = if (plan.flat) "Couldn't get terrain (offline?). The preview is flat; connect and reopen for hills." else null,
             )
         }
+    }
+
+    /** The bike and photos the preview needs, decoded once per visit. */
+    private fun assetsFor(plan: RideVideoPlan): dev.gdk.bumblebee.video.VideoAssets {
+        val app = getApplication<Application>()
+        val bike = if (plan.config.marker == dev.gdk.bumblebee.video.MarkerStyle.BIKE) {
+            val res = dev.gdk.bumblebee.bike.BikeProfile(app).variant.image
+            bikePicture?.takeIf { it.first == res }?.second
+                ?: android.graphics.BitmapFactory.decodeResource(app.resources, res)?.also { bikePicture = res to it }
+        } else {
+            null
+        }
+        val photos = plan.timeline.moments.mapNotNull { m ->
+            val id = m.photoId ?: return@mapNotNull null
+            (pictureCache[id] ?: photoStore.bitmap(rideId, id, 900)?.also { pictureCache[id] = it })?.let { id to it }
+        }.toMap()
+        return dev.gdk.bumblebee.video.VideoAssets(bike, photos)
+    }
+
+    /** Photo thumbnails for the list, small. */
+    fun thumbnail(id: String): android.graphics.Bitmap? = photoStore.bitmap(rideId, id, 240)
+
+    fun addPhotos(uris: List<android.net.Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            _ui.update { it.copy(importing = true) }
+            val failed = withContext(Dispatchers.IO) { photoStore.add(rideId, uris) }
+            _ui.update { it.copy(importing = false, message = if (failed > 0) "$failed photo${if (failed == 1) "" else "s"} couldn't be read." else null) }
+            reloadPhotos()
+        }
+    }
+
+    fun removePhoto(id: String) = photoChange { photoStore.remove(rideId, id); pictureCache.remove(id) }
+
+    /** Puts a photo at [rideM] metres from the start, or back to automatic with null. */
+    fun placePhoto(id: String, rideM: Double?) = photoChange { photoStore.setManual(rideId, id, rideM) }
+
+    private var captionJob: Job? = null
+
+    /** Saves a caption once typing pauses, so each keystroke doesn't rebuild the preview. */
+    fun captionPhoto(id: String, caption: String) {
+        captionJob?.cancel()
+        captionJob = viewModelScope.launch {
+            delay(700)
+            withContext(Dispatchers.IO) { photoStore.setCaption(rideId, id, caption) }
+            reloadPhotos()
+        }
+    }
+
+    private fun photoChange(change: () -> Unit) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { change() }
+            reloadPhotos()
+        }
+    }
+
+    private suspend fun reloadPhotos() {
+        val inp = input ?: return
+        input = inp.copy(photos = withContext(Dispatchers.IO) { photoStore.list(rideId) })
+        rebuild?.cancel()
+        rebuildNow()
     }
 
     fun render() {

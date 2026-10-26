@@ -10,6 +10,9 @@ All notable changes to Bumblebee. Versions follow [Semantic Versioning](https://
   terrain, light from the ride's time of day, a camera that dives in, chases the route, pauses on
   highlights and circles the finish, with live stats and a closing card. 9:16, saved to
   Movies/Bumblebee.
+- **Ride Video Studio:** styles, live preview, and settings for story (cold open, chapters, map
+  reveal), camera, world (time of day, clouds, water, town names) and you (your bike as the
+  marker, a cluster-style dash, ride tags, your photos as postcards).
 
 ## [0.1.0] - 2026-10-25
 

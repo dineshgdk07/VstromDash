@@ -254,7 +254,7 @@ class CameraDirector(
             // Swing round to look back down the climb.
             MomentKind.CLIMB -> chase(d, orbitRad = s * Math.toRadians(115.0), closer = -0.15 * s, follow = follow, lower = -0.4 * s)
             // A gentle push-in.
-            MomentKind.STOP, MomentKind.REFUEL -> chase(d, orbitRad = s * Math.toRadians(20.0), closer = 0.45 * s, follow = follow)
+            MomentKind.STOP, MomentKind.REFUEL, MomentKind.PHOTO -> chase(d, orbitRad = s * Math.toRadians(20.0), closer = 0.45 * s, follow = follow)
             else -> chase(d, orbitRad = s * Math.toRadians(55.0), closer = 0.28 * s, follow = follow)
         }
     }

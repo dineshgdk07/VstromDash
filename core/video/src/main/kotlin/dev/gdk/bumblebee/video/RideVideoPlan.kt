@@ -33,6 +33,15 @@ data class RideVideoInput(
     val showPlaces: Boolean = true,
     /** Towns along the route, for 3D labels. */
     val places: List<PlaceMark> = emptyList(),
+    /** This ride's number among all rides, for the tags. */
+    val rideNumber: Int? = null,
+    /** Like "24°C · Partly cloudy". */
+    val weather: String? = null,
+    /** Like "Sunrise ride". */
+    val sunTag: String? = null,
+    /** Fuel gauge readings: when, and how many bars. */
+    val fuelBars: List<Pair<Long, Int>> = emptyList(),
+    val photos: List<RidePhoto> = emptyList(),
 )
 
 /**
@@ -59,6 +68,8 @@ class RideVideoPlan private constructor(
     val water: WaterLayer?,
     /** Towns pinned along the route; empty when labels are off. */
     val labels: List<PlaceLabel>,
+    /** Every added photo and where it went, or why it couldn't. */
+    val photoSpots: List<PhotoSpot>,
     private val alongTs: LongArray,
     private val alongD: DoubleArray,
     private val speedKmh: DoubleArray,
@@ -124,6 +135,25 @@ class RideVideoPlan private constructor(
         for (k in lo..hi) sum += speedKmh[k]
         return (sum / (hi - lo + 1)).roundToInt()
     }
+
+    /** Fuel bars on the gauge when the rider was at [d], or null without gauge readings. */
+    fun fuelAt(d: Double): Int? {
+        val bars = input.fuelBars
+        if (bars.isEmpty() || alongTs.isEmpty()) return null
+        val ts = alongTs[indexOf(d)]
+        return bars.lastOrNull { it.first <= ts }?.second ?: bars.first().second
+    }
+
+    /** "RIDE #42 · 24°C · Partly cloudy · Sunrise ride", or null when tags are off or unknown. */
+    val tagsLine: String?
+        get() {
+            if (!config.tags) return null
+            return listOfNotNull(input.rideNumber?.let { "Ride #$it" }, input.weather, input.sunTag)
+                .joinToString("  ·  ").ifBlank { null }
+        }
+
+    /** True when [id]'s photo made it into the video (placed, and not crowded out). */
+    fun photoShown(id: String) = timeline.moments.any { it.photoId == id }
 
     /** Time of day when the rider was at [d]. */
     fun clockAt(d: Double): String {
@@ -328,7 +358,15 @@ class RideVideoPlan private constructor(
             }
             val stops = input.stops.mapNotNull { (ts, dur) -> distanceAtTs(ts)?.let { StopMark(it, dur) } }
             val refuels = input.refuelTs.mapNotNull { distanceAtTs(it) }
-            val candidates = Moments.candidates(samples, stops, refuels)
+            // The rider's photos: placed on the full ride, then moved onto the trimmed route.
+            val photoSpots = PhotoPlacer.place(input.photos, input.track)
+            val photoMoments = if (!config.photos) emptyList() else photoSpots.filterIsInstance<PhotoSpot.Placed>().mapNotNull { s ->
+                val d = s.rideM - trimStart
+                if (d < 0 || d > path.length) return@mapNotNull null
+                val clock = s.ts?.let { CLOCK.format(Instant.ofEpochMilli(it).atZone(input.zone)) }
+                VideoMoment(MomentKind.PHOTO, d, s.photo.caption ?: clock ?: "On the way", "", s.photo.id)
+            }
+            val candidates = Moments.candidates(samples, stops, refuels) + photoMoments
 
             val length = VideoLength.range((total) / 1000, candidates.size)
             val totalS = (config.lengthS ?: length.recommended).coerceIn(length.min, length.max).toDouble()
@@ -355,6 +393,7 @@ class RideVideoPlan private constructor(
                 input, config, land, ex, path, timeline, director, sun, length, flat, chapters,
                 if (config.water && !flat) WaterLayer(land, mapTile).takeIf { it.any } else null,
                 if (config.placeLabels) labels(input.places, path, land) else emptyList(),
+                photoSpots,
                 alongTs, alongD, speeds, trimStart,
             )
         }

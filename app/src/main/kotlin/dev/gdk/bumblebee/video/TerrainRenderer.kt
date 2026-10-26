@@ -409,7 +409,7 @@ class TerrainRenderer(
         if (headShown) {
             val head = plan.path.at(upTo) - vm.eye
             val pulse = 1.0 + 0.08 * kotlin.math.sin(cue.progress * 40)
-            sprites += floatArrayOf(head.x.toFloat(), head.y.toFloat(), head.z.toFloat(), (110 * scale * pulse * look.pathGlow * (0.6 + 0.4 * cfg.glow) * cfg.pathWidth.coerceIn(0.8, 1.5)).toFloat(), accent[0], accent[1], accent[2], 1f)
+            sprites += floatArrayOf(head.x.toFloat(), head.y.toFloat(), head.z.toFloat(), ((if (cfg.marker == MarkerStyle.BIKE) 55 else 110) * scale * pulse * look.pathGlow * (0.6 + 0.4 * cfg.glow) * cfg.pathWidth.coerceIn(0.8, 1.5)).toFloat(), accent[0], accent[1], accent[2], 1f)
         }
         if (sprites.isEmpty()) return
         val p = spriteProg

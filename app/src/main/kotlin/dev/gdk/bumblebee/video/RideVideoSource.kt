@@ -38,7 +38,33 @@ object RideVideoSource {
             movingSec = ride.movingSec,
             zone = zone,
             places = placesAlong(app, track),
+            rideNumber = app.capture.rideNumber(rideId),
+            weather = ride.weatherTempC?.let { t ->
+                val label = ride.weatherCode?.let(dev.gdk.bumblebee.weather.WmoCode::label)?.takeUnless { it == "—" }
+                listOfNotNull("${t.toInt()}°C", label).joinToString(" · ")
+            },
+            sunTag = sunTag(ride.startTs, ride.endTs ?: ride.startTs, track, zone),
+            fuelBars = fuelBars(app, rideId),
+            photos = VideoPhotoStore(app).list(rideId),
         )
+    }
+
+    /** "Sunrise ride", "Sunset ride" and the like, when the ride crossed one. */
+    private fun sunTag(start: Long, end: Long, track: List<dev.gdk.bumblebee.ride.GpsFix>, zone: ZoneId): String? {
+        val mid = track[track.size / 2]
+        val date = Instant.ofEpochMilli(mid.ts).atZone(zone).toLocalDate()
+        val day = dev.gdk.bumblebee.ride.SunTimes.of(date, mid.lat, mid.lng, zone)
+        return dev.gdk.bumblebee.ride.SunTimes.tag(start, end, day)?.replaceFirstChar { it.uppercase() }
+    }
+
+    /** Only the moments the gauge changed. */
+    private suspend fun fuelBars(app: DashApp, rideId: Long): List<Pair<Long, Int>> {
+        val out = mutableListOf<Pair<Long, Int>>()
+        for (s in app.capture.telemetryForRide(rideId)) {
+            val bars = s.fuelBars ?: continue
+            if (out.lastOrNull()?.second != bars) out += s.ts to bars
+        }
+        return out
     }
 
     /**
@@ -73,7 +99,20 @@ object RideVideoSource {
         display = context.resources.getFont(R.font.anton_regular),
         label = context.resources.getFont(R.font.rajdhani_semibold),
         labelBold = context.resources.getFont(R.font.rajdhani_bold),
+        mono = context.resources.getFont(R.font.jetbrains_mono_medium),
     )
+
+    /** The rider's bike in its paint, and their photos for this ride, for the overlay. */
+    fun assets(context: Context, plan: RideVideoPlan, rideId: Long): VideoAssets {
+        val bike = if (plan.config.marker == MarkerStyle.BIKE) {
+            android.graphics.BitmapFactory.decodeResource(context.resources, dev.gdk.bumblebee.bike.BikeProfile(context).variant.image)
+        } else {
+            null
+        }
+        val store = VideoPhotoStore(context)
+        val photos = plan.timeline.moments.mapNotNull { m -> m.photoId?.let { id -> store.bitmap(rideId, id, 1280)?.let { id to it } } }.toMap()
+        return VideoAssets(bike, photos)
+    }
 
     private val DEFAULT_TITLE = DateTimeFormatter.ofPattern("EEEE 'ride'", Locale.ENGLISH)
 }
