@@ -435,6 +435,8 @@ class TerrainRenderer(
     private class BikeBuffers(val vbo: Int, val nbo: Int, val mbo: Int, val count: Int, val shadow: Int)
 
     private val bikeMesh: BikeBuffers? = if (cfg.marker != MarkerStyle.BIKE) null else run {
+        // The bike shader holds up to this many materials.
+        check(BikeMaterial.entries.size <= 16) { "Too many bike materials for the shader" }
         val m = BikeModel.build(cfg.rider)
         val b = IntArray(4)
         GLES30.glGenBuffers(4, b, 0)
@@ -955,9 +957,9 @@ class TerrainRenderer(
             in vec3 vNormal;
             flat in int vMat;
             out vec4 outColor;
-            uniform vec3 uMatColor[12];
-            uniform float uMatShine[12];
-            uniform float uMatGlow[12];
+            uniform vec3 uMatColor[16];
+            uniform float uMatShine[16];
+            uniform float uMatGlow[16];
             uniform float uFogDist;
             $COMMON
             void main() {
