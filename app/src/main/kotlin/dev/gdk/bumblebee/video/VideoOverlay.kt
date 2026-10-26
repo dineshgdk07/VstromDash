@@ -16,8 +16,15 @@ import kotlin.math.min
 /** The share-card fonts: tall numbers and titles, labels, and a monospace for the dash. */
 class VideoFonts(val display: Typeface, val label: Typeface, val labelBold: Typeface, val mono: Typeface = labelBold)
 
-/** Pictures the overlay draws: the rider's bike (facing right) and their photos by id. */
-class VideoAssets(val bike: Bitmap? = null, val photos: Map<String, Bitmap> = emptyMap()) {
+/**
+ * Pictures the overlay draws: the rider's bike photo (facing right) and their photos by id, plus
+ * the bike's paint for the 3D bike.
+ */
+class VideoAssets(val bike: Bitmap? = null, val photos: Map<String, Bitmap> = emptyMap(), val paint: Int = DEFAULT_PAINT) {
+    companion object {
+        const val DEFAULT_PAINT = 0xF2CE1B
+    }
+
     fun release() {
         bike?.recycle()
         photos.values.forEach { it.recycle() }
@@ -190,7 +197,7 @@ class VideoOverlay(
     }
 
     /** When the rider's marker is on screen, matching the renderer's head of the trail. */
-    private fun markerShown(cue: Cue): Boolean = cfg.marker == MarkerStyle.BIKE && assets.bike != null && when (cue.shot) {
+    private fun markerShown(cue: Cue): Boolean = cfg.marker == MarkerStyle.BIKE_PHOTO && assets.bike != null && when (cue.shot) {
         Shot.INTRO -> cue.progress > 0.55
         Shot.FINISH -> cue.progress < 0.40
         else -> true

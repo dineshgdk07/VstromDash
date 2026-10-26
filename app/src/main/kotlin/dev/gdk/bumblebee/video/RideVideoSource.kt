@@ -2,6 +2,7 @@ package dev.gdk.bumblebee.video
 
 import android.content.Context
 import dev.gdk.bumblebee.DashApp
+import androidx.compose.ui.graphics.toArgb
 import dev.gdk.bumblebee.R
 import dev.gdk.bumblebee.ride.FuelEventType
 import java.time.Instant
@@ -104,14 +105,15 @@ object RideVideoSource {
 
     /** The rider's bike in its paint, and their photos for this ride, for the overlay. */
     fun assets(context: Context, plan: RideVideoPlan, rideId: Long): VideoAssets {
-        val bike = if (plan.config.marker == MarkerStyle.BIKE) {
-            android.graphics.BitmapFactory.decodeResource(context.resources, dev.gdk.bumblebee.bike.BikeProfile(context).variant.image)
+        val variant = dev.gdk.bumblebee.bike.BikeProfile(context).variant
+        val bike = if (plan.config.marker == MarkerStyle.BIKE_PHOTO) {
+            android.graphics.BitmapFactory.decodeResource(context.resources, variant.image)
         } else {
             null
         }
         val store = VideoPhotoStore(context)
         val photos = plan.timeline.moments.mapNotNull { m -> m.photoId?.let { id -> store.bitmap(rideId, id, 1280)?.let { id to it } } }.toMap()
-        return VideoAssets(bike, photos)
+        return VideoAssets(bike, photos, variant.paint.toArgb() and 0xFFFFFF)
     }
 
     private val DEFAULT_TITLE = DateTimeFormatter.ofPattern("EEEE 'ride'", Locale.ENGLISH)

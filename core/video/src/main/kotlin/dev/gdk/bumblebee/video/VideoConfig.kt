@@ -1,7 +1,7 @@
 package dev.gdk.bumblebee.video
 
 /** What rides the route: a glowing dot, or the rider's own bike in its paint. */
-enum class MarkerStyle(val label: String) { DOT("Glow dot"), BIKE("My bike") }
+enum class MarkerStyle(val label: String) { DOT("Glow dot"), BIKE("3D bike"), BIKE_PHOTO("Bike photo") }
 
 /** How the live readouts look: clean numbers, or panels styled on the bike's own dash. */
 enum class HudStyle(val label: String) { CLASSIC("Classic"), CLUSTER("Cluster") }
@@ -49,6 +49,8 @@ data class VideoConfig(
     val marker: MarkerStyle = MarkerStyle.BIKE,
     /** Marker size, × the default. */
     val markerSize: Double = 1.0,
+    /** A rider on the 3D bike. */
+    val rider: Boolean = true,
     /** The rider's own photos from the ride, as postcards where they were taken. */
     val photos: Boolean = true,
     // Camera
@@ -132,6 +134,7 @@ data class VideoConfig(
         "tags" to tags,
         "marker" to marker.name,
         "markerSize" to markerSize,
+        "rider" to rider,
         "photos" to photos,
         "camera" to cameraDistance,
         "exag" to (exaggeration?.toString() ?: ""),
@@ -177,6 +180,7 @@ data class VideoConfig(
                 tags = b("tags", d.tags),
                 marker = m["marker"]?.let { v -> MarkerStyle.entries.firstOrNull { it.name == v } } ?: d.marker,
                 markerSize = n("markerSize", d.markerSize),
+                rider = b("rider", d.rider),
                 photos = b("photos", d.photos),
                 cameraDistance = n("camera", d.cameraDistance),
                 exaggeration = m["exag"]?.toDoubleOrNull(),

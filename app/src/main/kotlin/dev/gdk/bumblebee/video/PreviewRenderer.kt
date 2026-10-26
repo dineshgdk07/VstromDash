@@ -57,6 +57,7 @@ class PreviewRenderer(private val fonts: VideoFonts) : GLSurfaceView.Renderer {
                 renderer?.release()
                 renderer = TerrainRenderer(p, l, width, height)
             }
+            renderer?.bikePaint = a.paint
             if (p !== built || width != builtW || height != builtH || a !== builtAssets) {
                 overlay?.release()
                 overlay = VideoOverlay(p, fonts, accent, width, height, a)

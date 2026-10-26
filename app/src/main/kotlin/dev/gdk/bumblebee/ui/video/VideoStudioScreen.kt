@@ -231,11 +231,18 @@ private fun Setup(ui: StudioUi, failed: String?, vm: VideoStudioViewModel) {
             SectionCard(header = { SectionLabel(text = "You and your bike") }) {
                 ChipRow(MarkerStyle.entries.toList(), config.marker, { it.label }) { m -> vm.update { it.copy(marker = m) } }
                 Text(
-                    if (config.marker == MarkerStyle.BIKE) "Your bike, in its paint, rides the route and turns with the road." else "A glowing dot in your accent colour leads the trail.",
+                    when (config.marker) {
+                        MarkerStyle.BIKE -> "A 3D bike in your paint rides the route: it points along the road, leans into bends by your real speed, and lights its headlamp after dark."
+                        MarkerStyle.BIKE_PHOTO -> "Your bike's photo, in its paint, rides the route and turns with the road."
+                        MarkerStyle.DOT -> "A glowing dot in your accent colour leads the trail."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                     modifier = Modifier.padding(top = 8.dp),
                 )
+                if (config.marker == MarkerStyle.BIKE) {
+                    Toggle("Rider on the bike, helmet in your accent colour", config.rider) { v -> vm.update { it.copy(rider = v) } }
+                }
                 Tune("Marker size", config.markerSize, 0.5..2.0, closer = "Small", further = "Large") { v -> vm.update { it.copy(markerSize = v) } }
             }
 

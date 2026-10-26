@@ -13,6 +13,10 @@ All notable changes to Bumblebee. Versions follow [Semantic Versioning](https://
 - **Ride Video Studio:** styles, live preview, and settings for story (cold open, chapters, map
   reveal), camera, world (time of day, clouds, water, town names) and you (your bike as the
   marker, a cluster-style dash, ride tags, your photos as postcards).
+- **3D bike in the ride video:** the default marker is now a 3D bike in your paint, with an
+  optional rider. It points along the road, leans into bends based on your real speed, casts a
+  soft shadow and turns its headlamp on after dark. The glow dot and the bike photo are still
+  options.
 
 ## [0.1.0] - 2026-10-25
 

@@ -12,6 +12,22 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+/**
+ * The 3D bike's placement: [position] on the ground, [forward] along the road, and [leanDeg] into
+ * the bend (positive leans left, as in a left turn).
+ */
+data class BikeFrame(val position: Vec3, val forward: Vec3, val leanDeg: Double) {
+    /** The bike's axes in the world after leaning: forward, left and up. */
+    fun axes(): Triple<Vec3, Vec3, Vec3> {
+        val left = Vec3.UP.cross(forward).normalized().let { if (it.length < 0.5) Vec3(0.0, 1.0, 0.0) else it }
+        val up = forward.cross(left).normalized()
+        val r = Math.toRadians(leanDeg)
+        val l = left * kotlin.math.cos(r) - up * kotlin.math.sin(r)
+        val u = up * kotlin.math.cos(r) + left * kotlin.math.sin(r)
+        return Triple(forward, l, u)
+    }
+}
+
 /** A named place near the route, from a reverse geocode. */
 data class PlaceMark(val lat: Double, val lng: Double, val name: String)
 
@@ -134,6 +150,31 @@ class RideVideoPlan private constructor(
         var sum = 0.0
         for (k in lo..hi) sum += speedKmh[k]
         return (sum / (hi - lo + 1)).roundToInt()
+    }
+
+    /**
+     * Where the 3D bike is at [d]: on the ground, pointing along the road (up and down hills too),
+     * leaning into the bend as a rider would at the recorded speed, lean = atan(v² × curvature / g),
+     * smoothed over a few dozen metres and held to 40 degrees.
+     */
+    fun bikeFrame(d: Double): BikeFrame {
+        val p = path.at(d)
+        val ground = Vec3(p.x, p.y, land.heightAt(p.x, p.y) * exaggeration)
+        val a = path.at((d - 15).coerceAtLeast(0.0))
+        val b = path.at((d + 15).coerceAtMost(path.length))
+        val forward = (b - a).let { if (it.length < 1e-6) Vec3(0.0, 1.0, 0.0) else it.normalized() }
+        var lean = 0.0
+        val v = speedAt(d) / 3.6
+        for (k in -2..2) {
+            val c = (d + k * 12.0).coerceIn(0.0, path.length)
+            val h1 = path.heading(c, 12.0, 0.0)
+            val h2 = path.heading(c, 0.0, 12.0)
+            val turn = kotlin.math.atan2(h1.x * h2.y - h1.y * h2.x, h1.dot(h2)) // radians, left positive
+            val curvature = turn / 12.0
+            lean += kotlin.math.atan(v * v * curvature / 9.81)
+        }
+        lean = Math.toDegrees(lean / 5).coerceIn(-40.0, 40.0)
+        return BikeFrame(ground, forward, lean)
     }
 
     /** Fuel bars on the gauge when the rider was at [d], or null without gauge readings. */

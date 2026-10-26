@@ -73,3 +73,64 @@ class PersonalTest {
         assertEquals(c, VideoConfig.decode(c.encode()))
     }
 }
+
+class BikeModelTest {
+    @Test fun `the bike is bike-sized, sits on the ground and faces outward`() {
+        for (rider in listOf(false, true)) {
+            val m = BikeModel.build(rider)
+            assertTrue(m.vertexCount > 1000)
+            assertEquals(0, m.vertexCount % 3)
+            val xs = (0 until m.vertexCount).map { m.positions[it * 3] }
+            val zs = (0 until m.vertexCount).map { m.positions[it * 3 + 2] }
+            assertTrue("length ${xs.max() - xs.min()}", (xs.max() - xs.min()) in 1.9f..2.3f)
+            assertEquals(0f, zs.min(), 0.01f)
+            assertTrue(zs.max() < if (rider) 1.95f else 1.5f)
+            // Every normal is a unit vector.
+            for (i in 0 until m.vertexCount) {
+                val l = kotlin.math.sqrt(m.normals[i * 3] * m.normals[i * 3] + m.normals[i * 3 + 1] * m.normals[i * 3 + 1] + m.normals[i * 3 + 2] * m.normals[i * 3 + 2])
+                assertEquals(1f, l, 1e-3f)
+            }
+            // Painted parts exist; the rider adds a helmet.
+            assertTrue(m.materials.any { it.toInt() == BikeMaterial.PAINT.ordinal })
+            assertEquals(rider, m.materials.any { it.toInt() == BikeMaterial.HELMET.ordinal })
+        }
+        // The tank's top faces up and its left side faces left.
+        val m = BikeModel.build(false)
+        var up = 0
+        var left = 0
+        for (i in 0 until m.vertexCount) {
+            if (m.materials[i].toInt() != BikeMaterial.PAINT.ordinal) continue
+            if (m.normals[i * 3 + 2] > 0.7f && m.positions[i * 3 + 2] > 1.0f) up++
+            if (m.normals[i * 3 + 1] > 0.7f && m.positions[i * 3 + 1] > 0.15f) left++
+        }
+        assertTrue(up > 0 && left > 0)
+    }
+}
+
+class BikeFrameTest {
+    private val t0 = 1_774_060_000_000L
+
+    @Test fun `the bike leans into bends and sits level on straights`() {
+        // North for 8 km, a long left curve, then west.
+        val pts = ArrayList<Pair<Double, Double>>()
+        for (i in 0..800) pts += (10.0 + i * 0.0001) to 76.5
+        for (i in 1..90) {
+            val a = Math.toRadians(i.toDouble())
+            pts += (10.08 + 0.0005 * kotlin.math.sin(a)) to (76.5 - 0.0005 * (1 - kotlin.math.cos(a)))
+        }
+        for (i in 1..800) pts += 10.0805 to (76.4995 - i * 0.0001)
+        val track = pts.mapIndexed { i, (lat, lng) -> GpsFix(t0 + i * 1000L, lat, lng, speedMps = 14f, accuracyM = 5f) }
+        val plan = RideVideoPlan.build(RideVideoInput(track, title = "t", startTs = t0, movingSec = 1600), VideoConfig(lengthS = 30), { _, _, _ -> null })!!
+        val straight = plan.bikeFrame(3_000.0)
+        assertEquals(0.0, straight.leanDeg, 1.0)
+        assertTrue(straight.forward.y > 0.99)
+        // In the tight (about 55 m) bend at 50 km/h it leans left by roughly 20 degrees.
+        val curveLean = (0 until 200).map { plan.bikeFrame(plan.path.length * 0.4 + it * 20.0).leanDeg }.max()
+        assertTrue("lean $curveLean", curveLean in 12.0..32.0)
+        // Leaning left tips the bike's up toward its left.
+        val (f, l, u) = BikeFrame(Vec3.ZERO, Vec3(0.0, 1.0, 0.0), 30.0).axes()
+        assertTrue(u.dot(Vec3(-1.0, 0.0, 0.0)) > 0.4)
+        assertEquals(0.0, l.dot(f), 1e-9)
+        assertEquals(1.0, u.length, 1e-9)
+    }
+}

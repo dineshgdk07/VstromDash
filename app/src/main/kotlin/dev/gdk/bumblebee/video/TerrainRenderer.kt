@@ -22,6 +22,8 @@ class TerrainRenderer(
     baseLook: VideoLook,
     val width: Int,
     val height: Int,
+    /** The rider's bike paint (RGB), for the 3D bike. */
+    var bikePaint: Int = VideoAssets.DEFAULT_PAINT,
 ) {
     private val terrainProg = Program(TERRAIN_VS, TERRAIN_FS)
     private val skyProg = Program(SKY_VS, SKY_FS)
@@ -130,6 +132,7 @@ class TerrainRenderer(
         drawTerrain(vm)
         drawClouds(vm)
         val (upTo, fade) = trailAt(cue)
+        if (bikeShown(cue)) drawBike(vm, upTo)
         drawRibbons(vm, upTo, fade)
         drawSprites(vm, upTo, cue)
         drawPost()
@@ -390,6 +393,122 @@ class TerrainRenderer(
     }
 
     /** The comet head at the rider, and a small pin at each moment already passed or held. */
+    /** When the 3D bike is in the scene: as the camera dives in, through the ride, until the climb-out. */
+    private fun bikeShown(cue: Cue): Boolean = bikeMesh != null && when (cue.shot) {
+        Shot.INTRO -> cue.progress > 0.55
+        Shot.FINISH -> cue.progress < 0.40
+        else -> true
+    }
+
+    /**
+     * How big to draw the bike: real size up close, scaled up with distance so it keeps about
+     * the same height on screen (about a tenth of the frame) when the camera is far behind.
+     */
+    private fun bikeScale(vm: ViewMath, at: Vec3): Double {
+        val depth = (at - vm.eye).dot(vm.forward).coerceAtLeast(1.0)
+        return (0.10 * 2 * depth * vm.tanHalfFov / 1.9 * cfg.markerSize).coerceAtLeast(1.0)
+    }
+
+    private class BikeBuffers(val vbo: Int, val nbo: Int, val mbo: Int, val count: Int, val shadow: Int)
+
+    private val bikeMesh: BikeBuffers? = if (cfg.marker != MarkerStyle.BIKE) null else run {
+        val m = BikeModel.build(cfg.rider)
+        val b = IntArray(4)
+        GLES30.glGenBuffers(4, b, 0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, b[0])
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, m.positions.size * 4, floatBuffer(m.positions), GLES30.GL_STATIC_DRAW)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, b[1])
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, m.normals.size * 4, floatBuffer(m.normals), GLES30.GL_STATIC_DRAW)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, b[2])
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, m.materials.size * 4, floatBuffer(m.materials), GLES30.GL_STATIC_DRAW)
+        // A soft oval shadow on the ground under the bike: a fan, darkest in the middle.
+        val fan = ArrayList<Float>()
+        val seg = 24
+        for (i in 0 until seg) {
+            val a0 = 2 * Math.PI * i / seg
+            val a1 = 2 * Math.PI * (i + 1) / seg
+            fan += listOf(0f, 0f, 0.03f, 1f)
+            fan += listOf((kotlin.math.cos(a0) * 1.3).toFloat(), (kotlin.math.sin(a0) * 0.55).toFloat(), 0.03f, 0f)
+            fan += listOf((kotlin.math.cos(a1) * 1.3).toFloat(), (kotlin.math.sin(a1) * 0.55).toFloat(), 0.03f, 0f)
+        }
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, b[3])
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, fan.size * 4, floatBuffer(fan.toFloatArray()), GLES30.GL_STATIC_DRAW)
+        BikeBuffers(b[0], b[1], b[2], m.vertexCount, b[3])
+    }
+    private val bikeProg = Program(BIKE_VS, BIKE_FS)
+    private val shadowProg = Program(SHADOW_VS, SHADOW_FS)
+
+    /** The rider's 3D bike at [d]: placed, pointed and leaned by the plan, lit by the scene's sun. */
+    private fun drawBike(vm: ViewMath, d: Double) {
+        val mesh = bikeMesh ?: return
+        val frame = plan.bikeFrame(d)
+        val (f, l, u) = frame.axes()
+        val s = bikeScale(vm, frame.position)
+        val rel = frame.position - vm.eye
+        val model = floatArrayOf(
+            (f.x * s).toFloat(), (f.y * s).toFloat(), (f.z * s).toFloat(),
+            (l.x * s).toFloat(), (l.y * s).toFloat(), (l.z * s).toFloat(),
+            (u.x * s).toFloat(), (u.y * s).toFloat(), (u.z * s).toFloat(),
+        )
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        GLES30.glDepthFunc(GLES30.GL_LEQUAL)
+        // Shadow first: flat on the ground plane under the bike (unleaned), blended, no depth write.
+        val (_, flatLeft, _) = BikeFrame(frame.position, frame.forward, 0.0).axes()
+        val flatUp = f.cross(flatLeft).normalized()
+        val shadowModel = floatArrayOf(
+            (f.x * s).toFloat(), (f.y * s).toFloat(), (f.z * s).toFloat(),
+            (flatLeft.x * s).toFloat(), (flatLeft.y * s).toFloat(), (flatLeft.z * s).toFloat(),
+            (flatUp.x * s).toFloat(), (flatUp.y * s).toFloat(), (flatUp.z * s).toFloat(),
+        )
+        shadowProg.use()
+        GLES30.glUniformMatrix4fv(shadowProg.loc("uViewProj"), 1, false, vm.viewProj, 0)
+        GLES30.glUniformMatrix3fv(shadowProg.loc("uModel"), 1, false, shadowModel, 0)
+        GLES30.glUniform3f(shadowProg.loc("uPos"), rel.x.toFloat(), rel.y.toFloat(), rel.z.toFloat())
+        GLES30.glUniform1f(shadowProg.loc("uAlpha"), (0.45 * (1 - look.nightness * 0.6)).toFloat())
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        GLES30.glDepthMask(false)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, mesh.shadow)
+        GLES30.glEnableVertexAttribArray(0)
+        GLES30.glVertexAttribPointer(0, 4, GLES30.GL_FLOAT, false, 16, 0)
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 24 * 3)
+        GLES30.glDepthMask(true)
+        GLES30.glDisable(GLES30.GL_BLEND)
+        // The bike.
+        val p = bikeProg
+        p.use()
+        lookUniforms(p)
+        GLES30.glUniformMatrix4fv(p.loc("uViewProj"), 1, false, vm.viewProj, 0)
+        GLES30.glUniformMatrix3fv(p.loc("uModel"), 1, false, model, 0)
+        GLES30.glUniform3f(p.loc("uPos"), rel.x.toFloat(), rel.y.toFloat(), rel.z.toFloat())
+        GLES30.glUniform1f(p.loc("uFogDist"), fogDist.toFloat())
+        val mats = BikeMaterial.entries
+        val colors = FloatArray(mats.size * 3)
+        mats.forEachIndexed { i, m ->
+            val c = when (m) {
+                BikeMaterial.PAINT -> Lin.hex(bikePaint and 0xFFFFFF)
+                BikeMaterial.HELMET -> look.accent
+                else -> Lin.hex(m.rgb)
+            }
+            colors[i * 3] = c.r.toFloat(); colors[i * 3 + 1] = c.g.toFloat(); colors[i * 3 + 2] = c.b.toFloat()
+        }
+        GLES30.glUniform3fv(p.loc("uMatColor"), mats.size, colors, 0)
+        GLES30.glUniform1fv(p.loc("uMatShine"), mats.size, FloatArray(mats.size) { mats[it].shine }, 0)
+        GLES30.glUniform1fv(p.loc("uMatGlow"), mats.size, FloatArray(mats.size) { mats[it].glow }, 0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, mesh.vbo)
+        GLES30.glEnableVertexAttribArray(0)
+        GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, 12, 0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, mesh.nbo)
+        GLES30.glEnableVertexAttribArray(1)
+        GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, 12, 0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, mesh.mbo)
+        GLES30.glEnableVertexAttribArray(2)
+        GLES30.glVertexAttribPointer(2, 1, GLES30.GL_FLOAT, false, 4, 0)
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, mesh.count)
+        GLES30.glDisableVertexAttribArray(1)
+        GLES30.glDisableVertexAttribArray(2)
+    }
+
     private fun drawSprites(vm: ViewMath, upTo: Double, cue: Cue) {
         val scale = height / 1920.0
         val sprites = ArrayList<FloatArray>()
@@ -406,10 +525,18 @@ class TerrainRenderer(
             Shot.FINISH -> !cfg.mapReveal || cue.progress < 0.40 || revealing
             else -> true
         }
-        if (headShown) {
+        // The 3D bike's headlight glows as dusk falls.
+        if (bikeShown(cue) && look.nightness > 0.15) {
+            val frame = plan.bikeFrame(upTo)
+            val (f, _, u) = frame.axes()
+            val s = bikeScale(vm, frame.position)
+            val lamp = frame.position + f * (0.76 * s) + u * (1.04 * s) - vm.eye
+            sprites += floatArrayOf(lamp.x.toFloat(), lamp.y.toFloat(), lamp.z.toFloat(), (70 * scale * cfg.markerSize).toFloat(), 1f, 0.95f, 0.8f, look.nightness.toFloat())
+        }
+        if (headShown && !bikeShown(cue)) {
             val head = plan.path.at(upTo) - vm.eye
             val pulse = 1.0 + 0.08 * kotlin.math.sin(cue.progress * 40)
-            sprites += floatArrayOf(head.x.toFloat(), head.y.toFloat(), head.z.toFloat(), ((if (cfg.marker == MarkerStyle.BIKE) 55 else 110) * scale * pulse * look.pathGlow * (0.6 + 0.4 * cfg.glow) * cfg.pathWidth.coerceIn(0.8, 1.5)).toFloat(), accent[0], accent[1], accent[2], 1f)
+            sprites += floatArrayOf(head.x.toFloat(), head.y.toFloat(), head.z.toFloat(), ((if (cfg.marker == MarkerStyle.BIKE_PHOTO) 55 else 110) * scale * pulse * look.pathGlow * (0.6 + 0.4 * cfg.glow) * cfg.pathWidth.coerceIn(0.8, 1.5)).toFloat(), accent[0], accent[1], accent[2], 1f)
         }
         if (sprites.isEmpty()) return
         val p = spriteProg
@@ -511,6 +638,9 @@ class TerrainRenderer(
         meshes.forEach { GLES30.glDeleteBuffers(4, intArrayOf(it.vbo, it.nbo, it.wbo, it.ibo), 0) }
         GLES30.glDeleteBuffers(1, intArrayOf(cloudVbo), 0)
         cloudProg.release()
+        bikeMesh?.let { GLES30.glDeleteBuffers(4, intArrayOf(it.vbo, it.nbo, it.mbo, it.shadow), 0) }
+        bikeProg.release()
+        shadowProg.release()
         GLES30.glDeleteBuffers(2, intArrayOf(ribbonVbo, spriteVbo), 0)
         GLES30.glDeleteTextures(1, intArrayOf(overlayTex), 0)
         GLES30.glDeleteFramebuffers(2, intArrayOf(fbo, resolveFbo), 0)
@@ -733,6 +863,74 @@ class TerrainRenderer(
                 c = mix(c, sky, e * e);
                 outColor = vec4(toSrgb(c), 1.0);
             }
+        """
+
+        const val BIKE_VS = """#version 300 es
+            layout(location = 0) in vec3 aPos;
+            layout(location = 1) in vec3 aNormal;
+            layout(location = 2) in float aMat;
+            uniform mat4 uViewProj;
+            uniform mat3 uModel;
+            uniform vec3 uPos;
+            out vec3 vRel;
+            out vec3 vNormal;
+            flat out int vMat;
+            void main() {
+                vec3 rel = uPos + uModel * aPos;
+                vRel = rel;
+                vNormal = normalize(uModel * aNormal);
+                vMat = int(aMat + 0.5);
+                gl_Position = uViewProj * vec4(rel, 1.0);
+            }
+        """
+
+        const val BIKE_FS = """#version 300 es
+            precision highp float;
+            in vec3 vRel;
+            in vec3 vNormal;
+            flat in int vMat;
+            out vec4 outColor;
+            uniform vec3 uMatColor[12];
+            uniform float uMatShine[12];
+            uniform float uMatGlow[12];
+            uniform float uFogDist;
+            $COMMON
+            void main() {
+                vec3 n = normalize(vNormal);
+                vec3 base = uMatColor[vMat];
+                vec3 view = normalize(-vRel);
+                float diffuse = max(dot(n, uLight), 0.0);
+                vec3 halfV = normalize(uLight + view);
+                float spec = pow(max(dot(n, halfV), 0.0), 40.0) * uMatShine[vMat];
+                vec3 c = base * (uAmbient * (0.7 + 0.5 * max(n.z, 0.0)) + uSun * 0.95 * diffuse) + uSun * spec * 0.6;
+                // Sky reflected in glossy parts, so paint and glass read as paint and glass.
+                c += skyColor(reflect(-view, n)) * 0.12 * uMatShine[vMat];
+                // Lights glow, more so after dark.
+                c = mix(c, base * (1.2 + 1.5 * uNight), uMatGlow[vMat]);
+                float fog = 1.0 - exp(-pow(length(vRel) / uFogDist, 1.6));
+                c = mix(c, uHaze, fog * 0.5);
+                outColor = vec4(toSrgb(c), 1.0);
+            }
+        """
+
+        const val SHADOW_VS = """#version 300 es
+            layout(location = 0) in vec4 aPos;
+            uniform mat4 uViewProj;
+            uniform mat3 uModel;
+            uniform vec3 uPos;
+            out float vDark;
+            void main() {
+                vDark = aPos.w;
+                gl_Position = uViewProj * vec4(uPos + uModel * aPos.xyz, 1.0);
+            }
+        """
+
+        const val SHADOW_FS = """#version 300 es
+            precision mediump float;
+            in float vDark;
+            out vec4 outColor;
+            uniform float uAlpha;
+            void main() { outColor = vec4(0.0, 0.0, 0.0, uAlpha * vDark * vDark); }
         """
 
         const val CLOUD_VS = """#version 300 es

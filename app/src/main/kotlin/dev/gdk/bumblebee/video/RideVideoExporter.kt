@@ -74,7 +74,7 @@ class RideVideoExporter(private val context: Context) {
                 VideoEncoder(out, shape.width * 2 / 3 / 2 * 2, shape.height * 2 / 3 / 2 * 2, plan.fps, BIT_RATE / 2)
             }
             encoder.makeCurrent()
-            renderer = TerrainRenderer(plan, look, encoder.width, encoder.height)
+            renderer = TerrainRenderer(plan, look, encoder.width, encoder.height, assets.paint)
             overlay = VideoOverlay(plan, fonts, accent, assets = assets)
             val scaledOverlay = encoder.width != overlay.width
             val frames = plan.frameCount

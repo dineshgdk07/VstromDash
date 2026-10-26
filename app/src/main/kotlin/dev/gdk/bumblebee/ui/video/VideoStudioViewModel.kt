@@ -150,8 +150,9 @@ class VideoStudioViewModel(app: Application, private val rideId: Long) : Android
     /** The bike and photos the preview needs, decoded once per visit. */
     private fun assetsFor(plan: RideVideoPlan): dev.gdk.bumblebee.video.VideoAssets {
         val app = getApplication<Application>()
-        val bike = if (plan.config.marker == dev.gdk.bumblebee.video.MarkerStyle.BIKE) {
-            val res = dev.gdk.bumblebee.bike.BikeProfile(app).variant.image
+        val variant = dev.gdk.bumblebee.bike.BikeProfile(app).variant
+        val bike = if (plan.config.marker == dev.gdk.bumblebee.video.MarkerStyle.BIKE_PHOTO) {
+            val res = variant.image
             bikePicture?.takeIf { it.first == res }?.second
                 ?: android.graphics.BitmapFactory.decodeResource(app.resources, res)?.also { bikePicture = res to it }
         } else {
@@ -161,7 +162,7 @@ class VideoStudioViewModel(app: Application, private val rideId: Long) : Android
             val id = m.photoId ?: return@mapNotNull null
             (pictureCache[id] ?: photoStore.bitmap(rideId, id, 900)?.also { pictureCache[id] = it })?.let { id to it }
         }.toMap()
-        return dev.gdk.bumblebee.video.VideoAssets(bike, photos)
+        return dev.gdk.bumblebee.video.VideoAssets(bike, photos, variant.paint.toArgb() and 0xFFFFFF)
     }
 
     /** Photo thumbnails for the list, small. */
