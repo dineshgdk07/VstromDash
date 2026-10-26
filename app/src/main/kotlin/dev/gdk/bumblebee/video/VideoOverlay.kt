@@ -49,7 +49,7 @@ class VideoOverlay(private val plan: RideVideoPlan, private val fonts: VideoFont
                 // The HUD fades in over the first half second of the ride.
                 val since = t - plan.timeline.introS
                 hud(cue, (since / 0.5).coerceIn(0.0, 1.0).toFloat())
-                if (cue.shot == Shot.HOLD && cue.moment != null) momentCard(cue.moment, cue.progress)
+                cue.moment?.let { if (cue.shot == Shot.HOLD) momentCard(it, cue.progress) }
             }
             Shot.FINISH -> {
                 hud(cue, (1 - cue.progress / 0.25).coerceIn(0.0, 1.0).toFloat())
