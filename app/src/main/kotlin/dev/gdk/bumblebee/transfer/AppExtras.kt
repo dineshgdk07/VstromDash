@@ -1,27 +1,24 @@
 package dev.gdk.bumblebee.transfer
 
 import android.content.Context
-import dev.gdk.bumblebee.snapshot.SnapshotFile
 import dev.gdk.bumblebee.snapshot.SnapshotSettings
-import java.io.File
 
 /**
- * What the app keeps outside the database and the garage folder: its settings stores (bike
- * profile, saved places, share and video choices…) and the ride video photos and music. A pack
- * carries them so a new phone, or the store build after a test build, picks up where this left off.
+ * What the app keeps outside the database and the garage folder that a pack carries: its settings
+ * stores (bike profile, saved places, share and video choices…), so a new phone, or the store
+ * build after a test build, picks up where this left off. Media (photos picked for ride videos,
+ * the music, rendered videos and cards) isn't packed: it's heavy and easy to add again.
  */
 interface AppExtras {
     fun settings(): SnapshotSettings
-    fun files(): List<SnapshotFile>
 
-    /** Puts them back; [rideIds] maps the pack's ride ids to this phone's. Returns what it did. */
-    fun restore(settings: SnapshotSettings, files: List<SnapshotFile>, rideIds: Map<Long, Long>, overwrite: Boolean, onStep: (String) -> Unit): List<String>
+    /** Puts them back; returns what it did. */
+    fun restore(settings: SnapshotSettings, onStep: (String) -> Unit): List<String>
 
     companion object {
         val NONE = object : AppExtras {
             override fun settings() = SnapshotSettings()
-            override fun files() = emptyList<SnapshotFile>()
-            override fun restore(settings: SnapshotSettings, files: List<SnapshotFile>, rideIds: Map<Long, Long>, overwrite: Boolean, onStep: (String) -> Unit) = emptyList<String>()
+            override fun restore(settings: SnapshotSettings, onStep: (String) -> Unit) = emptyList<String>()
         }
     }
 }
@@ -41,14 +38,7 @@ class AndroidAppExtras(context: Context) : AppExtras {
         return SnapshotSettings(stores)
     }
 
-    override fun files(): List<SnapshotFile> = FOLDERS.flatMap { folder ->
-        val root = File(app.filesDir, folder)
-        root.walkTopDown().filter { it.isFile }.map { f ->
-            SnapshotFile.lazy("$EXTRA/$folder/${f.relativeTo(root).invariantSeparatorsPath}") { f.readBytes() }
-        }.toList()
-    }
-
-    override fun restore(settings: SnapshotSettings, files: List<SnapshotFile>, rideIds: Map<Long, Long>, overwrite: Boolean, onStep: (String) -> Unit): List<String> {
+    override fun restore(settings: SnapshotSettings, onStep: (String) -> Unit): List<String> {
         val done = mutableListOf<String>()
         if (settings.stores.isNotEmpty()) {
             onStep("Restoring settings")
@@ -75,45 +65,10 @@ class AndroidAppExtras(context: Context) : AppExtras {
             }
             done += "Settings: $keys values in ${settings.stores.size} groups"
         }
-        val extras = files.filter { it.relativePath.startsWith("$EXTRA/") }
-        if (extras.isNotEmpty()) {
-            onStep("Restoring ride video photos and music")
-            var photos = 0
-            var music = 0
-            var skipped = 0
-            for (file in extras) {
-                val parts = file.relativePath.removePrefix("$EXTRA/").split('/')
-                if (parts.size < 2 || parts.any { it.isEmpty() || it == "." || it == ".." }) continue
-                val target = when (parts[0]) {
-                    PHOTOS -> {
-                        // Photos live under their ride's id, which may be different here.
-                        val local = parts.getOrNull(1)?.toLongOrNull()?.let { rideIds[it] }
-                        if (local == null) {
-                            skipped++
-                            continue
-                        }
-                        File(app.filesDir, (listOf(PHOTOS, local.toString()) + parts.drop(2)).joinToString("/"))
-                    }
-                    MUSIC -> File(app.filesDir, parts.joinToString("/"))
-                    else -> continue
-                }
-                if (target.exists() && !overwrite) continue
-                target.parentFile?.mkdirs()
-                target.writeBytes(file.bytes)
-                if (parts[0] == PHOTOS) photos++ else music++
-            }
-            if (photos > 0) done += "Ride video photos: $photos files"
-            if (music > 0) done += "Music: the soundtrack and its beat"
-            if (skipped > 0) done += "Skipped $skipped photo files whose ride wasn't brought in"
-        }
         return done
     }
 
     companion object {
-        const val EXTRA = "extra"
-        private const val PHOTOS = "video-photos"
-        private const val MUSIC = "video-music"
-        private val FOLDERS = listOf(PHOTOS, MUSIC)
 
         /**
          * Settings stores to carry, and which keys (null for all). Left out: the bike link and

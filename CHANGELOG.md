@@ -12,10 +12,11 @@ All notable changes to Bumblebee. Versions follow [Semantic Versioning](https://
   show the step, a progress bar and a timestamped log, and finish with a summary. A ride still
   being recorded, or a paper whose scan is gone, is left out and said, instead of blocking the
   pack. Bringing a pack into a phone that had never saved a garage paper no longer fails.
-- **Backups carry everything:** besides rides, fuel, service, papers and the bike link, a pack
-  now holds all settings (bike profile and SOS message, saved places, share, Studio, advanced and
-  the rest), the ride video photos (moved to the right ride on the other phone) and the music.
-  Navigation API keys stay behind: they're locked to the phone they were entered on.
+- **Backups carry all settings:** besides rides, fuel, service, papers and the bike link, a pack
+  now holds every setting (bike profile and SOS message, saved places, share, Studio, advanced and
+  the rest). Media stays out to keep packs small: rendered videos and cards, photos picked for
+  ride videos and the music. Navigation API keys stay behind too: they're locked to the phone
+  they were entered on.
 - **Crash texts are followed until they go out.** Each text now reports back from the phone
   network; with no signal it's retried for about 25 minutes, and the alarm shows how many got
   through, which are still being tried, or which couldn't be sent, instead of saying "texted"

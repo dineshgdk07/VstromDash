@@ -76,7 +76,6 @@ class TransferRepository(
         val all = captured.bundle.copy(
             prefs = prefs.toSnapshotPrefs(widget.read()),
             settings = extras.settings(),
-            files = captured.bundle.files + extras.files(),
         )
         val issues = packIssues(all, captured.missingFiles).map { issue ->
             when (issue.message) {
@@ -120,7 +119,7 @@ class TransferRepository(
         val plan = planApply(bundle, here, overwriteClashes)
         val steps = 9f
         var n = 0
-        val rideIds = archive.apply(bundle, overwriteClashes) { step -> events.step(step, (++n / steps).coerceAtMost(0.9f)) }
+        archive.apply(bundle, overwriteClashes) { step -> events.step(step, (++n / steps).coerceAtMost(0.9f)) }
         val done = mutableListOf<String>()
         val added = plan.rides.count { it.action != RowAction.KEEP }
         done += "Rides: $added brought in" + if (added < bundle.rides.size) ", ${bundle.rides.size - added} already here" else ""
@@ -135,12 +134,7 @@ class TransferRepository(
         } else {
             done += "Kept this phone's settings (choose overwrite to take the pack's)"
         }
-        done += extras.restore(
-            if (withSettings) bundle.settings else bundle.settings.copy(stores = emptyMap()),
-            bundle.files,
-            rideIds,
-            overwriteClashes,
-        ) { events.step(it, 0.96f) }
+        if (withSettings) done += extras.restore(bundle.settings) { events.step(it, 0.96f) }
         // Kept until it's in, so a failed apply can be tried again.
         spoolDir?.deleteRecursively()
         events.step("Done", 1f)
@@ -179,7 +173,6 @@ class TransferRepository(
                 telemetry = b.telemetry.filter { it.rideId !in open },
                 tracks = b.tracks.filter { it.rideId !in open },
                 fuel = b.fuel.map { f -> if (f.rideId?.let { it in open } == true) f.copy(rideId = null) else f },
-                files = b.files.filter { f -> open.none { f.relativePath.startsWith("${AndroidAppExtras.EXTRA}/video-photos/$it/") } },
             )
         }
     }

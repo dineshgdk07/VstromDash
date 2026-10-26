@@ -144,7 +144,8 @@ private fun TransferBody(
         if (ui.phase == TransferPhase.PACK) {
             ChunkyButton(text = "Bring in a pack file", onClick = onOpen, style = ChunkyStyle.Outline)
             Text(
-                "A pack holds your rides, fuel log, garage papers and scans, settings, ride video photos and music. " +
+                "A pack holds your rides, fuel log, service log, garage papers and scans, and settings. " +
+                    "Not packed: rendered videos and cards, photos picked for ride videos and the music. " +
                     "Navigation API keys stay on this phone (they're locked to it): enter them again on the other one.",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,

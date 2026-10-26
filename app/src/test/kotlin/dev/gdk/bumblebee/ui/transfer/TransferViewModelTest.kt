@@ -36,7 +36,7 @@ class TransferViewModelTest {
         assertEquals("PACK THE BIKE", ui.shout)
         assertTrue(ui.canSave)
         assertEquals(
-            listOf("Rides and tracks", "Fuel log", "Daily rollups", "Service and plans", "Garage papers", "Settings", "Ride video photos", "Music", "Paired bike"),
+            listOf("Rides and tracks", "Fuel log", "Daily rollups", "Service and plans", "Garage papers", "Settings", "Paired bike"),
             ui.rows.map { it.title },
         )
         assertEquals("yes", ui.rows.last().detail)

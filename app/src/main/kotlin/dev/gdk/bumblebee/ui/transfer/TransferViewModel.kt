@@ -2,7 +2,6 @@ package dev.gdk.bumblebee.ui.transfer
 
 import androidx.lifecycle.ViewModel
 import dev.gdk.bumblebee.snapshot.SnapshotBundle
-import dev.gdk.bumblebee.transfer.AndroidAppExtras
 import dev.gdk.bumblebee.transfer.BringIn
 import dev.gdk.bumblebee.transfer.PackPreview
 import dev.gdk.bumblebee.transfer.TransferGateway
@@ -36,10 +35,7 @@ class TransferViewModel(val repository: TransferGateway) : ViewModel() {
 
     private fun packUi(preview: PackPreview): TransferUi {
         val bundle = preview.bundle
-        val extra = "${AndroidAppExtras.EXTRA}/"
-        val photos = bundle.files.count { it.relativePath.startsWith("${extra}video-photos/") && it.relativePath.endsWith(".jpg") }
-        val music = bundle.files.any { it.relativePath.startsWith("${extra}video-music/") }
-        val scans = bundle.files.count { !it.relativePath.startsWith(extra) }
+        val scans = bundle.files.size
         return TransferUi(
             phase = TransferPhase.PACK,
             shout = "PACK THE BIKE",
@@ -52,8 +48,6 @@ class TransferViewModel(val repository: TransferGateway) : ViewModel() {
                 CheckRow("Service and plans", (bundle.services.size + bundle.plans.size).toString(), CheckState.DONE),
                 CheckRow("Garage papers", "${bundle.documents.size} (${scans} scans)", CheckState.DONE),
                 CheckRow("Settings", "${bundle.settings.keyCount} values", CheckState.DONE),
-                CheckRow("Ride video photos", photos.toString(), CheckState.DONE),
-                CheckRow("Music", if (music) "yes" else "none", CheckState.DONE),
                 CheckRow("Paired bike", if (bundle.prefs.bikeMac != null) "yes" else "no", CheckState.DONE),
             ),
             message = preview.issues.firstOrNull()?.message,
