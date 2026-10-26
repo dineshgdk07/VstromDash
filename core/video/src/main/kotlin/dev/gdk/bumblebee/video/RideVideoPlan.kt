@@ -58,7 +58,15 @@ data class RideVideoInput(
     /** Fuel gauge readings: when, and how many bars. */
     val fuelBars: List<Pair<Long, Int>> = emptyList(),
     val photos: List<RidePhoto> = emptyList(),
+    /** The rider's soundtrack, analysed; null for a silent video. */
+    val music: MusicTrack? = null,
 )
+
+/**
+ * The trail's colour per route point (0..1 along the ramp), and the legend's words: [title],
+ * the [low] and [high] ends, and an optional [mid].
+ */
+class TrailScale(val color: TrailColor, val values: FloatArray, val title: String, val low: String, val high: String, val mid: String? = null)
 
 /**
  * A ride turned into everything the renderer needs: terrain, the trimmed route, moments, the
@@ -86,6 +94,10 @@ class RideVideoPlan private constructor(
     val labels: List<PlaceLabel>,
     /** Every added photo and where it went, or why it couldn't. */
     val photoSpots: List<PhotoSpot>,
+    /** Round distances and heights passed, for bursts; empty when off. */
+    val milestones: List<Milestone>,
+    /** How the soundtrack sits under the video; null when silent. */
+    val music: MusicCue?,
     private val alongTs: LongArray,
     private val alongD: DoubleArray,
     private val speedKmh: DoubleArray,
@@ -99,6 +111,54 @@ class RideVideoPlan private constructor(
     val routeKm: Double get() = path.length / 1000
 
     fun timeOf(frame: Int): Double = frame.toDouble() / fps
+
+    /** 0..1 flash on each music beat, scaled by the rider's pulse strength. */
+    fun beatPulse(t: Double): Double = (music?.pulse(t) ?: 0.0) * config.beatPulse
+
+    /** Video time each milestone is reached. */
+    val milestoneTimes: List<Double> by lazy { milestones.map { timeline.timeAt(it.distanceM) } }
+
+    /** The trail's colours along the route, or null for a plain accent trail. */
+    val trail: TrailScale? by lazy {
+        val n = path.points.size
+        when (config.trailColor) {
+            TrailColor.ACCENT -> null
+            TrailColor.SPEED -> {
+                if (alongD.isEmpty()) return@lazy null
+                val raw = DoubleArray(n) { speedAt(path.along[it]).toDouble() }
+                val sorted = raw.sorted()
+                val lo = floor5(sorted[(n * 0.05).toInt().coerceIn(0, n - 1)])
+                val hi = max(lo + 10, ceil5(sorted[(n * 0.95).toInt().coerceIn(0, n - 1)]))
+                TrailScale(TrailColor.SPEED, smooth(FloatArray(n) { ((raw[it] - lo) / (hi - lo)).coerceIn(0.0, 1.0).toFloat() }), "SPEED", "${lo.roundToInt()}", "${hi.roundToInt()} KM/H")
+            }
+            TrailColor.CLIMB -> {
+                if (flat) return@lazy null
+                val full = TrailRamp.FULL_GRADE
+                val v = FloatArray(n) { i ->
+                    val d = path.along[i]
+                    val a = (d - 40).coerceAtLeast(0.0)
+                    val b = (d + 40).coerceAtMost(path.length)
+                    val grade = if (b - a < 1) 0.0 else (altitudeAt(b) - altitudeAt(a)) / (b - a)
+                    (0.5 + grade / full / 2).coerceIn(0.0, 1.0).toFloat()
+                }
+                val pct = (full * 100).roundToInt()
+                TrailScale(TrailColor.CLIMB, smooth(v), "GRADIENT", "−$pct%", "+$pct%", "0")
+            }
+        }
+    }
+
+    private fun smooth(v: FloatArray, r: Int = 5): FloatArray = FloatArray(v.size) { i ->
+        var s = 0f
+        var c = 0
+        for (k in max(0, i - r)..min(v.lastIndex, i + r)) {
+            s += v[k]
+            c++
+        }
+        s / c
+    }
+
+    private fun floor5(x: Double) = kotlin.math.floor(x / 5) * 5
+    private fun ceil5(x: Double) = kotlin.math.ceil(x / 5) * 5
 
     private val sunLat = input.track.first().lat
     private val sunLng = input.track.first().lng
@@ -417,12 +477,22 @@ class RideVideoPlan private constructor(
 
             val length = VideoLength.range((total) / 1000, candidates.size)
             val totalS = (config.lengthS ?: length.recommended).coerceIn(length.min, length.max).toDouble()
-            val probe = VideoTimeline(totalS, path.length, emptyList())
+            val track = input.music?.takeIf { config.music && it.durationS > 1 }
+            // Very fast tracks are timed to every other beat.
+            val beat = track?.takeIf { config.beatSync && it.beats.size > 4 }?.beatS?.let { if (it < 0.33) it * 2 else it }
+            val probe = VideoTimeline(totalS, path.length, emptyList(), beatS = beat)
             val moments = Moments.pick(candidates, path.length, probe.rideS)
             val twistWindow = max(600.0, path.length * 0.02)
             // The teaser is the most important moment.
             val teaser = if (config.coldOpen) moments.minByOrNull { it.kind.rank } else null
-            val timeline = VideoTimeline(totalS, path.length, moments, teaser) { d -> path.twistiness(d, twistWindow) * 2 }
+            val timeline = VideoTimeline(totalS, path.length, moments, teaser, beat) { d -> path.twistiness(d, twistWindow) * 2 }
+            val music = track?.let { MusicCue.place(it, totalS, timeline.rideStartS, config.musicStartS, config.musicVolume, config.musicFadeS, config.beatSync) }
+            val milestones = if (!config.milestones) emptyList() else Milestones.plan(
+                path.length, trimStart,
+                altitudeAt = if (flat) null else { d -> path.at(d).let { land.heightAt(it.x, it.y) } },
+                timeAt = timeline::timeAt,
+                holds = timeline.moments.map { timeline.timeAt(it.distanceM) },
+            )
             val director = CameraDirector(path, land, ex, config.shape.aspect, CameraStyle.of(config))
             val chapters = if (config.chapters) {
                 Chapters.plan(
@@ -441,6 +511,8 @@ class RideVideoPlan private constructor(
                 if (config.water && !flat) WaterLayer(land, mapTile).takeIf { it.any } else null,
                 if (config.placeLabels) labels(input.places, path, land) else emptyList(),
                 photoSpots,
+                milestones,
+                music,
                 alongTs, alongD, speeds, trimStart,
             )
         }

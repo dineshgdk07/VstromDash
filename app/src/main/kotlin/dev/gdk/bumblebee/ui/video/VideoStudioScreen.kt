@@ -78,6 +78,7 @@ import dev.gdk.bumblebee.video.PhotoSpot
 import dev.gdk.bumblebee.video.PreviewRenderer
 import dev.gdk.bumblebee.video.VideoPhotoStore
 import dev.gdk.bumblebee.video.RideVideoSource
+import dev.gdk.bumblebee.video.TrailColor
 import dev.gdk.bumblebee.video.VideoExportState
 import dev.gdk.bumblebee.video.VideoPreset
 import dev.gdk.bumblebee.video.VideoShape
@@ -143,15 +144,28 @@ private fun Setup(ui: StudioUi, failed: String?, vm: VideoStudioViewModel) {
     var time by remember { mutableDoubleStateOf(1.0) }
     var playing by remember { mutableStateOf(false) }
     val total = plan?.totalS ?: 1.0
-    LaunchedEffect(playing, total) {
-        if (!playing) return@LaunchedEffect
+    LaunchedEffect(playing, total, plan) {
+        if (!playing) {
+            vm.stopMusic()
+            return@LaunchedEffect
+        }
+        // The soundtrack plays along, so the beat lines up with what's on screen.
+        vm.playMusic(time)
         var last = withFrameNanos { it }
         while (playing) {
             val now = withFrameNanos { it }
-            time = (time + (now - last) / 1e9).let { if (it > total) 0.0 else it }
+            val next = time + (now - last) / 1e9
+            if (next > total) {
+                time = 0.0
+                vm.playMusic(0.0)
+            } else {
+                time = next
+                vm.musicAt(time)
+            }
             last = now
         }
     }
+    DisposableEffect(Unit) { onDispose { vm.stopMusic() } }
     Column(Modifier.fillMaxSize()) {
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
@@ -289,18 +303,16 @@ private fun Setup(ui: StudioUi, failed: String?, vm: VideoStudioViewModel) {
                 }
             }
 
+            MotionSection(ui, vm)
+
+            MusicSection(ui, vm)
+
             SectionCard(header = { SectionLabel(text = "Trail and finish") }) {
                 Tune("Trail width", config.pathWidth, 0.5..2.5, closer = "Fine", further = "Bold") { v -> vm.update { it.copy(pathWidth = v) } }
                 Tune("Glow", config.glow, 0.0..2.0, closer = "None", further = "Bright") { v -> vm.update { it.copy(glow = v) } }
                 Toggle("Vignette", config.vignette) { v -> vm.update { it.copy(vignette = v) } }
                 Toggle("Film grain", config.grain) { v -> vm.update { it.copy(grain = v) } }
             }
-            Text(
-                "More is coming to the Studio: kinetic type, a speed-coloured trail, milestone bursts and music.",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
         }
         Box(Modifier.fillMaxWidth().padding(16.dp)) {
             ChunkyButton(
@@ -415,6 +427,7 @@ private fun Result(
             style = MaterialTheme.typography.bodySmall,
             color = TextSecondary,
         )
+        done.note?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = TextSecondary) }
         (savedTo ?: message)?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = if (savedTo != null) Lime else TextSecondary) }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(Modifier.weight(1f)) { ChunkyButton(text = if (savedTo != null) "Saved" else "Save to gallery", onClick = onSave, style = ChunkyStyle.Outline, enabled = savedTo == null) }
@@ -428,6 +441,112 @@ private fun Result(
                 }
             }
             Box(Modifier.padding(top = 10.dp)) { ChunkyButton(text = "Change the style", onClick = { onAgain(null) }, style = ChunkyStyle.Outline, compact = true) }
+        }
+    }
+}
+
+/** How the trail is coloured, type that moves, and bursts at round numbers. */
+@Composable
+private fun MotionSection(ui: StudioUi, vm: VideoStudioViewModel) {
+    val config = ui.config
+    SectionCard(header = { SectionLabel(text = "Motion") }) {
+        Text("Trail colour", style = MaterialTheme.typography.bodyMedium, color = TextPrimary, modifier = Modifier.padding(top = 12.dp))
+        ChipRow(TrailColor.entries.toList(), config.trailColor, { it.label }) { c -> vm.update { it.copy(trailColor = c) } }
+        Text(
+            when (config.trailColor) {
+                TrailColor.SPEED -> "The ridden line shows how fast you went: blue when slow, through green and yellow, to red at your fastest."
+                TrailColor.CLIMB -> "The ridden line shows the gradient: blue downhill, pale on the flat, orange to red up the steep bits."
+                TrailColor.ACCENT -> "The ridden line glows in your accent colour."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        if (config.trailColor == TrailColor.CLIMB && ui.plan?.flat == true) {
+            Text("No terrain for this ride yet, so the trail can't show climbs.", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        }
+        if (config.trailColor != TrailColor.ACCENT) {
+            Toggle("Colour key in the corner", config.trailLegend) { v -> vm.update { it.copy(trailLegend = v) } }
+        }
+        Toggle("Kinetic type: titles type on, numbers count up", config.kineticType) { v -> vm.update { it.copy(kineticType = v) } }
+        Toggle("Milestone bursts at round distances and heights", config.milestones) { v -> vm.update { it.copy(milestones = v) } }
+        ui.plan?.milestones?.takeIf { config.milestones }?.let { ms ->
+            Text(
+                if (ms.isEmpty()) "No round numbers fall clear of the highlights on this ride." else "This ride: " + ms.joinToString("  ·  ") { it.label },
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+            )
+        }
+    }
+}
+
+/**
+ * The soundtrack: the rider's own song, started so its drop hits as the camera dives in, with
+ * the cuts on the beat. Everything about it can be changed, and the preview plays it.
+ */
+@Composable
+private fun MusicSection(ui: StudioUi, vm: VideoStudioViewModel) {
+    val config = ui.config
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::pickMusic) }
+    SectionCard(header = { SectionLabel(text = "Music") }) {
+        Text(
+            "Pick a song from your phone. The app finds its beat, starts it so the drop hits as the camera dives in, " +
+                "and times the cuts to the beat. Press play on the preview to hear it.
+
+" +
+                "Use music you have the rights to: Instagram and YouTube may mute or block videos with copyrighted songs.",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+        val track = ui.music
+        if (ui.musicBusy) {
+            Text("Finding the beat…", style = MaterialTheme.typography.bodyMedium, color = TextPrimary, modifier = Modifier.padding(top = 12.dp))
+            LinearProgressIndicator(color = Lime, trackColor = SurfaceSunken, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+        } else if (track == null) {
+            Box(Modifier.padding(top = 12.dp)) {
+                ChunkyButton(text = "Choose a track", onClick = { pick.launch(arrayOf("audio/*")) }, style = ChunkyStyle.Outline, compact = true)
+            }
+        } else {
+            Text(
+                "♪  ${track.name}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextPrimary,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            Text("${clock(track.durationS)} · ${track.bpm.roundToInt()} BPM", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            Toggle("Music in the video", config.music) { v -> vm.updateKeepingPreset { it.copy(music = v) } }
+            if (config.music) {
+                Tune("Volume", config.musicVolume, 0.0..1.0, closer = "Quiet", further = "Full") { v -> vm.updateKeepingPreset { it.copy(musicVolume = v) } }
+                val auto = config.musicStartS == null
+                Toggle("Start at the drop (automatic)", auto) { v ->
+                    vm.updateKeepingPreset { it.copy(musicStartS = if (v) null else ui.plan?.music?.offsetS ?: 0.0) }
+                }
+                if (!auto) {
+                    Tune("Start ${clock(config.musicStartS ?: 0.0)} into the track", config.musicStartS ?: 0.0, 0.0..(track.durationS - 1).coerceAtLeast(1.0), closer = "0:00", further = clock(track.durationS)) { v ->
+                        vm.updateKeepingPreset { it.copy(musicStartS = v) }
+                    }
+                }
+                ui.plan?.music?.let { cue ->
+                    Text(
+                        "Plays from ${clock(cue.offsetS)} to ${clock(cue.offsetS + cue.endS)} of the track" +
+                            if (cue.endS < cue.totalS - 0.5) ", then ends before the video does." else ".",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                    )
+                }
+                Tune("Fade in and out  ${"%.1f".format(Locale.ENGLISH, config.musicFadeS)} s", config.musicFadeS, 0.0..5.0, closer = "Hard cut", further = "Slow") { v ->
+                    vm.updateKeepingPreset { it.copy(musicFadeS = v) }
+                }
+                Toggle("Cut on the beat: title, dive-in and cuts land on beats", config.beatSync) { v -> vm.updateKeepingPreset { it.copy(beatSync = v) } }
+                if (config.beatSync) {
+                    Tune("Pulse on the beat", config.beatPulse, 0.0..1.0, closer = "None", further = "Strong") { v -> vm.update { it.copy(beatPulse = v) } }
+                }
+            }
+            Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.weight(1f)) { ChunkyButton(text = "Change track", onClick = { pick.launch(arrayOf("audio/*")) }, style = ChunkyStyle.Outline, compact = true) }
+                Box(Modifier.weight(1f)) { ChunkyButton(text = "Remove", onClick = vm::removeMusic, style = ChunkyStyle.Neutral, compact = true) }
+            }
         }
     }
 }

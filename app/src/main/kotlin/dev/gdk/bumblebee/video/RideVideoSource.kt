@@ -47,6 +47,7 @@ object RideVideoSource {
             sunTag = sunTag(ride.startTs, ride.endTs ?: ride.startTs, track, zone),
             fuelBars = fuelBars(app, rideId),
             photos = VideoPhotoStore(app).list(rideId),
+            music = MusicStore(app).track(),
         )
     }
 

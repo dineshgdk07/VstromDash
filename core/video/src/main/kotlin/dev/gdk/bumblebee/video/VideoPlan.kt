@@ -185,11 +185,13 @@ class VideoTimeline(
     val routeLengthM: Double,
     moments: List<VideoMoment>,
     val teaser: VideoMoment? = null,
+    /** The music's beat in seconds, to time the cold open and intro to whole beats; null for free timing. */
+    beatS: Double? = null,
     interest: (distanceM: Double) -> Double = { 0.0 },
 ) {
-    val coldS = if (teaser == null) 0.0 else (totalS * 0.09).coerceIn(2.0, 3.0)
+    val coldS = if (teaser == null) 0.0 else onBeats((totalS * 0.09).coerceIn(2.0, 3.0), beatS, 1.8, 3.6, bar = false)
     private val mainS = totalS - coldS
-    val introS = max(3.0, mainS * 0.15)
+    val introS = onBeats(max(3.0, mainS * 0.15), beatS, 3.0, max(3.5, mainS * 0.22), bar = true)
     val finishS = max(4.5, mainS * 0.24)
     val rideS = max(1.0, mainS - introS - finishS)
 
@@ -272,5 +274,18 @@ class VideoTimeline(
 
     companion object {
         const val HOLD_S = 2.2
+
+        /**
+         * [s] rounded to whole beats (whole bars of four when [bar] and a bar fits) and kept in
+         * [lo]..[hi]; [s] unchanged without a beat.
+         */
+        fun onBeats(s: Double, beatS: Double?, lo: Double, hi: Double, bar: Boolean): Double {
+            if (beatS == null || beatS <= 0) return s
+            val unit = if (bar && beatS * 4 <= hi) beatS * 4 else beatS
+            var n = max(1, (s / unit).roundToInt())
+            while (n * unit > hi && n > 1) n--
+            while (n * unit < lo && (n + 1) * unit <= hi) n++
+            return n * unit
+        }
     }
 }

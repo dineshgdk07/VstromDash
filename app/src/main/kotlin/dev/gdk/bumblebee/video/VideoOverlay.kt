@@ -85,8 +85,98 @@ class VideoOverlay(
                 if (cfg.finishCard) finish(cue.progress)
             }
         }
+        milestone(t)
         flash(t)
         return bitmap
+    }
+
+    /**
+     * A milestone's number, big and centred above the rider: it punches in past full size and
+     * settles, the words under it type on, then it all lifts away.
+     */
+    private fun milestone(t: Double) {
+        for ((k, tm) in plan.milestoneTimes.withIndex()) {
+            val dt = t - tm
+            if (dt < 0 || dt > MILESTONE_S) continue
+            val m = plan.milestones[k]
+            val a = when {
+                dt < 0.12 -> dt / 0.12
+                dt > MILESTONE_S - 0.35 -> (MILESTONE_S - dt) / 0.35
+                else -> 1.0
+            }.toFloat()
+            val pop = if (cfg.kineticType) overshoot((dt / 0.45).coerceIn(0.0, 1.0)) else 1.0
+            val lift = if (dt > MILESTONE_S - 0.35) ((dt - (MILESTONE_S - 0.35)) / 0.35 * 40 * u).toFloat() else 0f
+            val cy = height * (if (wide) 0.30f else 0.27f) - lift
+            val size = (if (wide) 150 else 170) * u
+            canvas.save()
+            canvas.scale(pop.toFloat(), pop.toFloat(), width / 2f, cy - size * 0.35f)
+            text.textAlign = Paint.Align.CENTER
+            label(m.label, width / 2f, cy, fitSize(m.label, fonts.display, size, width * 0.86f), Color.WHITE, a, fonts.display)
+            canvas.restore()
+            val words = (dt / 0.6).coerceIn(0.0, 1.0)
+            kinetic(m.detail, width / 2f, cy + 58 * u, 30 * u, accent, a, fonts.labelBold, 0.3f, words, center = true)
+            text.textAlign = Paint.Align.LEFT
+        }
+    }
+
+    /** A spring past 1 and back: 0 → about 1.12 → 1. */
+    private fun overshoot(p: Double): Double {
+        val c = 2.2
+        val x = p - 1
+        return 1 + (c + 1) * x * x * x + c * x * x
+    }
+
+    /**
+     * Text that types itself on: each letter rises and fades in a little after the one before,
+     * over [p] 0..1. Without kinetic type it simply appears.
+     */
+    private fun kinetic(s: String, x: Float, y: Float, size: Float, color: Int, a: Float, face: Typeface, tracking: Float, p: Double, center: Boolean = false) {
+        if (!cfg.kineticType || p >= 1.0) {
+            if (center) text.textAlign = Paint.Align.CENTER
+            label(s, x, y, size, color, a, face, tracking)
+            text.textAlign = Paint.Align.LEFT
+            return
+        }
+        text.typeface = face
+        text.textSize = size
+        text.letterSpacing = tracking
+        val full = text.measureText(s)
+        var left = if (center) x - full / 2 else x
+        val spread = 6.0
+        val n = s.length
+        text.textAlign = Paint.Align.LEFT
+        for (i in 0 until n) {
+            val local = ((p * (n + spread) - i) / spread).coerceIn(0.0, 1.0)
+            val e = 1 - (1 - local) * (1 - local)
+            val ch = s.substring(i, i + 1)
+            text.typeface = face
+            text.textSize = size
+            text.letterSpacing = tracking
+            val w = text.measureText(s, 0, i + 1) - text.measureText(s, 0, i)
+            if (e > 0) label(ch, left, y + ((1 - e) * size * 0.45).toFloat(), size, color, a * e.toFloat(), face, tracking)
+            left += w
+        }
+    }
+
+    /**
+     * [s] with its first number counted up from zero: "112 km/h" at [p] 0.5 shows "56 km/h". Keeps
+     * the number's commas and decimals; "2:15" counts minutes. Unchanged without kinetic type.
+     */
+    private fun countUp(s: String, p: Double): String {
+        if (!cfg.kineticType || p >= 1.0) return s
+        val e = 1 - (1 - p.coerceIn(0.0, 1.0)).let { it * it * it }
+        CLOCK_RE.find(s)?.let { m ->
+            val mins = m.groupValues[1].toInt() * 60 + m.groupValues[2].toInt()
+            val now = (mins * e).toInt()
+            return s.replaceRange(m.range, String.format(Locale.ENGLISH, "%d:%02d", now / 60, now % 60))
+        }
+        val m = NUMBER_RE.find(s) ?: return s
+        val raw = m.value
+        val value = raw.replace(",", "").toDoubleOrNull() ?: return s
+        val decimals = raw.substringAfter('.', "").length
+        val now = value * e
+        val shown = if (decimals > 0) String.format(Locale.ENGLISH, "%,.${decimals}f", now) else String.format(Locale.ENGLISH, "%,d", now.toLong())
+        return s.replaceRange(m.range, if (raw.contains(',')) shown else shown.replace(",", ""))
     }
 
     /**
@@ -234,7 +324,7 @@ class VideoOverlay(
     private fun teaser(m: VideoMoment, p: Double) {
         val a = (min(p, 1 - p) / 0.15).coerceIn(0.0, 1.0).toFloat()
         highlight(m, 0.5, alphaOverride = a)
-        label("TODAY'S RIDE", 56 * u, height - 120 * u, 28 * u, Color.WHITE, a * 0.8f, fonts.labelBold, tracking = 0.25f)
+        kinetic("TODAY'S RIDE", 56 * u, height - 120 * u, 28 * u, Color.WHITE, a * 0.8f, fonts.labelBold, 0.25f, (p / 0.4).coerceIn(0.0, 1.0))
     }
 
     /** "Chapter 2 · The climb", top left, for a couple of seconds as each act begins. */
@@ -254,7 +344,8 @@ class VideoOverlay(
         var y = 150 * u
         label("CHAPTER ${c.number}", left - slide, y, 26 * u, accent, a, fonts.labelBold, tracking = 0.3f)
         y += 70 * u
-        label(c.title.uppercase(Locale.ENGLISH), left - slide, y, fitSize(c.title.uppercase(Locale.ENGLISH), fonts.display, 76 * u, width - left * 2), Color.WHITE, a, fonts.display)
+        val name = c.title.uppercase(Locale.ENGLISH)
+        kinetic(name, left - slide, y, fitSize(name, fonts.display, 76 * u, width - left * 2), Color.WHITE, a, fonts.display, 0f, (since / 0.7).coerceIn(0.0, 1.0))
         c.detail?.let { label(it, left - slide, y + 44 * u, 28 * u, Color.WHITE, a * 0.8f, fonts.label) }
     }
 
@@ -275,7 +366,7 @@ class VideoOverlay(
         }
         y -= 52 * u
         val titleSize = fitSize(plan.title.uppercase(Locale.ENGLISH), fonts.display, (if (wide) 96 else 112) * u, width - left * 2)
-        label(plan.title.uppercase(Locale.ENGLISH), left, y, titleSize, Color.WHITE, a, fonts.display)
+        kinetic(plan.title.uppercase(Locale.ENGLISH), left, y, titleSize, Color.WHITE, a, fonts.display, 0f, ((p - 0.02) / 0.3).coerceIn(0.0, 1.0))
         y -= titleSize * 1.05f
         label(plan.dateLine.uppercase(Locale.ENGLISH), left, y, 28 * u, accent, a, fonts.labelBold, tracking = 0.08f)
         plan.tagsLine?.let { tags ->
@@ -287,6 +378,7 @@ class VideoOverlay(
     private fun hud(cue: Cue, a: Float) {
         if (a <= 0f) return
         if (cfg.clock) clock(cue.distanceM, a)
+        if (cfg.trailLegend) plan.trail?.let { legend(it, a) }
         if (!cfg.hud && !cfg.elevationStrip) return
         val d = cue.distanceM
         val stripH = if (cfg.elevationStrip) 40 * u else 0f
@@ -355,6 +447,29 @@ class VideoOverlay(
         label(String.format(Locale.ENGLISH, "%,d m", plan.altitudeAt(d).toInt()), colX + 70 * u, top + 172 * u, 34 * u, Color.WHITE, a, fonts.mono)
     }
 
+    /** The trail's colour key, top right under the clock: a small bar with its two ends named. */
+    private fun legend(trail: TrailScale, a: Float) {
+        val stops = TrailRamp.stops(trail.color) ?: return
+        val right = width - 48 * u
+        val barW = 220 * u
+        val top = (if (cfg.clock) 108 else 60) * u
+        val left = right - barW
+        val colors = IntArray(stops.size) { Color.argb((a * 255).toInt(), (stops[it] shr 16) and 255, (stops[it] shr 8) and 255, stops[it] and 255) }
+        fill.shader = LinearGradient(left, 0f, right, 0f, colors, null, Shader.TileMode.CLAMP)
+        canvas.drawRoundRect(RectF(left, top + 30 * u, right, top + 40 * u), 5 * u, 5 * u, fill)
+        fill.shader = null
+        text.textAlign = Paint.Align.RIGHT
+        label(trail.title, right, top + 20 * u, 20 * u, Color.WHITE, a * 0.75f, fonts.labelBold, tracking = 0.2f)
+        label(trail.high, right, top + 66 * u, 20 * u, Color.WHITE, a * 0.85f, fonts.labelBold, tracking = 0.05f)
+        text.textAlign = Paint.Align.LEFT
+        label(trail.low, left, top + 66 * u, 20 * u, Color.WHITE, a * 0.85f, fonts.labelBold, tracking = 0.05f)
+        trail.mid?.let {
+            text.textAlign = Paint.Align.CENTER
+            label(it, (left + right) / 2, top + 66 * u, 20 * u, Color.WHITE, a * 0.6f, fonts.labelBold)
+            text.textAlign = Paint.Align.LEFT
+        }
+    }
+
     /** Time of day, top right, small. */
     private fun clock(d: Double, a: Float) {
         text.typeface = fonts.labelBold
@@ -386,7 +501,9 @@ class VideoOverlay(
         stroke.strokeWidth = 4.5f * u
         stroke.color = accent
         stroke.alpha = (a * 255).toInt()
+        stripShader(x, w, a)?.let { stroke.shader = it }
         canvas.drawPath(path, stroke)
+        stroke.shader = null
         canvas.restore()
         // Moments as ticks on the strip.
         fill.color = accent
@@ -398,6 +515,20 @@ class VideoOverlay(
         fill.color = Color.WHITE
         fill.alpha = (a * 255).toInt()
         canvas.drawCircle(head, y + h + 12 * u, 6 * u, fill)
+    }
+
+    /** The elevation strip's ridden line in the trail's colours, matching the route above it. */
+    private fun stripShader(x: Float, w: Float, a: Float): Shader? {
+        val trail = plan.trail ?: return null
+        val stops = TrailRamp.stops(trail.color) ?: return null
+        val n = 48
+        val colors = IntArray(n + 1) { k ->
+            val i = (trail.values.size - 1) * k / n
+            val c = TrailRamp.at(stops, trail.values[i].toDouble())
+            Color.argb((a * 255).toInt(), (c shr 16) and 255, (c shr 8) and 255, c and 255)
+        }
+        // Route points are evenly spaced along the route, as the strip is.
+        return LinearGradient(x, 0f, x + w, 0f, colors, null, Shader.TileMode.CLAMP)
     }
 
     private fun momentCard(m: VideoMoment, p: Double, alphaOverride: Float? = null) {
@@ -424,7 +555,7 @@ class VideoOverlay(
         fill.alpha = (a * 255).toInt()
         canvas.drawRoundRect(RectF(cx, cy, cx + 10 * u, cy + ch), 6 * u, 6 * u, fill)
         label(m.title.uppercase(Locale.ENGLISH), cx + 40 * u, cy + 60 * u, titleSize, accent, a, fonts.labelBold, tracking = 0.08f)
-        if (m.value.isNotBlank()) label(m.value, cx + 40 * u, cy + 160 * u, valueSize, Color.WHITE, a, fonts.display)
+        if (m.value.isNotBlank()) label(countUp(m.value, if (alphaOverride != null) 1.0 else p / 0.45), cx + 40 * u, cy + 160 * u, valueSize, Color.WHITE, a, fonts.display)
     }
 
     private fun finish(p: Double) {
@@ -439,7 +570,9 @@ class VideoOverlay(
         var y = height * (if (wide) 0.26f else 0.30f) + rise
         val title = plan.title.uppercase(Locale.ENGLISH)
         val ts = fitSize(title, fonts.display, 96 * u, width - left * 2)
-        label(title, left, y, ts, Color.WHITE, a, fonts.display)
+        // How far into the card, in seconds, for the type and the counting.
+        val shown = (p - from) * plan.timeline.finishS
+        kinetic(title, left, y, ts, Color.WHITE, a, fonts.display, 0f, (shown / 0.6).coerceIn(0.0, 1.0))
         y += 40 * u
         plan.placesLine?.let { label(it, left, y, 30 * u, Color.WHITE, a * 0.8f, fonts.label) }
         plan.tagsLine?.let { tags ->
@@ -451,7 +584,7 @@ class VideoOverlay(
         stats.forEachIndexed { i, (v, l) ->
             val x = left + (i % 2) * colW
             val yy = y + (i / 2) * 200 * u
-            label(v, x, yy, 120 * u, Color.WHITE, a, fonts.display)
+            label(countUp(v, ((shown - 0.25 - i * 0.12) / 1.1).coerceIn(0.0, 1.0)), x, yy, 120 * u, Color.WHITE, a, fonts.display)
             label(l, x + 4 * u, yy + 44 * u, 26 * u, accent, a, fonts.labelBold, tracking = 0.1f)
         }
         label("BUMBLEBEE", left, height - 92 * u, 26 * u, Color.WHITE, a * 0.7f, fonts.labelBold, tracking = 0.25f)
@@ -489,5 +622,8 @@ class VideoOverlay(
     private companion object {
         const val PROFILE_POINTS = 160
         const val CHAPTER_S = 2.4
+        const val MILESTONE_S = 1.7
+        val NUMBER_RE = Regex("""\d[\d,]*(\.\d+)?""")
+        val CLOCK_RE = Regex("""^(\d+):(\d\d)$""")
     }
 }

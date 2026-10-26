@@ -17,6 +17,11 @@ All notable changes to Bumblebee. Versions follow [Semantic Versioning](https://
   optional rider. It points along the road, leans into bends based on your real speed, casts a
   soft shadow and turns its headlamp on after dark. The glow dot and the bike photo are still
   options.
+- **Ride video motion and music:** the trail can be coloured by your speed or the gradient,
+  with a key; titles type themselves on and numbers count up; round distances and heights get a
+  burst of light. Add a song from your phone: the app finds its beat, starts it so the drop hits
+  as the camera dives in, lands the cuts on the beat and pulses the trail with it, with volume,
+  fades and start point adjustable. The preview plays it in time.
 
 ## [0.1.0] - 2026-10-25
 

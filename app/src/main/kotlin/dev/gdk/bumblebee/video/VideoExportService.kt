@@ -38,7 +38,7 @@ sealed interface VideoExportState {
     data class Working(val rideId: Long, val step: String, val fraction: Float?, val secondsLeft: Int? = null) : VideoExportState
 
     /** A finished video in the app's cache: [shareUri] works for sharing and playing it. */
-    data class Done(val rideId: Long, val file: File, val shareUri: Uri, val shape: VideoShape, val renderS: Int) : VideoExportState
+    data class Done(val rideId: Long, val file: File, val shareUri: Uri, val shape: VideoShape, val renderS: Int, val note: String? = null) : VideoExportState
     data class Failed(val rideId: Long, val reason: String) : VideoExportState
 }
 
@@ -93,9 +93,12 @@ class VideoExportService : Service() {
             val look = VideoLook(plan.sun, Accent.color.toArgb())
             val started = System.currentTimeMillis()
             val assets = withContext(Dispatchers.IO) { RideVideoSource.assets(app, plan, rideId) }
+            var note: String? = null
             try {
-                RideVideoExporter(app).render(plan, look, RideVideoSource.fonts(app), Accent.color.toArgb(), out, assets) { p ->
+                val music = if (plan.music != null) MusicStore(app).file() else null
+                note = RideVideoExporter(app).render(plan, look, RideVideoSource.fonts(app), Accent.color.toArgb(), out, assets, music) { p ->
                     when (p) {
+                        VideoProgress.Music -> scope.launch { step(rideId, "Adding music", null) }
                         is VideoProgress.Rendering -> {
                             val elapsed = (System.currentTimeMillis() - started) / 1000.0
                             val left = if (p.fraction > 0.03f) (elapsed / p.fraction * (1 - p.fraction)).toInt() else null
@@ -110,7 +113,7 @@ class VideoExportService : Service() {
             DevLog.d("video", "rendered ${plan.frameCount} frames in ${(System.currentTimeMillis() - started) / 1000} s, ${out.length() / 1024} KB")
             val uri = FileProvider.getUriForFile(this, "$packageName.share", out)
             tiles.trim()
-            _state.value = VideoExportState.Done(rideId, out, uri, config.shape, ((System.currentTimeMillis() - started) / 1000).toInt())
+            _state.value = VideoExportState.Done(rideId, out, uri, config.shape, ((System.currentTimeMillis() - started) / 1000).toInt(), note)
             notifyDone(uri)
         } catch (e: CancellationException) {
             _state.value = VideoExportState.Idle
