@@ -139,6 +139,9 @@ def hero():
     place(c, phone("Explore - Rider DNA.jpg", 320), 1550, 470, angle=-9)
     place(c, phone("Cockpit.jpg", 350), 1330, 450)
     save(c, "hero.jpg")
+    # The link preview in chats and social posts: GitHub's size, 1280×640, under 1 MB.
+    # Upload it once in the repo's Settings → General → Social preview.
+    save(c.resize((1280, 640), Image.LANCZOS), "social-preview.jpg")
 
 
 def strip(name, items, labels, phone_w=330, gap=60, height=None, angle_step=0.0):
