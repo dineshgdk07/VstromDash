@@ -1,31 +1,106 @@
-# VstromDash (Bumblebee)
+<p align="center">
+  <img src="docs/readme/hero.jpg" alt="Bumblebee: companion app for the V-Strom 250 SX" width="100%">
+</p>
 
-An unofficial, local-first companion app for the **Suzuki V-Strom 250 SX**. It talks to the bike's
-Bluetooth instrument cluster to show live telemetry on your phone, push turn-by-turn arrows from
-Google Maps to the cluster, and keep a private log of every ride, fill and service.
+<p align="center">
+  <a href="https://github.com/dineshgdk07/VstromDash/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/dineshgdk07/VstromDash?include_prereleases&label=release&color=F2CE1B&labelColor=111111"></a>
+  <a href="https://github.com/dineshgdk07/VstromDash/actions/workflows/ci.yml"><img alt="Build" src="https://img.shields.io/github/actions/workflow/status/dineshgdk07/VstromDash/ci.yml?branch=main&label=build&labelColor=111111"></a>
+  <img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-F2CE1B?logo=android&logoColor=white&labelColor=111111">
+  <img alt="Kotlin and Jetpack Compose" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-F2CE1B?logo=kotlin&logoColor=white&labelColor=111111">
+  <img alt="No account, no tracking" src="https://img.shields.io/badge/privacy-no%20account%20%C2%B7%20no%20tracking-F2CE1B?labelColor=111111">
+</p>
+
+<p align="center">
+  <a href="https://github.com/dineshgdk07/VstromDash/releases/latest"><b>Download the APK</b></a> ·
+  <a href="docs/INSTALL.md">Install guide</a> ·
+  <a href="#ride-films">Ride films</a> ·
+  <a href="#privacy">Privacy</a> ·
+  <a href="#build">Build</a>
+</p>
+
+**Bumblebee** is an unofficial, local-first companion app for the **Suzuki V-Strom 250 SX**. It
+links to the bike's Bluetooth instrument cluster for live telemetry, puts Google Maps' turn arrows
+on the bike's own display, logs every ride, fill and service, and turns your rides into share
+cards and cinematic 3D films. No account, no server, no tracking: it all stays on your phone.
 
 > **Not affiliated with Suzuki.** "Suzuki", "V-Strom" and "Suzuki Ride Connect" are trademarks of
-> Suzuki Motor Corporation. This is a personal hobby project built for one rider's own bike.
-> It is not a certified safety device. See [Disclaimer](#disclaimer).
+> Suzuki Motor Corporation. A hobby project, not a certified safety device. See [Disclaimer](#disclaimer).
 
-## What it does
+| | | |
+| :--- | :--- | :--- |
+| 🏍️ **Live cluster link**<br>Speed, odometer, trips, fuel bars and economy, straight from the bike | 🧭 **Arrows on the bike**<br>Google Maps' turns on the cluster, no key needed, or the app's own navigation | 🚨 **Crash alerts**<br>An "I'm OK" countdown, then SMS with your location, retried until it's sent |
+| 📈 **Every ride, replayed**<br>Splits, ride score, speed and elevation, a replay map and your usual pace | 🧰 **Your garage**<br>Fuel log, service plans, parts wear, papers with expiry reminders, costs | 🎬 **Ride films**<br>3D terrain flyovers of your rides with your bike, photos and music |
 
-| Tab | Highlights |
-| --- | --- |
-| **Cockpit** | Readiness check (fuel, weather, link, service), live trip computer, ride suggestions, odometer milestones, "on this day", where you parked |
-| **Journey** | Turn-by-turn on the cluster from Google Maps notifications (no key needed), or the app's own navigation with your Google or OpenRouteService key; trip log, saved places, arrow fixes |
-| **Ride** | Live splits, fuel ahead, break nudges, ghost of your usual pace; afterwards a ride score, replay map, speed and elevation chart, and share cards |
-| **Explorer** | Calendar of rides, monthly goal, 6-month bars, personal records, year heatmap, territory "fog" map, badges and challenges, riding DNA, ride compare |
-| **Garage** | Live bike panel and health score, fuel log with calendar and insights, documents with expiry reminders and a checkpost view, service plans with forecasts, parts wear, cost of ownership, bike passport |
+## On the ride
 
-Also:
-- **Crash alerts:** an "I'm OK" countdown (30 s by default), then an SMS with your location to up to three contacts.
-- **Share cards:** four designs, map/photo/transparent backgrounds, stickers.
-- **Transfer:** a single-file backup and restore of everything.
-- **Advanced settings:** off-route and re-route tuning, 24-hour cluster clock, crash countdown, map
-  cache size, and clean-up tools (demo or misdated rides, daily totals, fuel gauge, arrow fixes).
-  Tap the version line seven times for developer options: live link and raw frames, force
-  reconnect, database counts, and a log you can share as a debug report (no keys, contacts or places).
+<p align="center"><img src="docs/readme/ride.jpg" alt="Cockpit, live ride, replay and ride score screens" width="100%"></p>
+
+**Cockpit** checks you're ready (fuel, weather, link, service), then the **live ride** shows splits,
+fuel ahead, break nudges and a ghost of your usual pace. Afterwards every ride gets a **replay**,
+a speed and elevation chart and a **ride score** that explains itself.
+
+## Ride films
+
+<table>
+  <tr>
+    <td width="44%" align="center">
+      <img src="docs/readme/ride-video.webp" alt="A sample ride film: 3D terrain flyover with the bike, trail and live stats" width="300"><br>
+      <sub>A real export, made on the phone. <a href="screenshots/Ride%20Detail%20-%20Export%20-%20Video%20-%20Sample.mp4">Full-quality MP4</a></sub>
+    </td>
+    <td width="56%">
+      <b>Your ride as a short film, rendered on the phone.</b>
+      <ul>
+        <li>Real terrain in 3D, lit by the sun at the time you rode, with clouds, lakes and town names</li>
+        <li>A 3D V-Strom in your paint that leans into bends at your real speed</li>
+        <li>A camera that dives in, chases the road, circles highlights and pulls back to reveal the route</li>
+        <li>The trail coloured by speed or gradient; chapters, milestones and live stats</li>
+        <li>Your photos from the ride as postcards where you took them</li>
+        <li>Your own music, with the cuts landing on the beat</li>
+        <li>9:16, 16:9 or 1:1, and every part of it adjustable in the Studio</li>
+      </ul>
+      <img src="docs/readme/studio.jpg" alt="The Ride Video Studio" width="190">
+    </td>
+  </tr>
+</table>
+
+## Share cards
+
+<p align="center"><img src="docs/readme/share.jpg" alt="Share cards: photo with route, Riding DNA, fuel receipt and card designs" width="100%"></p>
+
+Four card designs on a map, your own photo (move and zoom it), or a transparent sticker for
+Instagram stories. Plus a **Riding DNA** card, a **fuel receipt** for every fill, and the year in
+review. Every share hides the first and last 500 m of a ride, so it never leads to your door.
+
+## Explore your riding
+
+<p align="center"><img src="docs/readme/explore.jpg" alt="Ride calendar, Riding DNA, territory map and badges" width="100%"></p>
+
+A calendar of rides with a monthly goal, personal records, a territory map that clears the fog
+where you've been, badges and challenges, ride compare, and your **Riding DNA**.
+
+<p align="center"><img src="docs/readme/recap.jpg" alt="Year in review cards: kilometres, rides, longest ride, top speed, busiest month" width="100%"></p>
+
+## Garage
+
+<p align="center"><img src="docs/readme/garage.jpg" alt="Garage, fuel log, parts wear and bike passport" width="100%"></p>
+
+A live bike panel and health score, a **fuel log** with real mileage and insights, **service plans**
+with forecasts, **parts wear**, cost of ownership, documents with expiry reminders and a checkpost
+view, and a **bike passport** to share when you sell.
+
+## Journey and safety
+
+<p align="center"><img src="docs/readme/journey.jpg" alt="Journey, cluster arrows test, crash alerts and backup" width="100%"></p>
+
+- **Journey:** tap a place and Google Maps opens already navigating while the arrows go to the bike,
+  or use the app's own navigation with your Google or OpenRouteService key. Saved places, a trip log,
+  and a big night-and-rain view.
+- **Crash alerts:** an "I'm OK" countdown (30 s by default), then an SMS with your location to up to
+  three contacts. Each text is followed until the network takes it and retried when there's no signal.
+- **Backup:** one file holds your rides, fuel log, service log, papers and settings. Move to a new
+  phone with a progress bar and a log of every step.
+- **Advanced:** off-route and re-route tuning, a 24-hour cluster clock, crash countdown, map cache,
+  clean-up tools, and developer options (tap the version line seven times).
 
 ## Privacy
 
@@ -81,7 +156,8 @@ export BUMBLEBEE_KEY_PASSWORD=...
 ./gradlew :app:assembleRelease
 ```
 
-## Project layout
+<details>
+<summary><b>Project layout</b></summary>
 
 | Module | What lives there |
 | --- | --- |
@@ -95,6 +171,8 @@ export BUMBLEBEE_KEY_PASSWORD=...
 | `data:local` | Room database and the capture repository |
 
 Design notes live in [`docs/`](docs/).
+
+</details>
 
 ## Credits
 
